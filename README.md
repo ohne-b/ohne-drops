@@ -176,4 +176,5 @@ deploying them. The validation suite includes GraphQL watch events and batched c
 discovery, alongside settings, full-locale translation schema and placeholder checks,
 and frontend safety checks. Use the software
 responsibly. Release automation verifies that the runtime, package, and lockfile versions
-match before publishing tags and Docker images.
+match before publishing tags and Docker images. Docker validation and release jobs use
+the same pinned, Node-24-native Buildx and image-build action releases.
