@@ -56,6 +56,8 @@ class Twitch:
         # State management
         self._state: State = State.IDLE
         self._state_change = asyncio.Event()
+        self._games_update_pending = False
+        self._inventory_loaded = False
         self._inventory_refresh_pending = False
         self._clear_cache_pending = False
         self.wanted_games: list[Game] = []
@@ -152,6 +154,24 @@ class Twitch:
             self._state = state
         self._state_change.set()
 
+    def request_games_update(self) -> bool:
+        """Queue a mining-policy recalculation without racing the active state step."""
+        if self._state is State.EXIT:
+            return False
+        self._games_update_pending = True
+        self._state_change.set()
+        return True
+
+    def _activate_pending_games_update(self) -> None:
+        """Prioritize a queued settings recalculation before the next wait."""
+        if (
+            self._games_update_pending
+            and self._inventory_loaded
+            and self._state not in (State.INVENTORY_FETCH, State.EXIT)
+        ):
+            self._state = State.GAMES_UPDATE
+            self._state_change.set()
+
     def request_inventory_refresh(self, *, clear_cache: bool = False) -> bool:
         """Queue an inventory refresh without racing the active state-machine step.
 
@@ -246,6 +266,7 @@ class Twitch:
         self.request_inventory_refresh()
         while True:
             self._activate_pending_inventory_refresh()
+            self._activate_pending_games_update()
             if self._state is State.IDLE:
                 self.gui.status.update(_.t["gui"]["status"]["idle"])
                 self.stop_watching()
@@ -260,12 +281,15 @@ class Twitch:
                 # ensure the websocket is running
                 await self.websocket.start()
                 await self.fetch_inventory()
+                self._inventory_loaded = True
                 self.gui.set_games({campaign.game for campaign in self.inventory})
                 # Broadcast unwanted items (based on settings)
                 self.gui.broadcast_wanted_items()
                 # Save state on every inventory fetch
                 self.change_state(State.GAMES_UPDATE)
             elif self._state is State.GAMES_UPDATE:
+                refresh_policy_ui = self._games_update_pending
+                self._games_update_pending = False
                 # claim drops from expired and active campaigns
                 logger.info("Checking for claimable drops")
                 logger.debug("Campaigns in inventory: %s", self.inventory)
@@ -325,6 +349,10 @@ class Twitch:
                         logger.info(
                             f"Manual mode: prioritizing game {self._manual_target_game.name}"
                         )
+
+                if refresh_policy_ui:
+                    self.gui.inv.refresh_campaigns(self.inventory)
+                    self.gui.broadcast_wanted_items()
 
                 full_cleanup = True
                 self.restart_watching()
@@ -539,6 +567,7 @@ class Twitch:
             # after that state clears the event. Re-apply it before waiting so
             # the request cannot be overwritten by the state's normal transition.
             self._activate_pending_inventory_refresh()
+            self._activate_pending_games_update()
             await self._state_change.wait()
 
     def can_watch(self, channel: Channel) -> bool:
@@ -706,7 +735,7 @@ class Twitch:
 
         game_campaign_map: dict[str, list[tuple[DropsCampaign, list[str]]]] = defaultdict(list)
         for campaign in self.inventory:
-            if campaign.eligible and not campaign.finished:
+            if campaign.eligible and not campaign.mining_finished:
                 logger.info("eligible Campaign: %s - %s", campaign.name, campaign.game.name)
             if campaign.can_earn_within(next_hour):
                 channel_names = []

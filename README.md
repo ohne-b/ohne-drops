@@ -21,6 +21,7 @@ dashboard. It sends Twitch watch events without downloading the stream itself.
 - **Low-bandwidth mining** — progresses timed drops without downloading video or audio
 - **Automatic campaign discovery** — detects active and upcoming drop campaigns
 - **Smart channel selection** — prioritizes eligible channels, preferred games, and viewers
+- **Drop-name ignore rules** — excludes unwanted reward names and dependent branches
 - **Persistent sessions** — saves OAuth login state between runs
 - **Web dashboard** — manages campaigns, channels, inventory, settings, and login status
 - **Headless deployment** — runs locally, remotely, or in Docker without a desktop GUI
@@ -77,12 +78,21 @@ Inventory filters combine **Active**, **Upcoming**, and **Expired** as alternati
 **Not Linked** narrows that status result, while fully claimed campaigns stay hidden
 until **Finished** is selected. Zero-minute subscription rewards are omitted from the
 Inventory and Wanted Drops Queue because they cannot be earned by watching. Individually
-expired rewards are also omitted from the queue, while upcoming and sequential rewards
-remain visible; successful claims refresh the queue immediately. The channel list matches
-game names case-insensitively and keeps the actively watched channel visible while game
-settings are changing. Campaign totals and claim messages count only rewards that can be
-earned by watching. Consecutive identical no-active-campaign console prompts are collapsed
-until another console message appears.
+expired and non-mineable rewards are also omitted from the queue, while upcoming and
+sequential rewards remain visible; successful claims refresh the queue immediately. The
+channel list matches game names case-insensitively and keeps the actively watched channel
+visible while game settings are changing. Campaign totals and claim messages count only
+rewards that can be earned by watching. Consecutive identical no-active-campaign console
+prompts are collapsed until another console message appears.
+
+**Ignored Drop Keywords** in Settings is empty by default. Enter one literal substring per
+line; surrounding whitespace and blank lines are removed, and duplicates are collapsed
+case-insensitively while preserving the first spelling. Matching is also case-insensitive.
+A matching drop and every unclaimed branch that depends on it are ignored dynamically.
+Prerequisite-only branches with no remaining mineable reward are shown as skipped, while a
+prerequisite shared by an allowed reward remains mineable. Ignored and skipped drops are
+never reported as claimed. This controls what the miner intentionally targets, but Twitch
+may still grant simultaneous progress to an ignored reward while another reward advances.
 
 In **Settings**, **Clear All Cache** calls `POST /api/cache/clear` to discard local
 campaign, channel, and other derived miner state while preserving your OAuth login and
@@ -186,3 +196,8 @@ and frontend safety checks. Use the software
 responsibly. Release automation verifies that the runtime, package, and lockfile versions
 match before publishing tags and Docker images. Docker validation and release jobs use
 the same pinned, Node-24-native Buildx and image-build action releases.
+The suite also covers ignored-keyword normalization, dependency branches, the combined
+expiry/ignore Wanted Queue guard, watch selection, API persistence, translated placeholder
+parity, and frontend rendering. Any `web/static/app.js` or `web/static/styles.css` change
+must go through the release workflow so the application version and browser asset cache key
+are bumped before deployment.
