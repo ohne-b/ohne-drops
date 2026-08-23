@@ -165,6 +165,8 @@ lang/                # Translation JSON files (20 languages)
   individually expired rewards are omitted from the queue without hiding upcoming or
   sequential rewards; successful claims refresh the queue immediately; the actively
   watched channel remains visible while game settings are changing
+- Consecutive identical no-active-campaign console prompts are collapsed until another
+  console message appears
 
 ### State Machine Flow
 
@@ -346,8 +348,9 @@ source env/bin/activate && python -m pytest tests/
 The suite covers settings and proxy behavior, inventory-filter behavior, API filtering,
 GraphQL watch events, batched channel discovery, full-locale translation schema and
 placeholder consistency, frontend DOM safety, case-insensitive channel filtering,
-watch-drop count and expiry semantics, immediate claim refresh behavior, and contributor
-README automation. Frontend behavior tests share their JavaScript extraction helper and use Node.js;
+watch-drop count and expiry semantics, immediate claim refresh behavior, consecutive
+no-campaign console collapsing, and contributor README automation. Frontend behavior tests
+share their JavaScript extraction helper and use Node.js;
 the validation workflow provisions Node 24 before running pytest. It also runs the release
 script contract tests under `.github/scripts/test/`.
 

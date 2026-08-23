@@ -81,7 +81,8 @@ expired rewards are also omitted from the queue, while upcoming and sequential r
 remain visible; successful claims refresh the queue immediately. The channel list matches
 game names case-insensitively and keeps the actively watched channel visible while game
 settings are changing. Campaign totals and claim messages count only rewards that can be
-earned by watching.
+earned by watching. Consecutive identical no-active-campaign console prompts are collapsed
+until another console message appears.
 
 In **Settings**, **Clear All Cache** calls `POST /api/cache/clear` to discard local
 campaign, channel, and other derived miner state while preserving your OAuth login and
