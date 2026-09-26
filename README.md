@@ -1,9 +1,13 @@
+<p align="center">
+  <img src="frontend/src/assets/twitch-miner-logo.svg" width="128" alt="Twitch Drops Miner logo">
+</p>
+
 <h1 align="center">Twitch Drops Miner</h1>
 
 <p align="center">Mine timed Twitch Drops without streaming video or audio.</p>
 
 <p align="center">
-  <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-22c55e" alt="License: MIT"></a>
+  <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-9146ff" alt="License: MIT"></a>
 </p>
 
 Twitch Drops Miner runs on your own hardware and manages one Twitch account through a

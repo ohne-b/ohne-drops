@@ -84,6 +84,56 @@ test.beforeEach(async ({ request, page }) => {
   await page.goto('/');
   await expect(page.getByRole('heading', { name: 'Overview', exact: true })).toBeVisible();
 });
+test('shared logo loads in the dashboard, login and favicon at responsive sizes', async ({
+  page,
+}) => {
+  const brand = page.getByRole('link', { name: 'Twitch miner', exact: true });
+  const logo = brand.locator('img');
+  const source = await logo.getAttribute('src');
+  expect(source).toMatch(/^\/assets\/twitch-miner-logo-[\w-]+\.svg$/);
+  await expect(page.locator('link[rel="icon"]')).toHaveAttribute('href', source!);
+  await expect
+    .poll(() => logo.evaluate((img: HTMLImageElement) => img.naturalWidth))
+    .toBeGreaterThan(0);
+  for (const viewport of [
+    { width: 1440, height: 900 },
+    { width: 1440, height: 300 },
+    { width: 320, height: 640 },
+  ]) {
+    await page.setViewportSize(viewport);
+    await brand.scrollIntoViewIfNeeded();
+    const header = (await brand.locator('..').boundingBox())!;
+    const mark = (await logo.boundingBox())!;
+    expect(header.height).toBe(64);
+    expect(mark.y).toBeGreaterThanOrEqual(header.y);
+    expect(mark.y + mark.height).toBeLessThanOrEqual(header.y + header.height);
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(
+      true,
+    );
+    if (viewport.height === 300) {
+      const settings = page.getByRole('link', { name: 'Settings', exact: true });
+      await settings.scrollIntoViewIfNeeded();
+      await expect(settings).toBeInViewport();
+      const github = page.getByRole('link', { name: 'GitHub repository' });
+      await github.scrollIntoViewIfNeeded();
+      await expect(github).toBeInViewport();
+    }
+    await page.screenshot({ path: `../artifacts/logo-${viewport.width}x${viewport.height}.png` });
+  }
+  await page.route('**/api/auth/status', (route) =>
+    route.fulfill({ json: { enabled: true, authenticated: false } }),
+  );
+  await page.goto('/login');
+  await expect(page.getByRole('heading', { name: 'Unlock dashboard' })).toBeVisible();
+  const loginLogo = page.locator('main img');
+  await expect(loginLogo).toHaveAttribute('src', source!);
+  await expect
+    .poll(() => loginLogo.evaluate((img: HTMLImageElement) => img.naturalWidth))
+    .toBeGreaterThan(0);
+  expect((await new AxeBuilder({ page }).analyze()).violations).toEqual([]);
+  await page.screenshot({ path: '../artifacts/logo-login.png', fullPage: true });
+});
+
 test('confirmed progress and compact desktop design', async ({ page }) => {
   await expect(page.getByText('42 / 60 min', { exact: true })).toBeVisible();
   await expect(page.getByText('Watching: northwind', { exact: true })).toHaveCount(0);

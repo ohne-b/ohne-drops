@@ -115,6 +115,9 @@ embed it and run without a build tool/runtime companion. Production builds never
 
 ## Dashboard design and contracts
 
+- Use `frontend/src/assets/twitch-miner-logo.svg` for the app, login, favicon and README.
+  Preserve its artwork and aspect ratio; Vite emits one hashed asset for browser caching.
+  Keep adjacent brand text accessible and sidebar navigation reachable in short windows.
 - Keep the subtle charcoal/Manrope design, individual MDI paths and shared native controls.
   Render strings as React text, validate external links/artwork, expand Twitch image placeholders.
   No injected HTML or CDN scripts. Art provides safe missing/broken-image fallbacks.
