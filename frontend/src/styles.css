@@ -41,16 +41,6 @@
   summary {
     cursor: pointer;
   }
-  :focus-visible {
-    outline: none;
-  }
-  :is(button, a, summary):focus-visible {
-    background-color: var(--color-hover);
-    color: var(--color-text);
-  }
-  :is(input, select, textarea):focus-visible {
-    border-color: var(--color-text);
-  }
   :disabled {
     cursor: not-allowed;
     opacity: 0.5;
@@ -94,12 +84,36 @@
     * {
       scrollbar-color: auto;
     }
-    :focus-visible {
-      outline: 1px solid Highlight;
-    }
   }
   input[type='search']::-webkit-search-cancel-button {
     -webkit-appearance: none;
+  }
+}
+
+/* Unlayered so component and utility colors cannot hide keyboard focus. */
+:focus-visible {
+  outline: none;
+}
+:is(button, a, summary):focus-visible {
+  background-color: var(--color-hover);
+  color: var(--color-text);
+  border-color: var(--color-text);
+}
+:is(a, summary):focus-visible {
+  text-decoration: underline;
+  text-underline-offset: 4px;
+}
+:is(input, select, textarea):focus-visible {
+  border-color: var(--color-text);
+}
+label:has(> input[type='checkbox']:focus-visible) {
+  background-color: var(--color-hover);
+  text-decoration: underline;
+  text-underline-offset: 4px;
+}
+@media (forced-colors: active) {
+  :focus-visible {
+    outline: 1px solid Highlight;
   }
 }
 @layer components {

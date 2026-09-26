@@ -50,6 +50,34 @@ test('every route loads directly and stays usable on a phone', async ({ page }) 
   }
   await page.screenshot({ path: '../artifacts/redesign-settings-mobile.png', fullPage: true });
 });
+
+test('keyboard focus remains visible without outlines across controls', async ({ page }) => {
+  await page.goto('/settings');
+  await page.keyboard.press('Tab');
+  const field = page.getByLabel('Proxy URL', { exact: true });
+  const before = await field.evaluate((element) => getComputedStyle(element).borderColor);
+  await field.focus();
+  expect(await field.evaluate((element) => getComputedStyle(element).borderColor)).not.toBe(before);
+  expect(await field.evaluate((element) => getComputedStyle(element).outlineStyle)).toBe('none');
+  for (const name of ['Log out of Twitch', 'Enable password protection']) {
+    const button = page.getByRole('button', { name, exact: true });
+    await button.focus();
+    await expect
+      .poll(() => button.evaluate((element) => getComputedStyle(element).backgroundColor))
+      .toBe('rgb(51, 51, 51)');
+  }
+  const checkbox = page.getByRole('checkbox', { name: 'Badge', exact: true });
+  await checkbox.focus();
+  expect(
+    await checkbox.evaluate(
+      (element) => getComputedStyle(element.closest('label')!).backgroundColor,
+    ),
+  ).toBe('rgb(51, 51, 51)');
+  await page.emulateMedia({ forcedColors: 'active' });
+  expect(await checkbox.evaluate((element) => getComputedStyle(element).outlineStyle)).toBe(
+    'solid',
+  );
+});
 test('channel search, clear, selection and automatic mode', async ({ page }) => {
   await page.getByRole('searchbox', { name: 'Search channels' }).fill('HARBOR');
   await expect(page.getByRole('link', { name: 'northwind', exact: true })).toHaveCount(0);
