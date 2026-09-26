@@ -136,6 +136,9 @@ lang/                # English message catalog
   campaign ACL for special-category rules. Surface partial discovery via `recovered`
   while keeping `available` false. Unknown linkage is null; unknown progress has no
   confirmation timestamp. Retain the original device login and UI refinements.
+  Require account evidence for every benefit before inferring a claim without a self
+  edge. Skip nullable directory/channel entries without discarding valid neighbors.
+  Discovery may handle GQL failures, but must propagate login and exit requests.
 - Render API/translated strings as React text; validate external links. Expand Twitch
   art URL placeholders in Art. Keep the English message schema consistent. No injected
   HTML or CDN scripts. Keep auth/status translations usable before authentication.
