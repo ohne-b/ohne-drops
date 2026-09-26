@@ -13,6 +13,9 @@ test.beforeEach(async ({ request, page }) => {
 });
 test('confirmed progress and compact desktop design', async ({ page }) => {
   await expect(page.getByText('42 / 60 min', { exact: true })).toBeVisible();
+  await expect(page.getByText('Watching: northwind', { exact: true })).toHaveCount(0);
+  await expect(page.getByText('Watching northwind', { exact: true })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Recent activity', exact: true })).toHaveCount(0);
   await expect(page.getByRole('progressbar', { name: 'Explorer jacket' })).toHaveAttribute(
     'aria-valuenow',
     '42',
@@ -29,6 +32,7 @@ test('confirmed progress and compact desktop design', async ({ page }) => {
     .locator('section')
     .filter({ has: page.getByRole('heading', { name: 'Up next', exact: true }) });
   expect((await channels.boundingBox())?.width).toBe((await queue.boundingBox())?.width);
+  expect((await channels.boundingBox())?.height).toBe((await queue.boundingBox())?.height);
   await expect(page.getByText('Confirmed by Twitch', { exact: true })).toHaveCount(0);
   await page.screenshot({ path: '../artifacts/redesign-desktop.png', fullPage: true });
   expect(await page.evaluate(() => getComputedStyle(document.documentElement).colorScheme)).toBe(
@@ -52,6 +56,20 @@ test('Up next scrolls within its panel with reward artwork and safe fallbacks', 
       : route.fulfill({ contentType: 'image/png', body: Buffer.from(png, 'base64') }),
   );
   const game = snapshot.wanted_items[0]!;
+  await request.post('/__test/event', {
+    headers,
+    data: {
+      event: 'channels_batch_update',
+      data: {
+        channels: Array.from({ length: 30 }, (_, i) => ({
+          ...snapshot.channels[0]!,
+          id: i + 1,
+          name: `channel-${i}`,
+          watching: i === 0,
+        })),
+      },
+    },
+  });
   await request.post('/__test/event', {
     headers,
     data: {
@@ -79,6 +97,9 @@ test('Up next scrolls within its panel with reward artwork and safe fallbacks', 
     },
   });
   const panel = page.getByRole('region', { name: 'Up next', exact: true });
+  const channelPanel = page.getByRole('region', { name: 'Channels', exact: true });
+  const channels = page.locator('section').filter({ has: channelPanel });
+  const queue = page.locator('section').filter({ has: panel });
   await expect(panel.locator('li')).toHaveCount(30);
   await expect(panel.locator('li').first().locator('img')).toHaveAttribute(
     'src',
@@ -88,24 +109,42 @@ test('Up next scrolls within its panel with reward artwork and safe fallbacks', 
   await expect(panel.locator('li').nth(2).locator('svg')).toBeVisible();
   for (const width of [1440, 390]) {
     await page.setViewportSize({ width, height: 900 });
-    expect((await panel.boundingBox())!.height).toBeLessThanOrEqual(440);
-    expect(
-      await panel.evaluate(
-        (el) => el.scrollHeight > el.clientHeight && getComputedStyle(el).overflowY === 'auto',
-      ),
-    ).toBe(true);
-    await panel.focus();
-    await page.keyboard.press('End');
-    await expect.poll(() => panel.evaluate((el) => el.scrollTop)).toBeGreaterThan(0);
+    if (width === 1440) {
+      expect((await channels.boundingBox())!.height).toBe(552);
+      expect((await queue.boundingBox())!.height).toBe(552);
+      expect((await channels.boundingBox())!.y).toBe((await queue.boundingBox())!.y);
+    } else {
+      expect((await channels.boundingBox())!.y).toBeGreaterThan((await queue.boundingBox())!.y);
+    }
+    for (const region of [panel, channelPanel]) {
+      expect((await region.boundingBox())!.height).toBeLessThanOrEqual(width === 1440 ? 552 : 440);
+      expect(
+        await region.evaluate(
+          (el) => el.scrollHeight > el.clientHeight && getComputedStyle(el).overflowY === 'auto',
+        ),
+      ).toBe(true);
+      await region.focus();
+      await page.keyboard.press('End');
+      await expect.poll(() => region.evaluate((el) => el.scrollTop)).toBeGreaterThan(0);
+    }
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(
       true,
     );
   }
   await page.setViewportSize({ width: 1440, height: 1000 });
-  await panel.evaluate((el) => {
-    el.scrollTop = 0;
-  });
+  for (const region of [panel, channelPanel])
+    await region.evaluate((el) => {
+      el.scrollTop = 0;
+    });
   await page.screenshot({ path: '../artifacts/overview-queue.png', fullPage: true });
+  await page.getByRole('searchbox', { name: 'Search channels' }).fill('no matching channel');
+  await expect(channelPanel.getByText('No matching results')).toBeVisible();
+  await request.post('/__test/event', {
+    headers,
+    data: { event: 'wanted_items_update', data: [] },
+  });
+  await expect(panel.getByText('No wanted drops queued...')).toBeVisible();
+  expect((await channels.boundingBox())!.height).toBe((await queue.boundingBox())!.height);
 });
 test('every route loads directly and stays usable on a phone', async ({ page }) => {
   await page.goto('/settings');
@@ -505,6 +544,7 @@ test('catalog restrictions and hostile strings remain explicit and inert', async
     headers,
     data: { event: 'console_output', data: { message: '<img src=x onerror="alert(1)">' } },
   });
+  await page.getByRole('link', { name: 'Activity', exact: true }).click();
   await expect(page.getByText('<img src=x onerror="alert(1)">', { exact: true })).toBeVisible();
   expect(await page.locator('img[src="x"]').count()).toBe(0);
 });
@@ -518,7 +558,7 @@ test('snapshot replaces stale entities and keeps settings draft', async ({ page,
   });
   await expect(interval).toHaveValue('45');
 });
-test('channel discovery reports partial coverage and unknown account linkage', async ({
+test('recovered campaigns keep unknown account linkage without a discovery banner', async ({
   page,
   request,
 }) => {
@@ -528,18 +568,16 @@ test('channel discovery reports partial coverage and unknown account linkage', a
       event: 'initial_state',
       data: {
         ...snapshot,
+        current_drop: { ...snapshot.current_drop!, drop_name: 'Recovered reward fixture' },
         inventory_status: { available: false, recovered: 1, checked_at: null },
         campaigns: snapshot.campaigns.map((campaign) => ({ ...campaign, linked: null })),
       },
     },
   });
-  await expect(
-    page.getByText('Found 1 campaigns through live Twitch channels.', { exact: false }),
-  ).toBeVisible();
+  await expect(page.getByText('Recovered reward fixture', { exact: true })).toBeVisible();
+  await expect(page.getByText(/Found \d+ campaigns through live Twitch channels/)).toHaveCount(0);
   await page.getByRole('link', { name: 'Campaigns', exact: true }).click();
-  await expect(
-    page.getByText('Found 1 campaigns through live Twitch channels.', { exact: false }),
-  ).toBeVisible();
+  await expect(page.getByText(/Found \d+ campaigns through live Twitch channels/)).toHaveCount(0);
   await expect(page.getByText('Account link unknown', { exact: true }).last()).toBeVisible();
   await page.locator('summary').first().click();
   await expect(page.getByRole('link', { name: 'Check account link' }).first()).toBeVisible();
