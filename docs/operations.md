@@ -46,6 +46,8 @@ Local password recovery: stop the miner, restrict network access, back up and re
 `data/web_auth.json`, restart, and set a new password. Preserve all other files.
 
 
+## Deployment
+
 Deployment changes require rebuilding the image and recreating the container. Build while
 the current container runs, back up Compose and data before replacement, verify the new
 image and health, and keep the previous image/configuration available for rollback.
