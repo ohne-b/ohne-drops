@@ -374,6 +374,8 @@ checks, release-script tests, and Docker builds for amd64 and arm64. See
 
 The interface and miner messages use English only. Older saved language preferences are ignored.
 
+Field labels and controls stay aligned when only one field has helper text.
+
 Notification integration has been removed. Obsolete notification credentials are discarded when settings are loaded and saved.
 
 All eligible discovered games are mined, including games absent from the saved priority list. New games follow saved priorities; Select all and Deselect all are unnecessary.

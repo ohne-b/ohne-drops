@@ -24,6 +24,8 @@ It is the repository's contribution policy, not optional background reading.
 
 ## Development Guidelines
 
+Shared Field controls use content-start so helper text does not stretch adjacent label rows.
+
 Use descriptive `feat/` or `fix/` branch names. Keep branch names, documentation, commits,
 and PR descriptions free of assistant branding. Changes to main go through a pull request.
 
