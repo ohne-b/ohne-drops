@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="frontend/src/assets/twitch-miner-logo.svg" width="96" height="125" alt="Twitch Drops Miner logo">
+</p>
+
 # Twitch Drops Miner
 
 Mine timed Twitch Drops from a quiet, self-hosted dashboard without downloading stream
