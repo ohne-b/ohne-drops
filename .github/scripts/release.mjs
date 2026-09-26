@@ -16,6 +16,8 @@ export function validateVersion(version, previous) {
   return version;
 }
 
+export const isPrerelease = version => semver.prerelease(validateVersion(version)) !== null;
+
 export function readVersion(directory = process.cwd(), locked = true) {
   const args = ['metadata', '--format-version', '1'];
   if (locked) args.push('--locked');
@@ -52,9 +54,10 @@ if (process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1]
   const [command, version] = process.argv.slice(2);
   if (command === 'read') console.log(readVersion());
   else if (command === 'bump') console.log(bumpVersion(version));
+  else if (command === 'prerelease') console.log(isPrerelease(version));
   else if (command === 'verify') {
     validateVersion(version);
     if (readVersion() !== version) throw new Error('Requested release differs from the checked-out package.');
     console.log(version);
-  } else throw new Error('Usage: node .github/scripts/release.mjs read|bump VERSION|verify VERSION');
+  } else throw new Error('Usage: node .github/scripts/release.mjs read|bump VERSION|verify VERSION|prerelease VERSION');
 }
