@@ -203,7 +203,11 @@ impl Drop {
     }
 
     pub fn confirm(&mut self, minutes: u32, now: DateTime<Utc>) {
-        self.confirmed_minutes = minutes.min(self.required_minutes);
+        self.confirmed_minutes = if self.claimed {
+            self.required_minutes
+        } else {
+            minutes.min(self.required_minutes)
+        };
         self.estimated_minutes = 0;
         self.confirmed_at = Some(now);
     }

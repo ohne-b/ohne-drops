@@ -16,8 +16,8 @@ use tokio_util::sync::CancellationToken;
 use crate::{
     config::Settings,
     domain::{Campaign, Channel, wanted_items},
-    dto::{HistoryEntry, InventoryStatus, Login, ManualMode},
-    store::ClaimJournal,
+    dto::{InventoryStatus, Login, ManualMode},
+    store::{ClaimJournal, PendingClaim},
     twitch::{
         Endpoints, TwitchClient, TwitchError, TwitchHttp,
         channels::select_channel,
@@ -66,7 +66,7 @@ impl Miner {
         }
     }
 
-    fn start(&self, settings: Settings) -> Generation {
+    fn start(&self, settings: Settings, resume: Arc<Mutex<Option<(u64, u64)>>>) -> Generation {
         let cancel = CancellationToken::new();
         let confirmed = Arc::new(Notify::new());
         let (intent, receiver) = watch::channel(Intent::default());
@@ -75,7 +75,16 @@ impl Miner {
         let stopped = cancel.clone();
         let confirmation = confirmed.clone();
         let task = tokio::spawn(async move {
-            run_generation(app, settings, endpoints, stopped, confirmation, receiver).await
+            run_generation(
+                app,
+                settings,
+                endpoints,
+                stopped,
+                confirmation,
+                receiver,
+                resume,
+            )
+            .await
         });
         Generation {
             cancel,
@@ -86,9 +95,10 @@ impl Miner {
     }
 
     pub async fn run(mut self) -> Result<(), TwitchError> {
+        let resume = Arc::new(Mutex::new(None));
         while !self.app.shutdown.is_cancelled() {
             let settings = self.app.snapshot.read().await.settings.values.clone();
-            let mut generation = self.start(settings.clone());
+            let mut generation = self.start(settings.clone(), resume.clone());
             loop {
                 tokio::select! {biased;
                     _=self.app.shutdown.cancelled()=>{
@@ -101,10 +111,10 @@ impl Miner {
                     request=self.commands.recv()=>{
                         let Some(request)=request else {generation.cancel.cancel();let _=generation.task.await;return Ok(())};
                         match request.command {
-                            Command::Logout=>{self.logout(generation,request.complete).await;break;},
+                            Command::Logout=>{self.logout(generation,request.complete).await;*resume.lock().await=None;break;},
                             Command::Shutdown=>{
-                                self.app.shutdown.cancel();generation.cancel.cancel();let _=generation.task.await;
-                                let _=request.complete.send(Ok(()));return Ok(());
+                                self.app.shutdown.cancel();
+                                let _=request.complete.send(Ok(()));
                             },
                             Command::ConfirmOAuth=>{generation.confirmed.notify_one();let _=request.complete.send(Ok(()));},
                             Command::SettingsChanged=>{
@@ -130,6 +140,7 @@ impl Miner {
                     result=&mut generation.task=>{
                         match result {
                             Ok(Err(TwitchError::Unauthorized))=>{
+                                *resume.lock().await=None;
                                 if remove_session(&self.app).await.is_err(){self.app.console(message("gui.backend.session_storage",&[])).await;}
                                 reset_session(&self.app).await;
                             },
@@ -314,6 +325,7 @@ async fn run_generation(
     cancel: CancellationToken,
     confirmed: Arc<Notify>,
     intent: watch::Receiver<Intent>,
+    resume: Arc<Mutex<Option<(u64, u64)>>>,
 ) -> Result<(), TwitchError> {
     let (client, session) = authenticate(&app, &settings, &endpoints, &cancel, &confirmed).await?;
     if cancel.is_cancelled() {
@@ -334,7 +346,9 @@ async fn run_generation(
     let (events, receiver) = mpsc::channel(256);
     let mut pool = PubSub::start(client.clone(), events);
     let mut mining = Mining::new(app, client, journal, intent, receiver);
+    mining.resume_manual = *resume.lock().await;
     let result = mining.run(&mut pool).await;
+    *resume.lock().await = mining.manual.or(mining.resume_manual);
     cancel.cancel();
     // Owned jobs include durable claim writes. Cancellation stops network work,
     // while any confirmed claim finishes its disk transaction before logout.
@@ -358,7 +372,10 @@ enum Job {
         result: Result<Inventory, TwitchError>,
         requested_at: chrono::DateTime<Utc>,
     },
-    Channels(Result<Vec<Channel>, TwitchError>),
+    Channels {
+        result: Result<Vec<Channel>, TwitchError>,
+        requested_at: Instant,
+    },
     Watch {
         channel: Box<Channel>,
         result: Result<bool, TwitchError>,
@@ -366,13 +383,17 @@ enum Job {
     },
     Poll {
         channel: u64,
+        requested_at: Instant,
         result: Result<Option<(String, u32)>, TwitchError>,
     },
     Claim {
         id: String,
         result: Result<bool, TwitchError>,
     },
-    Update(Result<Vec<Channel>, TwitchError>),
+    Update {
+        result: Result<Vec<Channel>, TwitchError>,
+        requested_at: Instant,
+    },
     Notification(Result<(), TwitchError>),
 }
 struct CompletedJob {
@@ -393,6 +414,7 @@ struct Mining {
     status: InventoryStatus,
     watching: Option<u64>,
     manual: Option<(u64, u64)>,
+    resume_manual: Option<(u64, u64)>,
     jobs: JoinSet<CompletedJob>,
     busy: HashSet<JobKind>,
     watch_abort: Option<tokio::task::AbortHandle>,
@@ -406,11 +428,13 @@ struct Mining {
     last_progress: Option<(String, Instant)>,
     next_retry: Instant,
     refresh_channels: HashMap<u64, Instant>,
+    channel_events: HashMap<u64, Instant>,
     notifications: HashSet<String>,
     claim_retry: HashMap<String, Instant>,
     claim_wait: Option<(String, Instant, u8)>,
     last_inventory: Instant,
     next_transition: Option<chrono::DateTime<Utc>>,
+    pending_claims: Vec<PendingClaim>,
 }
 impl Mining {
     fn new(
@@ -433,6 +457,7 @@ impl Mining {
             status: InventoryStatus::default(),
             watching: None,
             manual: None,
+            resume_manual: None,
             jobs: JoinSet::new(),
             busy: HashSet::new(),
             watch_abort: None,
@@ -446,11 +471,13 @@ impl Mining {
             last_progress: None,
             next_retry: now,
             refresh_channels: HashMap::new(),
+            channel_events: HashMap::new(),
             notifications: HashSet::new(),
             claim_retry: HashMap::new(),
             claim_wait: None,
             last_inventory: now,
             next_transition: None,
+            pending_claims: vec![],
         }
     }
     fn spawn(&mut self, kind: JobKind, future: impl Future<Output = Job> + Send + 'static) {
@@ -522,9 +549,11 @@ impl Mining {
             self.channels.clear();
             self.watching = None;
             self.manual = None;
+            self.resume_manual = None;
             self.poll_at = None;
             self.claim_wait = None;
             self.refresh_channels.clear();
+            self.channel_events.clear();
             self.status = InventoryStatus::default();
             pool.set_channels(&[]);
             self.publish = true;
@@ -548,6 +577,7 @@ impl Mining {
             self.next_refresh = self.last_inventory + Duration::from_secs(u64::from(minutes) * 60);
         }
         if intent.manual_revision != self.seen.manual_revision {
+            self.resume_manual = None;
             let settings = self.app.snapshot.read().await.settings.values.clone();
             self.manual = intent.selected.and_then(|id| {
                 let channel = self.channels.iter().find(|c| c.identity.id == id)?;
@@ -597,6 +627,7 @@ impl Mining {
                 }
             }
             Event::Offline(id) => {
+                self.channel_events.insert(id, Instant::now());
                 if let Some(channel) = self.channels.iter_mut().find(|c| c.identity.id == id) {
                     channel.broadcast_id = None;
                     channel.game = None;
@@ -608,6 +639,7 @@ impl Mining {
                 self.refresh_channels.remove(&id);
             }
             Event::Changed(id) => {
+                self.channel_events.insert(id, Instant::now());
                 if self.channels.iter().any(|c| c.identity.id == id) {
                     self.refresh_channels
                         .entry(id)
@@ -615,6 +647,7 @@ impl Mining {
                 }
             }
             Event::Viewers { id, count } => {
+                self.channel_events.insert(id, Instant::now());
                 if let Some(channel) = self.channels.iter_mut().find(|c| c.identity.id == id) {
                     if channel.online() {
                         channel.viewers = Some(count);
@@ -698,13 +731,34 @@ impl Mining {
                 })
             {
                 let id = drop.id.clone();
-                let instance = drop.claim_id.clone().unwrap();
-                let entry = campaign.history_entry(drop, wall);
+                let pending = PendingClaim::new(self.client.user_id, campaign, drop, settings);
                 let client = self.client.clone();
                 let app = self.app.clone();
                 let journal = self.journal.clone();
                 self.spawn(JobKind::Claim, async move {
-                    let result = claim(&app, &client, &journal, entry, &instance).await;
+                    let result = claim(&app, &client, &journal, pending).await;
+                    Job::Claim { id, result }
+                });
+                return;
+            }
+            if let Some(pending) = self
+                .pending_claims
+                .iter()
+                .find(|p| {
+                    wall < p.retry_until
+                        && self
+                            .claim_retry
+                            .get(&p.entry.id)
+                            .is_none_or(|at| now >= *at)
+                })
+                .cloned()
+            {
+                let client = self.client.clone();
+                let app = self.app.clone();
+                let journal = self.journal.clone();
+                let id = pending.entry.id.clone();
+                self.spawn(JobKind::Claim, async move {
+                    let result = claim(&app, &client, &journal, pending).await;
                     Job::Claim { id, result }
                 });
                 return;
@@ -736,6 +790,7 @@ impl Mining {
                         self.spawn(JobKind::Poll, async move {
                             Job::Poll {
                                 channel,
+                                requested_at: Instant::now(),
                                 result: client.current_drop(channel).await,
                             }
                         });
@@ -809,11 +864,12 @@ impl Mining {
                 .cloned();
             self.app.status(message("gui.status.gathering", &[])).await;
             self.spawn(JobKind::Channels, async move {
-                Job::Channels(
-                    client
+                Job::Channels {
+                    requested_at: Instant::now(),
+                    result: client
                         .channels(&campaigns, &settings, current.as_ref())
                         .await,
-                )
+                }
             });
             return;
         }
@@ -834,8 +890,12 @@ impl Mining {
             let client = self.client.clone();
             self.spawn(JobKind::Update, async move {
                 let mut updates = updates;
+                let requested_at = Instant::now();
                 let result = client.update_channels(&mut updates).await.map(|()| updates);
-                Job::Update(result)
+                Job::Update {
+                    result,
+                    requested_at,
+                }
             });
             return;
         }
@@ -858,6 +918,16 @@ impl Mining {
             } => {
                 for campaign in &mut inventory.campaigns {
                     for drop in &mut campaign.drops {
+                        // An issued claim instance remains valid until claimed. Catalog
+                        // refreshes often lag the account's claim-ready event.
+                        if !drop.claimed && drop.claim_id.is_none() {
+                            drop.claim_id = self
+                                .campaigns
+                                .iter()
+                                .find(|c| c.id == campaign.id)
+                                .and_then(|c| c.drops.iter().find(|d| d.id == drop.id))
+                                .and_then(|d| d.claim_id.clone());
+                        }
                         if let Some(previous) = self
                             .campaigns
                             .iter()
@@ -878,7 +948,7 @@ impl Mining {
                 }
                 self.campaigns = inventory.campaigns;
                 self.status = inventory.status;
-                self.recover_claims().await?;
+                self.recover_claims(&inventory.awards).await?;
                 self.last_inventory = now;
                 self.set_transition();
                 self.next_refresh = now
@@ -889,8 +959,17 @@ impl Mining {
                 self.publish = true;
                 None
             }
-            Job::Channels(Ok(channels)) => {
+            Job::Channels {
+                result: Ok(mut channels),
+                requested_at,
+            } => {
+                self.preserve_channel_events(&mut channels, requested_at);
                 self.channels = channels;
+                if let Some(manual) = self.resume_manual.take() {
+                    self.manual = Some(manual);
+                }
+                self.channel_events
+                    .retain(|id, _| self.channels.iter().any(|c| c.identity.id == *id));
                 self.refresh_channels
                     .retain(|id, _| self.channels.iter().any(|c| c.identity.id == *id));
                 pool.set_channels(
@@ -933,12 +1012,19 @@ impl Mining {
                     _ => None,
                 }
             }
-            Job::Poll { channel, result } => {
+            Job::Poll {
+                channel,
+                result,
+                requested_at,
+            } => {
                 if self.watching == Some(channel) {
                     let current = result.as_ref().ok().and_then(|v| v.as_ref());
-                    if let Some((id, minutes)) = current {
-                        self.confirm(id, *minutes);
-                    }
+                    let newer_progress = self
+                        .last_progress
+                        .as_ref()
+                        .is_some_and(|(_, at)| *at > requested_at);
+                    let confirmed = newer_progress
+                        || current.is_some_and(|(id, minutes)| self.confirm(id, *minutes));
                     if let Some((claimed, _, attempts)) = self.claim_wait.take() {
                         if current.is_some_and(|(id, _)| id == &claimed) && attempts < 7 {
                             self.claim_wait =
@@ -946,13 +1032,15 @@ impl Mining {
                         } else {
                             self.next_watch = now;
                         }
-                    } else if current.is_none() {
+                    } else if !confirmed {
                         let watching = self.channels.iter().find(|c| c.identity.id == channel);
                         for campaign in &mut self.campaigns {
                             if watching
                                 .is_some_and(|c| campaign.can_watch(c, &settings, Utc::now()))
+                                && campaign.bump_estimates(&settings, Utc::now())
                             {
-                                campaign.bump_estimates(&settings, Utc::now());
+                                self.refresh = true;
+                                self.channels_dirty = true;
                             }
                         }
                         self.publish = true;
@@ -977,6 +1065,7 @@ impl Mining {
                     self.app.sockets.emit("notification",&json!({"title":message("gui.backend.drop_claimed",&[]),"message":drop.name})).await;
                 }
                 self.claim_retry.remove(&id);
+                self.pending_claims.retain(|p| p.entry.id != id);
                 self.claim_wait = Some((id, now + Duration::from_secs(4), 0));
                 self.publish = true;
                 None
@@ -985,7 +1074,11 @@ impl Mining {
                 self.claim_retry.insert(id, now + Duration::from_secs(60));
                 result.err()
             }
-            Job::Update(Ok(updated)) => {
+            Job::Update {
+                result: Ok(mut updated),
+                requested_at,
+            } => {
+                self.preserve_channel_events(&mut updated, requested_at);
                 for channel in updated {
                     if let Some(current) = self
                         .channels
@@ -1005,11 +1098,15 @@ impl Mining {
                 self.refresh = true;
                 Some(error)
             }
-            Job::Channels(Err(error)) => {
+            Job::Channels {
+                result: Err(error), ..
+            } => {
                 self.channels_dirty = true;
                 Some(error)
             }
-            Job::Update(Err(error)) => Some(error),
+            Job::Update {
+                result: Err(error), ..
+            } => Some(error),
         };
         if let Some(error) = error {
             if matches!(error, TwitchError::Unauthorized | TwitchError::Cancelled) {
@@ -1029,6 +1126,21 @@ impl Mining {
     fn cancel_watch(&self) {
         if let Some(watch) = &self.watch_abort {
             watch.abort();
+        }
+    }
+    fn preserve_channel_events(&self, channels: &mut [Channel], requested_at: Instant) {
+        for channel in channels {
+            if self
+                .channel_events
+                .get(&channel.identity.id)
+                .is_some_and(|at| *at > requested_at)
+                && let Some(current) = self
+                    .channels
+                    .iter()
+                    .find(|c| c.identity.id == channel.identity.id)
+            {
+                *channel = current.clone();
+            }
         }
     }
     fn set_transition(&mut self) {
@@ -1167,7 +1279,10 @@ impl Mining {
         Ok(())
     }
 
-    async fn recover_claims(&self) -> Result<(), TwitchError> {
+    async fn recover_claims(
+        &mut self,
+        awards: &HashMap<String, chrono::DateTime<Utc>>,
+    ) -> Result<(), TwitchError> {
         let confirmed: HashSet<_> = self
             .campaigns
             .iter()
@@ -1178,21 +1293,23 @@ impl Mining {
         let app = self.app.clone();
         let journal = self.journal.clone();
         let user_id = self.client.user_id;
-        tokio::task::spawn_blocking(move || {
+        let awards = awards.clone();
+        self.pending_claims = tokio::task::spawn_blocking(move || {
             let mut journal = journal.blocking_lock();
-            for entry in journal
+            for pending in journal
                 .pending(user_id)
                 .into_iter()
-                .filter(|e| confirmed.contains(&e.id))
+                .filter(|p| confirmed.contains(&p.entry.id) || p.confirmed_by(&awards))
             {
-                app.history.blocking_lock().record(entry.clone())?;
-                journal.finish(user_id, &entry.id)?;
+                record_claim(&app, &pending)?;
+                journal.finish(user_id, &pending.entry.id)?;
             }
-            Ok::<_, anyhow::Error>(())
+            Ok::<_, anyhow::Error>(journal.pending(user_id))
         })
         .await
         .map_err(|_| TwitchError::Storage)?
-        .map_err(|_| TwitchError::Storage)
+        .map_err(|_| TwitchError::Storage)?;
+        Ok(())
     }
 }
 
@@ -1200,28 +1317,42 @@ async fn claim(
     app: &Arc<App>,
     client: &TwitchClient,
     journal: &Arc<Mutex<ClaimJournal>>,
-    entry: HistoryEntry,
-    instance: &str,
+    pending_claim: PendingClaim,
 ) -> Result<bool, TwitchError> {
+    if pending_claim.user_id != client.user_id {
+        return Err(TwitchError::Unauthorized);
+    }
     let pending = journal.clone();
     let user_id = client.user_id;
-    let entry =
-        tokio::task::spawn_blocking(move || pending.blocking_lock().prepare(user_id, entry))
+    let pending_claim =
+        tokio::task::spawn_blocking(move || pending.blocking_lock().prepare(pending_claim))
             .await
             .map_err(|_| TwitchError::Storage)?
             .map_err(|_| TwitchError::Storage)?;
-    let claimed = client.claim(instance).await?;
+    let claimed = client.claim(&pending_claim.instance).await?;
     let app = app.clone();
     let journal = journal.clone();
     tokio::task::spawn_blocking(move || {
         if claimed {
-            app.history.blocking_lock().record(entry.clone())?;
+            record_claim(&app, &pending_claim)?;
         }
-        journal.blocking_lock().finish(user_id, &entry.id)?;
+        journal
+            .blocking_lock()
+            .finish(user_id, &pending_claim.entry.id)?;
         Ok::<_, anyhow::Error>(())
     })
     .await
     .map_err(|_| TwitchError::Storage)?
     .map_err(|_| TwitchError::Storage)?;
     Ok(claimed)
+}
+
+fn record_claim(app: &App, claim: &PendingClaim) -> anyhow::Result<()> {
+    app.history.blocking_lock().record(claim.entry.clone())?;
+    if let Some(completed) = &claim.completed_campaign {
+        app.archive
+            .blocking_lock()
+            .update(std::slice::from_ref(completed))?;
+    }
+    Ok(())
 }
