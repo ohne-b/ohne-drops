@@ -8,6 +8,7 @@ from pathlib import Path
 from types import SimpleNamespace
 
 from src.drop_history import DropHistory
+from src.services.telegram_service import TelegramNotifier
 from src.web import app as web
 from src.web.managers.settings import SettingsManager
 
@@ -15,6 +16,14 @@ from src.web.managers.settings import SettingsManager
 fixture = json.loads(Path("frontend/tests/fixture.json").read_text(encoding="utf-8"))
 state = copy.deepcopy(fixture)
 temporary = tempfile.TemporaryDirectory(prefix="tdm-ui-")
+
+
+async def fake_telegram_send(self, text):
+    """Keep the real settings/test endpoint, but never send a Telegram message."""
+    return bool(self.bot_token and self.chat_id and self.chat_id != "reject")
+
+
+TelegramNotifier._send_message = fake_telegram_send
 web.web_auth.path = Path(temporary.name) / "web_auth.json"
 web.web_auth.password_hash = ""
 web.web_auth.sessions = {}
