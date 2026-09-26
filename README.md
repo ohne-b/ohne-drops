@@ -384,6 +384,7 @@ The interface and miner messages use English only. Older saved language preferen
 
 Field labels and controls stay aligned when only one field has helper text.
 Keyboard focus uses subtle control/background changes without a surrounding ring.
+Native checkboxes highlight their label, and forced-colors mode retains system focus outlines.
 
 Notification integration has been removed. Obsolete notification credentials are discarded when settings are loaded and saved.
 

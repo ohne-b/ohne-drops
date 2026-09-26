@@ -28,6 +28,7 @@ Keep the sidebar footer for the GitHub icon. Live connection/account status belo
 
 Shared Field controls use content-start so helper text does not stretch adjacent label rows.
 Avoid focus rings; retain a visible keyboard-focus background/border change and system focus in forced-colors mode.
+Focus styles must outrank Tailwind component/utility layers; verify computed focus states for fields, primary/secondary buttons and native checkboxes.
 
 Use descriptive `feat/` or `fix/` branch names. Keep branch names, documentation, commits,
 and PR descriptions free of assistant branding. Changes to main go through a pull request.
