@@ -154,17 +154,16 @@ Cargo manifest/lock own the version. Prepare release opens a draft PR; publish i
 validated main and uses reviewed CHANGELOG notes/GHCR. Every release attaches and verifies
 `latest.json` before publishing; stable releases alone move the latest pointer. Use scoped
 conventional commit messages and concise release change lists with comparison/issue links.
-Accept exact-commit push or manual
-validation; contributor-token commits do not automatically trigger push workflows.
+Accept exact-commit push or manual validation.
 Optional Docker Hub publication uses `DOCKERHUB_IMAGE`/`DOCKERHUB_USERNAME` variables and
 the `DOCKERHUB_TOKEN` secret; push one multi-architecture build to both registries and
 advance `latest` only after a stable release and its manifest are public. Missing enabled
 credentials fail before publication; document partial registry-push/promotion recovery.
-Keep Buildx/Build Push action pins identical
-between validation and release. Contributor credit runs on trusted default-branch code only
-under pull_request_target; never execute a PR head with its write token. Preserve exactly one
-README contributor marker pair/header and fail closed on malformed tables. No ordinary code
-merge may publish a release or bypass independent review/checks.
+Keep Buildx/Build Push action pins identical between validation and release. README uses
+a centered title/tagline/license opener and GitHub Flavored Markdown alerts. Keep upstream
+attribution in License and credits; do not add a contributor/PR table or automation that
+rewrites README after merges. No ordinary code merge may publish a release or bypass
+independent review/checks.
 
 For home-server work, inspect the current checkout/Compose/image before assumptions. Ask before
 changing the running deployment. Build while it runs, back up data and Compose before replacement,
