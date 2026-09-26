@@ -2,6 +2,9 @@ pub mod auth;
 pub mod config;
 pub mod domain;
 pub mod dto;
+#[cfg(feature = "dashboard-fixture")]
+pub mod fixture;
 pub mod origin;
 pub mod policy;
 pub mod store;
+pub mod web;

@@ -238,7 +238,7 @@ impl History {
                 .entry(entry.claimed_at.format("%Y-%m").to_string())
                 .or_default() += 1;
         }
-        serde_json::json!({"total": self.total(), "by_game": games, "by_month": months})
+        serde_json::json!({"total_drops": self.total(), "by_game": games, "by_month": months})
     }
 }
 
