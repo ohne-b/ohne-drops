@@ -43,7 +43,7 @@ jobs:
           node .github/scripts/release.mjs verify "$RELEASE_VERSION"
           test "$(git ls-remote origin refs/heads/main | cut -f1)" = "$GITHUB_SHA"
           conclusion=$(gh run list --workflow validation.yml --branch main --commit "$GITHUB_SHA" \
-            --event push --limit 1 --json conclusion --jq '.[0].conclusion')
+            --limit 20 --json event,conclusion --jq '[.[] | select(.event == "push" or .event == "workflow_dispatch")][0].conclusion')
           test "$conclusion" = success
           test -z "$(git ls-remote origin "refs/tags/v${RELEASE_VERSION}")"
           echo "version=$RELEASE_VERSION" >> "$GITHUB_OUTPUT"

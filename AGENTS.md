@@ -142,7 +142,9 @@ contracts, version/lock agreement, and amd64/arm64 production image builds plus 
 Preserve license notices, 1000:1000 ownership, mounts and port. Health does not prove earning.
 
 Cargo manifest/lock own the version. Prepare release opens a draft PR; publish is manual from
-validated main and uses GitHub-generated notes/GHCR. Keep Buildx/Build Push action pins identical
+validated main and uses GitHub-generated notes/GHCR. Accept exact-commit push or manual
+validation; contributor-token commits do not automatically trigger push workflows.
+Keep Buildx/Build Push action pins identical
 between validation and release. Contributor credit runs on trusted default-branch code only
 under pull_request_target; never execute a PR head with its write token. Preserve exactly one
 README contributor marker pair/header and fail closed on malformed tables. No ordinary code
