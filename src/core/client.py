@@ -344,7 +344,7 @@ class Twitch:
                         for drop in campaign.drops:
                             if drop.can_claim:
                                 await drop.claim()
-                # figure out which games we want based on games_to_watch whitelist
+                # Saved games set priority; all discovered eligible games are included.
                 self.wanted_games.clear()
                 games_to_watch: list[str] = self.settings.games_to_watch
                 next_hour: datetime = datetime.now(timezone.utc) + timedelta(hours=1)
@@ -757,28 +757,6 @@ class Twitch:
     async def bulk_check_online(self, channels: abc.Iterable[Channel]):
         """Delegate to ChannelService."""
         await self._channel_service.bulk_check_online(channels)
-
-    def _filter_wanted_campaigns(self, next_hour: datetime) -> list[Game]:
-        """
-        Filter campaigns to find wanted games based on settings and benefits.
-        """
-        wanted_games: list[Game] = []
-        games_to_watch: list[str] = self.settings.games_to_watch
-        mining_benefits: dict[str, bool] = self.settings.mining_benefits
-
-        for game_name in games_to_watch:
-            game_name_lower: str = game_name.lower()
-            for campaign in self.inventory:
-                game: Game = campaign.game
-                if (
-                    game.name.lower() == game_name_lower
-                    and game not in wanted_games
-                    and campaign.can_earn_within(next_hour)
-                    and campaign.has_wanted_unclaimed_benefits(mining_benefits)
-                ):
-                    wanted_games.append(game)
-                    break
-        return wanted_games
 
     def _output_campaign_mapping(self, next_hour: datetime) -> None:
         logger.info("=== Active Campaigns Mapping ===")

@@ -554,6 +554,23 @@ test('all channels remain available when priorities change', async ({ page, requ
   await expect(page.getByRole('link', { name: 'northwind', exact: true })).toBeVisible();
 });
 
+test('empty priorities still explain automatic mining', async ({ page, request }) => {
+  await request.post('/__test/event', {
+    headers,
+    data: {
+      event: 'settings_updated',
+      data: { ...snapshot.settings, games_to_watch: [] },
+    },
+  });
+  await request.post('/__test/event', { headers, data: { event: 'drop_progress_stop', data: {} } });
+  await expect(
+    page.getByText(
+      'Waiting for an eligible reward and live channel. The miner checks automatically.',
+    ),
+  ).toBeVisible();
+  await expect(page.getByText('Choose the games you want to mine.')).toHaveCount(0);
+});
+
 test('phone campaign rows retain status and claimed counts', async ({ page }) => {
   await page.setViewportSize({ width: 360, height: 800 });
   await page.goto('/campaigns');

@@ -388,6 +388,7 @@ Keyboard focus uses subtle control/background changes without a surrounding ring
 Notification integration has been removed. Obsolete notification credentials are discarded when settings are loaded and saved.
 
 All eligible discovered games are mined, including games absent from the saved priority list. New games follow saved priorities; Select all and Deselect all are unnecessary.
+An empty priority list also mines automatically; no initial game selection is needed.
 
 Page headings stand on their own; repeated descriptive and appearance copy has been removed.
 Connection status lives under Settings → Twitch account; the sidebar footer links to GitHub.

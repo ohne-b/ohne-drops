@@ -298,7 +298,6 @@
             "confirmed_progress": "Confirmed by Twitch",
             "last_confirmed": "Last confirmed: {time}",
             "connect_help": "Authorize your Twitch account to load campaigns.",
-            "choose_games": "Choose the games you want to mine.",
             "waiting_help": "Waiting for an eligible reward and live channel. The miner checks automatically.",
             "edit_priorities": "Edit priorities",
             "search_channels": "Search channels",
