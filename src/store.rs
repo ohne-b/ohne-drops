@@ -11,6 +11,7 @@ use serde::{Deserialize, Serialize, de::DeserializeOwned};
 
 use crate::{
     config::{Settings, fold},
+    domain::{Campaign, Drop},
     dto::{CampaignView, HistoryEntry},
 };
 
@@ -252,6 +253,45 @@ struct ArchiveFile {
 pub struct PendingClaim {
     pub user_id: u64,
     pub entry: HistoryEntry,
+    pub instance: String,
+    pub benefits: Vec<String>,
+    pub starts_at: DateTime<Utc>,
+    pub ends_at: DateTime<Utc>,
+    pub retry_until: DateTime<Utc>,
+    pub completed_campaign: Option<CampaignView>,
+}
+
+impl PendingClaim {
+    pub fn new(user_id: u64, campaign: &Campaign, drop: &Drop, settings: &Settings) -> Self {
+        let now = Utc::now();
+        let mut completed = campaign.clone();
+        completed
+            .drops
+            .iter_mut()
+            .find(|d| d.id == drop.id)
+            .unwrap()
+            .mark_claimed(now);
+        let completed = completed.view(settings, now);
+        Self {
+            user_id,
+            entry: campaign.history_entry(drop, now),
+            instance: drop.claim_id.clone().expect("account claim ID required"),
+            benefits: drop.benefits.iter().map(|b| b.id.clone()).collect(),
+            starts_at: drop.starts_at,
+            ends_at: drop.ends_at,
+            retry_until: campaign.ends_at + chrono::Duration::hours(24),
+            completed_campaign: completed.finished.then_some(completed),
+        }
+    }
+
+    pub fn confirmed_by(&self, awards: &std::collections::HashMap<String, DateTime<Utc>>) -> bool {
+        !self.benefits.is_empty()
+            && self.benefits.iter().all(|id| {
+                awards
+                    .get(id)
+                    .is_some_and(|at| self.starts_at <= *at && *at < self.ends_at)
+            })
+    }
 }
 
 pub struct ClaimJournal {
@@ -267,35 +307,38 @@ impl ClaimJournal {
         if entries.iter().any(|claim| {
             claim.user_id == 0
                 || claim.entry.id.is_empty()
+                || claim.instance.is_empty()
+                || claim.starts_at >= claim.ends_at
+                || claim
+                    .completed_campaign
+                    .as_ref()
+                    .is_some_and(|c| c.id != claim.entry.campaign_id || !CampaignArchive::valid(c))
                 || !ids.insert((claim.user_id, &claim.entry.id))
         }) {
             bail!("pending claims are unreadable; original file preserved");
         }
         Ok(Self { path, entries })
     }
-    pub fn pending(&self, user_id: u64) -> Vec<HistoryEntry> {
+    pub fn pending(&self, user_id: u64) -> Vec<PendingClaim> {
         self.entries
             .iter()
             .filter(|e| e.user_id == user_id)
-            .map(|e| e.entry.clone())
+            .cloned()
             .collect()
     }
-    pub fn prepare(&mut self, user_id: u64, entry: HistoryEntry) -> Result<HistoryEntry> {
+    pub fn prepare(&mut self, claim: PendingClaim) -> Result<PendingClaim> {
         if let Some(existing) = self
             .entries
             .iter()
-            .find(|e| e.user_id == user_id && e.entry.id == entry.id)
+            .find(|e| e.user_id == claim.user_id && e.entry.id == claim.entry.id)
         {
-            return Ok(existing.entry.clone());
+            return Ok(existing.clone());
         }
         let mut entries = self.entries.clone();
-        entries.push(PendingClaim {
-            user_id,
-            entry: entry.clone(),
-        });
+        entries.push(claim.clone());
         atomic_json(&self.path, &entries)?;
         self.entries = entries;
-        Ok(entry)
+        Ok(claim)
     }
     pub fn finish(&mut self, user_id: u64, id: &str) -> Result<()> {
         let entries: Vec<_> = self

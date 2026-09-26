@@ -30,19 +30,38 @@ pub struct Session {
 
 impl Session {
     pub fn load(directory: &Path) -> Result<Option<Self>, TwitchError> {
-        let saved =
-            read_json::<Self>(&directory.join(SESSION_FILE)).map_err(|_| TwitchError::Storage)?;
-        if let Some(value) = &saved {
-            if value.version != 1 || value.client_id != CLIENT_ID || value.user_id == 0 {
-                return Err(TwitchError::Unauthorized);
+        let saved = match read_json::<Self>(&directory.join(SESSION_FILE)) {
+            Ok(saved) => saved,
+            Err(error) if error.downcast_ref::<serde_json::Error>().is_some() => {
+                Self::preserve_invalid(directory)?;
+                return Ok(None);
             }
-            if [&value.access_token, &value.device_id].iter().any(|v| {
-                v.is_empty() || v.len() > 4096 || !v.bytes().all(|b| b.is_ascii_alphanumeric())
-            }) {
-                return Err(TwitchError::Storage);
-            }
+            Err(_) => return Err(TwitchError::Storage),
+        };
+        if let Some(value) = &saved
+            && (value.version != 1
+                || value.client_id != CLIENT_ID
+                || value.user_id == 0
+                || [&value.access_token, &value.device_id].iter().any(|v| {
+                    v.is_empty() || v.len() > 4096 || !v.bytes().all(|b| b.is_ascii_alphanumeric())
+                }))
+        {
+            Self::preserve_invalid(directory)?;
+            return Ok(None);
         }
         Ok(saved)
+    }
+    fn preserve_invalid(directory: &Path) -> Result<(), TwitchError> {
+        let suffix = crate::auth::random_hex::<16>().map_err(|_| TwitchError::Storage)?;
+        std::fs::rename(
+            directory.join(SESSION_FILE),
+            directory.join(format!("twitch_session.invalid-{suffix}.json")),
+        )
+        .map_err(|_| TwitchError::Storage)?;
+        tracing::warn!(
+            "Unreadable Twitch session preserved as a separate file; fresh device authorization required"
+        );
+        Ok(())
     }
     pub fn save(&self, directory: &Path) -> Result<(), TwitchError> {
         atomic_json(&directory.join(SESSION_FILE), self).map_err(|_| TwitchError::Storage)

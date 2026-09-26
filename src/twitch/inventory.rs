@@ -39,6 +39,7 @@ const RECOVERY_QUERY: &str = r#"query ChannelDropsRecovery($channelID: ID!) {
 pub struct Inventory {
     pub campaigns: Vec<Campaign>,
     pub status: InventoryStatus,
+    pub awards: HashMap<String, DateTime<Utc>>,
 }
 
 impl TwitchClient {
@@ -150,6 +151,7 @@ impl TwitchClient {
         }
         Ok(Inventory {
             campaigns: campaigns.into_values().collect(),
+            awards,
             status: InventoryStatus {
                 available,
                 recovered,
