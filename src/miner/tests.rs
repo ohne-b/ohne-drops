@@ -40,6 +40,7 @@ async fn miner(server: &MockServer) -> (tempfile::TempDir, Mining, watch::Sender
         acl_based: false,
         beacon_url: None,
     }];
+    mining.channels_loaded = true;
     (dir, mining, intent, pool)
 }
 async fn select(mining: &mut Mining) -> Settings {
@@ -405,7 +406,6 @@ async fn concurrent_logout_and_shutdown_drain_owned_work_before_removing_only_tw
     let stopped = cancel.clone();
     let complete = Arc::new(Notify::new());
     let released = complete.clone();
-    let (intent, _) = watch::channel(Intent::default());
     let (drained, drained_rx) = oneshot::channel();
     let task = tokio::spawn(async move {
         stopped.cancelled().await;
@@ -416,7 +416,6 @@ async fn concurrent_logout_and_shutdown_drain_owned_work_before_removing_only_tw
     let generation = Generation {
         cancel,
         confirmed: Arc::new(Notify::new()),
-        intent,
         task,
     };
     let (first, first_result) = oneshot::channel();
@@ -1114,4 +1113,110 @@ async fn preclaim_publication_and_shutdown_leave_a_durable_receipt_for_finished_
             .is_empty()
     );
     pool.close().await;
+}
+
+#[tokio::test]
+async fn channel_choice_during_hourly_reload_is_retained_until_channels_are_ready() {
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    let server = MockServer::start().await;
+    Mock::given(method("GET"))
+        .and(path("/oauth2/validate"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(validation()))
+        .mount(&server)
+        .await;
+    for login in ["first", "second"] {
+        Mock::given(method("GET"))
+            .and(path(format!("/{login}")))
+            .respond_with(
+                ResponseTemplate::new(200)
+                    .set_body_string(format!(r#"{{"beacon_url":"{}/track"}}"#, server.uri())),
+            )
+            .mount(&server)
+            .await;
+    }
+    Mock::given(method("POST"))
+        .and(path("/track"))
+        .respond_with(ResponseTemplate::new(204))
+        .mount(&server)
+        .await;
+    let inventories = Arc::new(AtomicUsize::new(0));
+    let count = inventories.clone();
+    Mock::given(method("POST")).and(path("/gql")).respond_with(move |request: &wiremock::Request| {
+        let body: serde_json::Value = request.body_json().unwrap();
+        let handler = |q: &serde_json::Value| match q["operationName"].as_str().unwrap() {
+            "Inventory" => json!({"data":{"currentUser":{"inventory":{"dropCampaignsInProgress":[campaign_json("one")],"gameEventDrops":[]}}}}),
+            "ViewerDropsDashboard" => json!({"data":{"currentUser":{"dropCampaigns":[]}}}),
+            "DirectoryPage_Game" => json!({"data":{"game":{"streams":{"edges":[
+                {"node":{"id":"b1","broadcaster":{"id":"10","login":"first","displayName":"First"},"game":{"id":"1","name":"Rust"},"viewersCount":100}},
+                {"node":{"id":"b2","broadcaster":{"id":"11","login":"second","displayName":"Second"},"game":{"id":"1","name":"Rust"},"viewersCount":50}}
+            ]}}}}),
+            "DropCurrentSessionContext" => json!({"data":{"currentUser":{"dropCurrentSession":{"dropID":"drop-one","currentMinutesWatched":12}}}}),
+            _ => unreachable!(),
+        };
+        let delayed = body["operationName"] == "Inventory" && count.fetch_add(1, Ordering::SeqCst) >= 1;
+        let value = body.as_array().map_or_else(|| handler(&body), |batch| serde_json::Value::Array(batch.iter().map(handler).collect()));
+        let response = ResponseTemplate::new(200).set_body_json(value);
+        if delayed { response.set_delay(Duration::from_millis(750)) } else { response }
+    }).mount(&server).await;
+    let dir = tempfile::tempdir().unwrap();
+    let (app, commands) = App::open(dir.path().to_owned(), "").unwrap();
+    app.snapshot.write().await.settings.values.games_to_watch = vec!["Rust".into()];
+    session().save(dir.path()).unwrap();
+    let owner = Miner {
+        app: app.clone(),
+        commands,
+        endpoints: Endpoints::mock(&server.uri()),
+    };
+    let worker = tokio::spawn(owner.run());
+    tokio::time::timeout(Duration::from_secs(5), async {
+        while app.snapshot.read().await.channels.len() != 2 {
+            tokio::task::yield_now().await;
+        }
+    })
+    .await
+    .unwrap();
+    let checked_before = app.snapshot.read().await.inventory_status.checked_at;
+    tokio::time::pause();
+    tokio::time::advance(Duration::from_secs(3601)).await;
+    tokio::time::resume();
+    tokio::time::timeout(Duration::from_secs(5), async {
+        while inventories.load(Ordering::SeqCst) < 2 {
+            tokio::task::yield_now().await;
+        }
+    })
+    .await
+    .unwrap();
+    assert!(
+        app.snapshot
+            .read()
+            .await
+            .channels
+            .iter()
+            .any(|c| c.id == 11)
+    );
+    app.command(Command::SelectChannel(11)).await.unwrap();
+    tokio::time::timeout(Duration::from_secs(5), async {
+        loop {
+            let state = app.snapshot.read().await;
+            if state.channels.len() == 2 && state.inventory_status.checked_at > checked_before {
+                break;
+            }
+            drop(state);
+            tokio::task::yield_now().await;
+        }
+    })
+    .await
+    .unwrap();
+    let state = app.snapshot.read().await.clone();
+    app.shutdown.cancel();
+    tokio::time::timeout(Duration::from_secs(5), worker)
+        .await
+        .unwrap()
+        .unwrap()
+        .unwrap();
+    assert!(
+        state.manual_mode.active,
+        "accepted channel choice vanished during hourly reload"
+    );
+    assert!(state.channels.iter().any(|c| c.id == 11 && c.watching));
 }

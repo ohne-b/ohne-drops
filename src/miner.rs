@@ -47,8 +47,13 @@ struct Intent {
 struct Generation {
     cancel: CancellationToken,
     confirmed: Arc<Notify>,
-    intent: watch::Sender<Intent>,
     task: JoinHandle<Result<(), TwitchError>>,
+}
+
+#[derive(Default)]
+struct Resume {
+    manual: Option<(u64, u64)>,
+    seen: Intent,
 }
 
 pub struct Miner {
@@ -66,10 +71,14 @@ impl Miner {
         }
     }
 
-    fn start(&self, settings: Settings, resume: Arc<Mutex<Option<(u64, u64)>>>) -> Generation {
+    fn start(
+        &self,
+        settings: Settings,
+        resume: Arc<Mutex<Resume>>,
+        receiver: watch::Receiver<Intent>,
+    ) -> Generation {
         let cancel = CancellationToken::new();
         let confirmed = Arc::new(Notify::new());
-        let (intent, receiver) = watch::channel(Intent::default());
         let app = self.app.clone();
         let endpoints = self.endpoints.clone();
         let stopped = cancel.clone();
@@ -89,16 +98,18 @@ impl Miner {
         Generation {
             cancel,
             confirmed,
-            intent,
             task,
         }
     }
 
     pub async fn run(mut self) -> Result<(), TwitchError> {
-        let resume = Arc::new(Mutex::new(None));
+        let resume = Arc::new(Mutex::new(Resume::default()));
+        // Commands outlive a network generation, including commands accepted
+        // after its last select cycle but before the supervisor observes its exit.
+        let (intent, _) = watch::channel(Intent::default());
         while !self.app.shutdown.is_cancelled() {
             let settings = self.app.snapshot.read().await.settings.values.clone();
-            let mut generation = self.start(settings.clone(), resume.clone());
+            let mut generation = self.start(settings.clone(), resume.clone(), intent.subscribe());
             loop {
                 tokio::select! {biased;
                     _=self.app.shutdown.cancelled()=>{
@@ -111,7 +122,7 @@ impl Miner {
                     request=self.commands.recv()=>{
                         let Some(request)=request else {generation.cancel.cancel();let _=generation.task.await;return Ok(())};
                         match request.command {
-                            Command::Logout=>{self.logout(generation,request.complete).await;*resume.lock().await=None;break;},
+                            Command::Logout=>{self.logout(generation,request.complete).await;*resume.lock().await=Resume::default();intent.send_replace(Intent::default());break;},
                             Command::Shutdown=>{
                                 self.app.shutdown.cancel();
                                 let _=request.complete.send(Ok(()));
@@ -123,11 +134,11 @@ impl Miner {
                                     generation.cancel.cancel();let _=generation.task.await;
                                     let _=request.complete.send(Ok(()));break;
                                 }
-                                generation.intent.send_modify(|intent|intent.settings=intent.settings.wrapping_add(1));
+                                intent.send_modify(|intent|intent.settings=intent.settings.wrapping_add(1));
                                 let _=request.complete.send(Ok(()));
                             },
                             command=>{
-                                generation.intent.send_modify(|intent|match command {
+                                intent.send_modify(|intent|match command {
                                     Command::Refresh{clear_cache}=>{intent.refresh=intent.refresh.wrapping_add(1);if clear_cache{intent.clear=intent.clear.wrapping_add(1);}},
                                     Command::SelectChannel(id)=>{intent.selected=Some(id);intent.manual_revision=intent.manual_revision.wrapping_add(1);},
                                     Command::ExitManual=>{intent.selected=None;intent.manual_revision=intent.manual_revision.wrapping_add(1);},
@@ -140,7 +151,8 @@ impl Miner {
                     result=&mut generation.task=>{
                         match result {
                             Ok(Err(TwitchError::Unauthorized))=>{
-                                *resume.lock().await=None;
+                                *resume.lock().await=Resume::default();
+                                intent.send_replace(Intent::default());
                                 if remove_session(&self.app).await.is_err(){self.app.console(message("gui.backend.session_storage",&[])).await;}
                                 reset_session(&self.app).await;
                             },
@@ -325,7 +337,7 @@ async fn run_generation(
     cancel: CancellationToken,
     confirmed: Arc<Notify>,
     intent: watch::Receiver<Intent>,
-    resume: Arc<Mutex<Option<(u64, u64)>>>,
+    resume: Arc<Mutex<Resume>>,
 ) -> Result<(), TwitchError> {
     let (client, session) = authenticate(&app, &settings, &endpoints, &cancel, &confirmed).await?;
     if cancel.is_cancelled() {
@@ -346,9 +358,16 @@ async fn run_generation(
     let (events, receiver) = mpsc::channel(256);
     let mut pool = PubSub::start(client.clone(), events);
     let mut mining = Mining::new(app, client, journal, intent, receiver);
-    mining.resume_manual = *resume.lock().await;
+    {
+        let saved = resume.lock().await;
+        mining.resume_manual = saved.manual;
+        mining.seen = saved.seen.clone();
+    }
     let result = mining.run(&mut pool).await;
-    *resume.lock().await = mining.manual.or(mining.resume_manual);
+    *resume.lock().await = Resume {
+        manual: mining.manual.or(mining.resume_manual),
+        seen: mining.seen.clone(),
+    };
     cancel.cancel();
     // Owned jobs include durable claim writes. Cancellation stops network work,
     // while any confirmed claim finishes its disk transaction before logout.
@@ -411,6 +430,7 @@ struct Mining {
     events: mpsc::Receiver<Event>,
     campaigns: Vec<Campaign>,
     channels: Vec<Channel>,
+    channels_loaded: bool,
     status: InventoryStatus,
     watching: Option<u64>,
     manual: Option<(u64, u64)>,
@@ -455,6 +475,7 @@ impl Mining {
             events,
             campaigns: vec![],
             channels: vec![],
+            channels_loaded: false,
             status: InventoryStatus::default(),
             watching: None,
             manual: None,
@@ -498,6 +519,7 @@ impl Mining {
     }
 
     async fn run(&mut self, pool: &mut PubSub) -> Result<(), TwitchError> {
+        self.apply_intent(pool).await;
         let mut tick = tokio::time::interval(Duration::from_secs(1));
         tick.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
         let validate_at = Instant::now() + Duration::from_secs(3600);
@@ -549,6 +571,7 @@ impl Mining {
             self.epoch = self.epoch.wrapping_add(1);
             self.campaigns.clear();
             self.channels.clear();
+            self.channels_loaded = false;
             self.watching = None;
             self.manual = None;
             self.resume_manual = None;
@@ -579,9 +602,18 @@ impl Mining {
                 .minimum_refresh_interval_minutes;
             self.next_refresh = self.last_inventory + Duration::from_secs(u64::from(minutes) * 60);
         }
-        if intent.manual_revision != self.seen.manual_revision {
+        let settings = self.app.snapshot.read().await.settings.values.clone();
+        self.apply_manual(&intent, &settings);
+        let manual_revision = self.seen.manual_revision;
+        self.seen = intent;
+        self.seen.manual_revision = manual_revision;
+    }
+
+    fn apply_manual(&mut self, intent: &Intent, settings: &Settings) {
+        if intent.manual_revision != self.seen.manual_revision
+            && (intent.selected.is_none() || self.channels_loaded)
+        {
             self.resume_manual = None;
-            let settings = self.app.snapshot.read().await.settings.values.clone();
             self.manual = intent.selected.and_then(|id| {
                 let channel = self.channels.iter().find(|c| c.identity.id == id)?;
                 // The target is an earnable campaign, which can be a special
@@ -589,9 +621,9 @@ impl Mining {
                 let game = self
                     .campaigns
                     .iter()
-                    .filter(|c| c.can_watch(channel, &settings, Utc::now()))
+                    .filter(|c| c.can_watch(channel, settings, Utc::now()))
                     .min_by_key(|c| {
-                        c.first_drop(&settings, Utc::now())
+                        c.first_drop(settings, Utc::now())
                             .map(|d| d.remaining_minutes())
                             .unwrap_or(u32::MAX)
                     })?
@@ -599,9 +631,9 @@ impl Mining {
                     .id;
                 Some((id, game))
             });
+            self.seen.manual_revision = intent.manual_revision;
             self.publish = true;
         }
-        self.seen = intent;
     }
 
     async fn event(&mut self, event: Event) -> Result<(), TwitchError> {
@@ -979,9 +1011,12 @@ impl Mining {
             } => {
                 self.preserve_channel_events(&mut channels, requested_at);
                 self.channels = channels;
+                self.channels_loaded = true;
                 if let Some(manual) = self.resume_manual.take() {
                     self.manual = Some(manual);
                 }
+                let intent = self.intent.borrow().clone();
+                self.apply_manual(&intent, &settings);
                 self.channel_events
                     .retain(|id, _| self.channels.iter().any(|c| c.identity.id == *id));
                 self.viewer_events
