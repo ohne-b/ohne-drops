@@ -7,7 +7,7 @@ import {
   mdiTextBoxOutline,
   mdiCogOutline,
   mdiLogout,
-  mdiCircleSmall,
+  mdiGithub,
 } from '@mdi/js';
 import type { AuthStatus } from './lib/types';
 import { request } from './lib/api';
@@ -49,9 +49,6 @@ function Shell({ auth, onLogout }: { auth: AuthStatus; onLogout: () => Promise<v
           <NavLink to="/" className="font-semibold tracking-tight">
             Twitch miner
           </NavLink>
-          <span className="text-[11px] text-muted lg:hidden">
-            {t(connected ? 'connected' : 'connecting')}
-          </span>
         </div>
         <nav
           aria-label={t('navigation')}
@@ -72,13 +69,16 @@ function Shell({ auth, onLogout }: { auth: AuthStatus; onLogout: () => Promise<v
           ))}
         </nav>
         <div className="mt-auto hidden border-t border-divider p-4 lg:block">
-          <p className="flex items-center gap-1 text-[13px] text-muted">
-            <Icon path={mdiCircleSmall} />
-            {t(connected ? 'connected' : 'connecting')}
-          </p>
-          <p className="mt-1 truncate text-[13px]">
-            {data?.login.user_id ? `Twitch · ${data.login.user_id}` : t('account_not_connected')}
-          </p>
+          <a
+            className="inline-flex size-9 items-center justify-center rounded text-muted transition-colors hover:text-text"
+            href="https://github.com/ohne-b/twitch-miner"
+            target="_blank"
+            rel="noreferrer"
+            aria-label="GitHub repository"
+            title="GitHub"
+          >
+            <Icon path={mdiGithub} className="size-5" />
+          </a>
           {auth.enabled && (
             <Button
               className="mt-3 w-full"

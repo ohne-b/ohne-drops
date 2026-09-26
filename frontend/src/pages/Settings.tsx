@@ -258,6 +258,7 @@ function SettingsContent({ settings, auth }: { settings: SettingsData; auth: Aut
         ))}
       </nav>
       <Section id="account" title={t('account')}>
+        <p className="muted">{t(connected ? 'connected' : 'connecting')}</p>
         <p>{plainText(data?.login.status ?? '')}</p>
         {data?.login.user_id && <p className="muted">Twitch ID: {data.login.user_id}</p>}
         {oauth ? (
