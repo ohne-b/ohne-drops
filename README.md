@@ -1,6 +1,6 @@
 # Twitch Drops Miner
 
-The desktop sidebar shows your signed-in Twitch account ID and a 24px GitHub link.
+The desktop sidebar shows a 32px GitHub link above your signed-in Twitch account ID.
 Overview gives Channels and Up next equal width and height on desktop, stacking them on smaller screens.
 Watching information appears in the mining card; console messages are available on Activity.
 Mining progress keeps the latest confirmed minutes and timestamp without an extra confirmation label.

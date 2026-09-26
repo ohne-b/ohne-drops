@@ -24,7 +24,10 @@ test('confirmed progress and compact desktop design', async ({ page }) => {
   await page.setViewportSize({ width: 1440, height: 1000 });
   await expect(page.getByText('Twitch: 123456', { exact: true })).toBeVisible();
   const github = page.getByRole('link', { name: 'GitHub repository' }).locator('svg');
-  expect((await github.boundingBox())?.width).toBe(24);
+  const githubBox = (await github.boundingBox())!;
+  expect(githubBox.width).toBe(32);
+  const accountBox = (await page.getByText('Twitch: 123456', { exact: true }).boundingBox())!;
+  expect(githubBox.y + githubBox.height).toBeLessThan(accountBox.y);
   const channels = page
     .locator('section')
     .filter({ has: page.getByRole('heading', { name: 'Channels', exact: true }) });
