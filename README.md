@@ -12,6 +12,8 @@ Dashboard password access, mining preferences and claimed history are retained.
 
 Twitch login uses the authorization code shown inside Settings. Browser session
 imports and Chromium renewal helpers are no longer used or required.
+"Dashboard connected" reports the connection to your server; the separate Twitch
+status and authorization code show whether your account is signed in.
 
 When Twitch withholds its normal catalog or campaign details, discovery reads campaign
 metadata from Twitch's participating live channels using the same device login. It

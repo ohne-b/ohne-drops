@@ -330,7 +330,7 @@
             "login_description": "Enter your dashboard password to continue.",
             "navigation": "Main navigation",
             "skip_content": "Skip to content",
-            "connected": "Connected",
+            "connected": "Dashboard connected",
             "connecting": "Connecting to server…",
             "account_not_connected": "Twitch not connected",
             "disconnected_help": "Connection lost. Showing the last known state; controls will resume after synchronization.",
