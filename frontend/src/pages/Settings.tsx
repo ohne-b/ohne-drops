@@ -1,6 +1,6 @@
-import { useEffect, useState, type ReactNode } from 'react';
+import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { mdiPlus, mdiOpenInNew } from '@mdi/js';
-import type { AuthStatus, Result, Settings as SettingsData } from '../lib/types';
+import type { AuthStatus, ReleaseInfo, Result, Settings as SettingsData } from '../lib/types';
 import { request, safeUrl } from '../lib/api';
 import { useMiner } from '../lib/state';
 import { GamePriorities } from '../components/GamePriorities';
@@ -138,6 +138,76 @@ function Access({ initial, disabled }: { initial: AuthStatus; disabled: boolean 
     </Section>
   );
 }
+function ReleaseNotice({ disabled }: { disabled: boolean }) {
+  const t = useT();
+  const [release, setRelease] = useState<ReleaseInfo | null>(null);
+  const [busy, setBusy] = useState(true);
+  const controller = useRef<AbortController | null>(null);
+  async function check() {
+    controller.current?.abort();
+    const next = new AbortController();
+    controller.current = next;
+    setBusy(true);
+    try {
+      const result = await request<ReleaseInfo>('/api/version', undefined, 'GET', next.signal);
+      if (!next.signal.aborted) setRelease(result);
+    } catch {
+      if (!next.signal.aborted)
+        setRelease((previous) => previous && { ...previous, check_succeeded: false });
+    } finally {
+      if (!next.signal.aborted) setBusy(false);
+    }
+  }
+  useEffect(() => {
+    void check();
+    return () => controller.current?.abort();
+  }, []);
+  const available = release?.check_succeeded && release.update_available;
+  const releaseUrl = available ? safeUrl(release.download_url) : undefined;
+  return (
+    <div className="space-y-3 text-[13px]">
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <p className="text-muted">Twitch miner{release && ` · ${release.current_version}`}</p>
+        <Button disabled={disabled || busy} onClick={() => void check()}>
+          {t(busy ? 'checking_updates' : 'check_updates')}
+        </Button>
+      </div>
+      <div>
+        {busy ? (
+          <p role="status" className="text-muted">
+            {t('checking_updates')}
+          </p>
+        ) : !release?.check_succeeded ? (
+          <p role="status" className="text-muted">
+            {t('update_check_failed')}
+          </p>
+        ) : available ? (
+          <Notice>
+            <div>
+              <p>{t('update_available', { version: release.latest_version ?? '' })}</p>
+              <p className="mt-1 text-muted">{t('update_manually')}</p>
+              {releaseUrl && (
+                <a
+                  className="text-link mt-2 inline-block"
+                  href={releaseUrl}
+                  target="_blank"
+                  rel="noreferrer"
+                >
+                  {t('release_notes')}
+                </a>
+              )}
+            </div>
+          </Notice>
+        ) : (
+          <p role="status" className="text-muted">
+            {t('up_to_date')}
+          </p>
+        )}
+      </div>
+    </div>
+  );
+}
+
 function SettingsContent({ settings, auth }: { settings: SettingsData; auth: AuthStatus }) {
   const { data, connected, autosave } = useMiner();
   const t = useT();
@@ -154,17 +224,11 @@ function SettingsContent({ settings, auth }: { settings: SettingsData; auth: Aut
     text: string;
     action: () => Promise<unknown>;
   } | null>(null);
-  const [version, setVersion] = useState('');
   const command = useAction();
   const proxyAction = useAction();
   const oauthAction = useAction();
   const logoutAction = useAction();
   const dirty = autosave.pending || autosave.busy;
-  useEffect(() => {
-    void request<{ current_version: string }>('/api/version')
-      .then((result) => setVersion(result.current_version))
-      .catch(() => {});
-  }, []);
   const change = autosave.change;
   function addGame(name: string) {
     change('games_to_watch', (games) =>
@@ -440,6 +504,7 @@ function SettingsContent({ settings, auth }: { settings: SettingsData; auth: Aut
       </form>
       <Access initial={auth} disabled={dirty || !connected} />
       <Section id="maintenance" title={t('maintenance')}>
+        <ReleaseNotice disabled={!connected} />
         <div className="flex flex-wrap gap-2">
           <Button
             disabled={!connected || command.busy}
@@ -480,7 +545,6 @@ function SettingsContent({ settings, auth }: { settings: SettingsData; auth: Aut
         </details>
         <ActionResult action={command} />
         <div className="space-y-2 pt-2 text-[13px] text-muted">
-          <p>Twitch miner {version && `· ${version}`}</p>
           <p>{t('gui.help.about_text')}</p>
           <p>
             {t('help_link_accounts')}{' '}

@@ -232,7 +232,14 @@
             "historical_claims": "Older recorded rewards",
             "historical_claims_help": "These campaigns are no longer in the catalog. Their recorded claims are preserved, but older history does not contain the total reward count needed to verify full completion.",
             "completion_unknown": "Completion unverified",
-            "view_claim_history": "View claim history"
+            "view_claim_history": "View claim history",
+            "check_updates": "Check for updates",
+            "checking_updates": "Checking for updates…",
+            "update_check_failed": "Could not check for updates. Try again shortly.",
+            "update_available": "New version available: {version}",
+            "update_manually": "Install updates from your terminal. Your data and settings stay in place.",
+            "release_notes": "Release notes",
+            "up_to_date": "You're up to date."
         },
         "backend": {
             "proxy_empty": "Proxy URL is empty.",

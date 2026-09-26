@@ -125,6 +125,9 @@ embed it and run without a build tool/runtime companion. Production builds never
   preserve access on short windows. Show confirmed values/timestamps without redundant labels.
 - History artwork is optional; retain old rows and use matching live benefits as display fallback.
   No Telegram controls/API/credentials in responses and no dashboard updater.
+- Maintenance checks the latest stable release's `latest.json`, compares SemVer precedence
+  without build metadata, and distinguishes failure from up-to-date status. Keep requests
+  bounded/coalesced and release links within this repository. No install/download execution.
 - Shared Field content starts at the top; helper text cannot stretch neighboring label rows.
   No focus rings, but visible keyboard background/border changes must outrank utility layers;
   keep system focus in forced colors. Verify computed field/button/checkbox focus and axe checks.
@@ -143,8 +146,15 @@ contracts, version/lock agreement, and amd64/arm64 production image builds plus 
 Preserve license notices, 1000:1000 ownership, mounts and port. Health does not prove earning.
 
 Cargo manifest/lock own the version. Prepare release opens a draft PR; publish is manual from
-validated main and uses GitHub-generated notes/GHCR. Accept exact-commit push or manual
+validated main and uses reviewed CHANGELOG notes/GHCR. Every release attaches and verifies
+`latest.json` before publishing; stable releases alone move the latest pointer. Use scoped
+conventional commit messages and concise release change lists with comparison/issue links.
+Accept exact-commit push or manual
 validation; contributor-token commits do not automatically trigger push workflows.
+Optional Docker Hub publication uses `DOCKERHUB_IMAGE`/`DOCKERHUB_USERNAME` variables and
+the `DOCKERHUB_TOKEN` secret; push one multi-architecture build to both registries and
+advance `latest` only after a stable release and its manifest are public. Missing enabled
+credentials fail before publication; document partial registry-push/promotion recovery.
 Keep Buildx/Build Push action pins identical
 between validation and release. Contributor credit runs on trusted default-branch code only
 under pull_request_target; never execute a PR head with its write token. Preserve exactly one

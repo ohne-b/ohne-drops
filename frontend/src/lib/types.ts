@@ -188,3 +188,10 @@ export interface ServerEvents {
   notification: (data: { title: string; message: string }) => void;
   attention_required: (data: { sound: boolean }) => void;
 }
+export interface ReleaseInfo {
+  current_version: string;
+  latest_version: string | null;
+  update_available: boolean;
+  check_succeeded: boolean;
+  download_url: string;
+}

@@ -4,7 +4,7 @@ on:
   workflow_dispatch:
     inputs:
       version:
-        description: 'Next SemVer version, for example 2.0.0 or 2.0.0-rc.1'
+        description: 'Next SemVer version, for example 0.2.0 or 0.2.0-rc.1'
         required: true
         type: string
 
@@ -45,8 +45,8 @@ jobs:
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
           git add Cargo.toml Cargo.lock
-          git commit -m "chore: release ${RELEASE_VERSION}"
+          git commit -m "chore(release): prepare ${RELEASE_VERSION}"
           git push origin "$branch"
           printf '%s\n' 'Updates the Cargo package and lockfile version together.' '' \
-            'Keep this PR in draft until validation and independent adversarial review pass. After merging, run Publish release from main with this version.' > /tmp/release-body.md
-          gh pr create --draft --base main --head "$branch" --title "chore: release ${RELEASE_VERSION}" --body-file /tmp/release-body.md
+            'Add a concise CHANGELOG.md entry for this version. Keep this PR in draft until validation and independent adversarial review pass. After merging, run Publish release from main with this version; latest.json is generated and attached automatically.' > /tmp/release-body.md
+          gh pr create --draft --base main --head "$branch" --title "chore(release): prepare ${RELEASE_VERSION}" --body-file /tmp/release-body.md
