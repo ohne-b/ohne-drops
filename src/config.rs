@@ -130,6 +130,9 @@ impl Settings {
                 "BADGE" | "DIRECT_ENTITLEMENT" | "EMOTE" | "UNKNOWN"
             )
         });
+        for (kind, enabled) in Self::default().mining_benefits {
+            self.mining_benefits.entry(kind).or_insert(enabled);
+        }
         Ok(())
     }
 
@@ -268,5 +271,21 @@ mod tests {
         assert!(!encoded.contains("telegram"));
         assert!(!encoded.contains("language"));
         assert!(settings.selected("Rust"));
+    }
+
+    #[test]
+    fn partial_saved_benefit_maps_merge_defaults_and_remain_editable() {
+        let settings =
+            Settings::from_saved(json!({"mining_benefits":{"EMOTE":false,"retired":true}}))
+                .unwrap();
+        assert!(!settings.mining_benefits["EMOTE"]);
+        assert!(settings.mining_benefits["DIRECT_ENTITLEMENT"]);
+        assert_eq!(settings.mining_benefits.len(), 4);
+        let updated = settings
+            .patched(&json!({"mining_benefits":{"BADGE":false}}))
+            .unwrap();
+        assert!(!updated.mining_benefits["BADGE"]);
+        assert!(!updated.mining_benefits["EMOTE"]);
+        assert!(updated.mining_benefits["UNKNOWN"]);
     }
 }

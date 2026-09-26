@@ -129,10 +129,15 @@ impl Drop {
             .as_array()
             .into_iter()
             .flatten()
-            .filter(|edge| !edge.is_null() && !edge["benefit"].is_null())
             .map(|edge| Benefit::parse(&edge["benefit"]))
             .collect::<Result<Vec<_>, _>>()?;
-        let account = value.get("self").filter(|v| v.is_object());
+        let account = value.get("self").filter(|v| !v.is_null());
+        if let Some(account) = account {
+            let claimed = account["isClaimed"].as_bool().ok_or(InvalidData)?;
+            if !claimed && account["currentMinutesWatched"].as_u64().is_none() {
+                return Err(InvalidData);
+            }
+        }
         let claimed = account
             .map(|v| v["isClaimed"].as_bool().unwrap_or(false))
             .unwrap_or_else(|| {
@@ -318,7 +323,6 @@ impl Campaign {
         }
         let drops = raw_drops
             .iter()
-            .filter(|d| !d.is_null())
             .map(|d| Drop::parse(d, awards, now))
             .collect::<Result<Vec<_>, _>>()?;
         let mut seen = HashSet::new();
@@ -337,7 +341,10 @@ impl Campaign {
             starts_at: timestamp(value, "startAt")?,
             ends_at: timestamp(value, "endAt")?,
             valid: value["status"].as_str() != Some("EXPIRED"),
-            allowed_channels: if value["allow"]["isEnabled"] == false {
+            allowed_channels: if value["allow"]
+                .get("isEnabled")
+                .is_some_and(|enabled| enabled != true)
+            {
                 vec![]
             } else {
                 channel_list(&value["allow"]["channels"])?
@@ -725,6 +732,36 @@ mod tests {
     }
 
     #[test]
+    fn incomplete_metadata_cannot_create_or_erase_confirmed_completion() {
+        let drop = raw_drop("coat", &[]);
+        let awards = HashMap::from([("b-coat".into(), now())]);
+        let raw = raw_campaign(vec![drop]);
+        let mut missing_benefit = raw.clone();
+        missing_benefit["timeBasedDrops"][0]["benefitEdges"]
+            .as_array_mut()
+            .unwrap()
+            .push(Value::Null);
+        assert!(Campaign::parse(&missing_benefit, &awards, now()).is_err());
+        let mut missing_drop = raw.clone();
+        missing_drop["timeBasedDrops"]
+            .as_array_mut()
+            .unwrap()
+            .push(Value::Null);
+        assert!(Campaign::parse(&missing_drop, &awards, now()).is_err());
+        for incomplete in [
+            json!({}),
+            json!({"isClaimed":false}),
+            json!({"currentMinutesWatched":4}),
+        ] {
+            let mut unknown = raw.clone();
+            unknown["timeBasedDrops"][0]["self"] = incomplete;
+            assert!(Campaign::parse(&unknown, &awards, now()).is_err());
+        }
+        let c = Campaign::parse(&raw, &awards, now()).unwrap();
+        assert!(c.view(&selected(), now()).finished);
+    }
+
+    #[test]
     fn ignored_dependencies_prune_only_unused_branches() {
         let mut starter = raw_drop("starter", &[]);
         starter["benefitEdges"] = json!([]);
@@ -796,6 +833,12 @@ mod tests {
         c.allowed_channels.clear();
         assert!(!c.can_watch(&stream, &settings, now()));
         raw["allow"]["isEnabled"] = false.into();
+        assert!(
+            !Campaign::parse(&raw, &HashMap::new(), now())
+                .unwrap()
+                .can_watch(&stream, &settings, now())
+        );
+        raw["allow"]["isEnabled"] = Value::Null;
         assert!(
             !Campaign::parse(&raw, &HashMap::new(), now())
                 .unwrap()
