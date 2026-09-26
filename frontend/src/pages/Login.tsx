@@ -1,17 +1,8 @@
 import { useState } from 'react';
-import { mdiLockOutline } from '@mdi/js';
+import logo from '../assets/twitch-miner-logo.svg?no-inline';
 import { useT } from '../lib/i18n';
 import { request } from '../lib/api';
-import {
-  Button,
-  Check,
-  Field,
-  Icon,
-  Input,
-  Notice,
-  useAction,
-  ActionResult,
-} from '../components/ui';
+import { Button, Check, Field, Input, Notice, useAction, ActionResult } from '../components/ui';
 export default function Login({
   onLogin,
   statusError = false,
@@ -27,9 +18,13 @@ export default function Login({
     <main className="grid min-h-dvh place-items-center p-6">
       <div className="w-full max-w-sm">
         <div className="mb-8 flex items-center gap-3">
-          <span className="grid size-10 place-items-center rounded border border-divider bg-surface">
-            <Icon path={mdiLockOutline} />
-          </span>
+          <img
+            src={logo}
+            alt=""
+            width={37}
+            height={48}
+            className="h-12 w-9 shrink-0 object-contain"
+          />
           <span className="font-semibold tracking-tight">Twitch miner</span>
         </div>
         <h1 className="text-[22px] font-semibold">{t('gui.auth.login_title')}</h1>
