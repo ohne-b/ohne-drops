@@ -1,42 +1,39 @@
-# Cache files
-__pycache__
-.mypy_cache
-# Build and dist files
-/build
-/dist
+# Build output and local tools
+/target/
+/web/
+/artifacts/
+/.tools/
+/build/
+/dist/
 /*.exe
 /*.zip
 /*.tmp
-/Twitch Drops Miner
-# Dev files
-/env
-/cache
-/*.jar
-log.txt
-/dump.dat
-/lock.file
-settings.json
-
-logs/
-.claude/
-data/
-.ruff_cache/
-.vscode/
-.idea/
-*.iml
-*.log
-*.egg-info/
-.coverage
-
-artifacts/
-# React dashboard and local toolchain
 frontend/node_modules/
 frontend/test-results/
 frontend/playwright-report/
-/web/
-.venv/
-.tools/
-tdm-session.json
-tdm-connection.json
-server-seed.json
-renewal-state/
+
+# User data, logs and editor files
+/data/
+/logs/
+/cache/
+*.log
+.env
+.env.local
+.vscode/
+.idea/
+*.iml
+
+# Retired credentials may still exist in an upgraded checkout. Never commit them.
+/*.jar
+/settings.json
+/web_auth.json
+/twitch_session*.json
+/pending_claims.json
+/drop_history.json
+/completed_campaigns.json
+/dump.dat
+/lock.file
+/tdm-session.json
+/tdm-connection.json
+/server-seed.json
+/renewal-state/

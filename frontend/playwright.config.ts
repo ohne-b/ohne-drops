@@ -7,10 +7,9 @@ export default defineConfig({
   use: { baseURL: 'http://127.0.0.1:8765', browserName: 'chromium', trace: 'retain-on-failure' },
   webServer: {
     command:
-      process.platform === 'win32'
-        ? 'cmd /d /c "cd .. && call env\\Scripts\\activate.bat && python -m uvicorn tests.dashboard_server:app --host 127.0.0.1 --port 8765"'
-        : 'cd .. && . env/bin/activate && python -m uvicorn tests.dashboard_server:app --host 127.0.0.1 --port 8765',
+      'cargo run --manifest-path ../Cargo.toml --locked --features dashboard-fixture --bin dashboard-fixture',
     url: 'http://127.0.0.1:8765/__test/health',
     reuseExistingServer: false,
+    timeout: 120_000,
   },
 });

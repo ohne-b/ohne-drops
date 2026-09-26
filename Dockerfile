@@ -1,3 +1,4 @@
+ARG BUILDPLATFORM=linux/amd64
 FROM --platform=$BUILDPLATFORM node:24-bookworm-slim AS dashboard
 WORKDIR /build/frontend
 COPY frontend/package.json frontend/package-lock.json ./
@@ -6,8 +7,31 @@ COPY frontend/ ./
 COPY lang/ /build/lang/
 RUN npm run build
 
-FROM python:3.12-slim-bookworm
-COPY --from=ghcr.io/astral-sh/uv:0.12.19 /uv /usr/local/bin/uv
+FROM --platform=$BUILDPLATFORM rust:1.97.1-bookworm AS build
+ARG TARGETARCH
+WORKDIR /build
+RUN apt-get update && apt-get install -y --no-install-recommends \
+      cmake gcc-aarch64-linux-gnu g++-aarch64-linux-gnu gcc-x86-64-linux-gnu \
+    && rm -rf /var/lib/apt/lists/*
+COPY Cargo.toml Cargo.lock rust-toolchain.toml ./
+COPY src/ ./src/
+COPY lang/ ./lang/
+COPY --from=dashboard /build/web/ ./web/
+ENV CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER=aarch64-linux-gnu-gcc \
+    CARGO_TARGET_X86_64_UNKNOWN_LINUX_GNU_LINKER=x86_64-linux-gnu-gcc \
+    CC_aarch64_unknown_linux_gnu=aarch64-linux-gnu-gcc \
+    CC_x86_64_unknown_linux_gnu=x86_64-linux-gnu-gcc \
+    CXX_aarch64_unknown_linux_gnu=aarch64-linux-gnu-g++
+RUN case "${TARGETARCH:-amd64}" in \
+      amd64) target=x86_64-unknown-linux-gnu ;; \
+      arm64) target=aarch64-unknown-linux-gnu ;; \
+      *) echo "Unsupported architecture" >&2; exit 1 ;; \
+    esac \
+    && rustup target add "$target" \
+    && cargo build --release --locked --bin twitch-miner --target "$target" \
+    && cp "target/$target/release/twitch-miner" /twitch-miner
+
+FROM debian:bookworm-slim
 ARG BUILD_DATE
 ARG VCS_REF
 ARG VERSION
@@ -18,21 +42,17 @@ LABEL org.opencontainers.image.created="${BUILD_DATE}" \
       org.opencontainers.image.revision="${VCS_REF}" \
       org.opencontainers.image.licenses="MIT" \
       org.opencontainers.image.title="Twitch Drops Miner"
-ENV PYTHONUNBUFFERED=1 \
-    PYTHONDONTWRITEBYTECODE=1 \
-    UV_PROJECT_ENVIRONMENT=/app/env \
-    VIRTUAL_ENV=/app/env \
-    PATH="/app/env/bin:$PATH" \
-    PORT=8080
+RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates \
+    && rm -rf /var/lib/apt/lists/* \
+    && mkdir -p /app/data /app/logs \
+    && chown 1000:1000 /app/data /app/logs
+COPY --from=build /twitch-miner /usr/local/bin/twitch-miner
+COPY LICENSE /usr/share/licenses/twitch-miner/LICENSE
+COPY frontend/public/assets/licenses/ /usr/share/licenses/twitch-miner/dashboard/
 WORKDIR /app
-COPY pyproject.toml uv.lock README.md LICENSE ./
-RUN uv sync --locked --no-dev --no-install-project --no-cache
-COPY main.py ./
-COPY src/ ./src/
-COPY lang/ ./lang/
-COPY --from=dashboard /build/web/ ./web/
-RUN mkdir -p /app/data /app/logs
+ENV HOST=0.0.0.0 PORT=8080 DATA_DIR=/app/data LOG_DIR=/app/logs
+USER 1000:1000
 EXPOSE 8080
-HEALTHCHECK --interval=30s --timeout=3s --start-period=10s --retries=3 \
-    CMD python -c "import urllib.request; urllib.request.urlopen('http://localhost:8080/healthz')" || exit 1
-CMD ["python", "main.py"]
+HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
+    CMD ["/usr/local/bin/twitch-miner", "healthcheck"]
+ENTRYPOINT ["/usr/local/bin/twitch-miner"]

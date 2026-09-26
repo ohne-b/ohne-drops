@@ -2,18 +2,15 @@ services:
   twitch-drops-miner:
     build: .
     container_name: twitch-drops-miner
-    image: twitch-drops-miner:latest
+    image: twitch-drops-miner:local
+    user: "1000:1000"
     ports:
-      - "8080:8080"
+      - "127.0.0.1:8080:8080"
     volumes:
-      # Mount data directory for persistent storage
       - ./data:/app/data
       - ./logs:/app/logs
-    environment:
-      # Set timezone (optional, defaults to UTC)
-      - TZ=Australia/Sydney
-      # Optional: exact public URL when using a reverse proxy (root URL, no subpath).
-      # HTTPS here enables Secure cookies even when the proxy uses HTTP to this container.
-      # Does not trust forwarded client IPs; leave unset for direct HTTP access.
-      # - PUBLIC_BASE_URL=https://drops.example.com
+    # For a reverse proxy, set one exact root URL. HTTPS enables Secure cookies.
+    # This does not enable trust of forwarded client IP headers.
+    # environment:
+    #   PUBLIC_BASE_URL: https://drops.example.com
     restart: unless-stopped

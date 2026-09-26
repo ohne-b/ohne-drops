@@ -1,55 +1,52 @@
-name: Create Version Release
+name: Prepare release
 
 on:
   workflow_dispatch:
     inputs:
       version:
-        description: 'Release version (SemVer format, e.g., 1.2.3 or 2.0.0-rc.1)'
+        description: 'Next SemVer version, for example 2.0.0 or 2.0.0-rc.1'
         required: true
         type: string
 
 permissions:
   contents: write
+  pull-requests: write
 
-env:
-  CURRENT_BRANCH_NAME: ${{ github.head_ref || github.ref_name }}
+concurrency:
+  group: prepare-release
+  cancel-in-progress: false
 
 jobs:
-  create-release-branch:
-    name: Create Release Branch
+  prepare:
+    if: github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
-
     steps:
-      - name: Checkout code
-        uses: actions/checkout@v5
+      - uses: actions/checkout@v6
         with:
+          ref: main
+          # A maintainer token lets the new PR trigger its normal validation checks.
           token: ${{ secrets.PUBLISHER_TOKEN }}
-          fetch-depth: 0
-
-      - name: Set up uv
-        uses: astral-sh/setup-uv@c771a70e6277c0a99b617c7a806ffedaca235ff9 # v9.0.0
-
-      - name: Extract version
-        id: extract
-        run: .github/scripts/extract_version.sh
-
-      - name: Validate version format and range
-        id: validate
-        run: .github/scripts/validate_semver.sh "${{ github.event.inputs.version }}" ">${{ steps.extract.outputs.version }}"
-
-      - name: Check if branch exists
+      - uses: actions/setup-node@v6
+        with:
+          node-version: '24'
+      - run: rustup show
+      - run: npm --prefix frontend ci
+      - name: Prepare version and lockfile
+        env:
+          RELEASE_VERSION: ${{ inputs.version }}
+        run: node .github/scripts/release.mjs bump "$RELEASE_VERSION"
+      - name: Open draft release pull request
+        env:
+          GH_TOKEN: ${{ secrets.PUBLISHER_TOKEN }}
+          RELEASE_VERSION: ${{ inputs.version }}
         run: |
-          BRANCH_NAME="release/${{ steps.validate.outputs.version }}"
-
-          if git ls-remote --heads origin "$BRANCH_NAME" | grep -q "$BRANCH_NAME"; then
-            echo "Error: Branch '$BRANCH_NAME' already exists"
-            exit 1
-          fi
-
-          echo "Branch '$BRANCH_NAME' does not exist, proceeding..."
-
-      - name: Auto-generate release notes if missing
-        run: .github/scripts/generate_release_notes.sh -v "${{ steps.validate.outputs.version }}" -k "${{ secrets.GEMINI_API_KEY }}" -p
-
-      - name: Create release branch and update version
-        run: .github/scripts/create_release.sh "${{ steps.validate.outputs.version }}" "${{ env.CURRENT_BRANCH_NAME }}"
+          branch="feat/release-${RELEASE_VERSION}"
+          git switch -c "$branch"
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add Cargo.toml Cargo.lock
+          git commit -m "chore: release ${RELEASE_VERSION}"
+          git push origin "$branch"
+          printf '%s\n' 'Updates the Cargo package and lockfile version together.' '' \
+            'Keep this PR in draft until validation and independent adversarial review pass. After merging, run Publish release from main with this version.' > /tmp/release-body.md
+          gh pr create --draft --base main --head "$branch" --title "chore: release ${RELEASE_VERSION}" --body-file /tmp/release-body.md
