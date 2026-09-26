@@ -628,7 +628,18 @@ Tests cover persistence, filtering, Unicode exports, offsets, and translated UI 
 
 English is the only language. The settings loader discards old language preferences; do not reintroduce locale APIs, selection controls, or language broadcasts.
 
-No Telegram service, endpoints, credentials, notification hooks or UI remain. Legacy stored fields are ignored and removed on the next settings save.
+Telegram claim notifications are optional. Preserve `telegram_bot_token` and
+`telegram_chat_id` in settings; blank or masked tokens keep the saved credential and
+clearing the chat ID disables alerts. `SettingsManager.get_settings()` masks tokens for
+both HTTP and Socket.IO. Never log tokens, request URLs, response bodies or exception
+details from Telegram; redact settings validation errors too. Settings → Telegram has
+explicit Save and Test buttons: testing uses drafts and saves only after successful
+delivery. Preserve newer edits and revision conflicts; Retry patches only Telegram fields.
+The test endpoint retains dashboard auth/origin/CSRF guards. Use the fixed HTTPS Telegram
+API with redirects disabled, a 10-second timeout and no retry. The shared successful claim
+transition sends one alert; persist timed-drop history before cancellable notification I/O.
+Tests must mock Telegram transport (including the browser fixture), never send real alerts.
+Keep setup links as explicit safe DOM nodes and Telegram HTML fields escaped.
 
 Game-account linking is display metadata, not a local earning gate. Include unlinked item campaigns while retaining timing, channel ACL, prerequisites, benefit types, ignore rules and server-confirmed progress. Twitch still controls reward delivery.
 
