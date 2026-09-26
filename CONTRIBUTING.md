@@ -95,6 +95,7 @@ cargo clippy --all-targets --all-features --locked -- -D warnings
 cargo test --all-targets --all-features --locked
 node --test .github/scripts/test/*.test.mjs
 node .github/scripts/release.mjs read
+node .github/scripts/release.mjs artifacts "$(node .github/scripts/release.mjs read)"
 git diff --check
 cd frontend
 npx playwright install chromium
@@ -158,15 +159,30 @@ checks/policy to appear complete.
 Version ownership is `Cargo.toml` and `Cargo.lock`. **Prepare release**, manually run on
 main, uses `PUBLISHER_TOKEN` to create a draft version PR whose checks run normally. The
 token needs repository contents/PR access; configure it as a secret, never in source.
-Review and merge that PR under the same policy. **Publish release** then runs manually
+Add a concise, reviewed `CHANGELOG.md` entry to that draft PR, matching the existing
+version/link/date heading and change-list style. Review and merge it under the same policy.
+**Publish release** then runs manually
 from main for that version, requires successful push or manually dispatched validation on the exact commit,
 and uses the `prod` environment. It builds both architectures, publishes
-`ghcr.io/ohne-b/twitch-miner:VERSION`, and creates a `vVERSION` GitHub release with generated
-notes. Stable releases update `latest`; prereleases do not. The first GHCR package may
+`ghcr.io/ohne-b/twitch-miner:VERSION`, and creates a `Twitch miner vVERSION` draft release
+with the reviewed changelog notes, comparison link and issue link. It attaches and verifies
+`latest.json` before publication. The manifest uses `schemaVersion: 1`, a canonical SemVer
+`version`, and a `notes` link; it contains no installer or executable commands. This applies
+to stable releases and prereleases. Stable releases update `latest`; prereleases do not.
+The first GHCR package may
 need public visibility configured for anonymous pulls. Ordinary merges publish nothing.
 Contributor credit commits made with the workflow token do not trigger push workflows;
 run **validation** manually on main before publishing when its latest commit is such a credit.
 SemVer build metadata uses `_` in place of `+` in the Docker tag.
+To publish the same multi-architecture build to Docker Hub, create a public repository
+and set Actions repository variables `DOCKERHUB_IMAGE` (`namespace/repository`) and
+`DOCKERHUB_USERNAME`, plus secret `DOCKERHUB_TOKEN` (a Read & Write personal access token).
+Leave `DOCKERHUB_IMAGE` unset for GHCR-only publication. An enabled but incomplete or
+unauthorized Docker Hub configuration fails before building/publishing the release.
+Both registries receive the version tag; only stable releases advance their `latest` tags.
+Maintenance reads the latest stable release's manifest with bounded requests and a short
+shared cache. Unknown/unreachable metadata must never be reported as up to date. It only
+offers release notes and manual checks; installing updates remains a terminal operation.
 
 Do not rewrite published tags or bypass checks. Revert source through a normal PR; an
 installation rollback redeploys a previously validated image with its backed-up data.

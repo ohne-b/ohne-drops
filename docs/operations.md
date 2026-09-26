@@ -24,7 +24,11 @@ authentication fails closed. Settings that cannot be read are never silently res
 The retired Telegram integration is removed: no worker, API, controls or outgoing delivery.
 Its old settings fields are omitted from responses and removed on the next successful save.
 There is no browser-session import, browser renewal service, or dashboard installer/updater.
-Maintenance can check releases; installation remains an explicit terminal operation.
+Maintenance checks the latest stable release's `latest.json` and shows a release-notes link
+when a newer version exists. Checks are shared for 30 seconds, including failures; retry
+after a short wait if the network is unavailable. Installation remains a terminal operation.
+The first published release is `0.1.0`; earlier development builds labeled `1.3.2` require
+one manual upgrade before comparisons follow the new release sequence.
 
 Keep all data private, including settings containing proxy credentials. Never attach an
 entire data directory, OAuth/device codes, cookies, passwords, or unredacted logs to an issue.

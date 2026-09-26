@@ -39,6 +39,7 @@ jobs:
           cargo test --all-targets --all-features --locked
           node --test .github/scripts/test/*.test.mjs
           node .github/scripts/release.mjs read
+          node .github/scripts/release.mjs artifacts "$(node .github/scripts/release.mjs read)"
           git diff --exit-code
       - name: Browser and accessibility tests
         working-directory: frontend
