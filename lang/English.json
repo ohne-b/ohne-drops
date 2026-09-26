@@ -152,28 +152,7 @@
             "manual_game_warning": "\"{game}\" is not in the available campaign list. Add it to Games to Watch anyway?",
             "confirm_btn": "Confirm",
             "cancel_btn": "Cancel",
-            "remove_game": "Remove {game}",
-            "telegram": {
-                "name": "Telegram Notifications",
-                "description": "Receive a message when a drop is claimed.",
-                "bot_token": "Telegram Bot Token",
-                "chat_id": "Telegram Chat ID",
-                "save_settings": "Save Settings",
-                "test_connection": "Test Connection",
-                "credentials_help": "Leave the token blank to keep the saved token. To disable notifications, clear the Chat ID and save.",
-                "configured": "A bot token is saved.",
-                "not_configured": "No bot token is saved.",
-                "how_to_setup": "How to Set Up",
-                "setup_bot": "Create a bot with /newbot and copy its token.",
-                "setup_start": "Open your bot in Telegram and send /start.",
-                "setup_chat": "Open https://api.telegram.org/botTOKEN/getUpdates with your token in place of TOKEN. Use the chat.id from your message, then enter the token and Chat ID above. Test Connection sends a test message and saves only after success.",
-                "success": "Telegram connection successful. Settings saved.",
-                "saved": "Telegram settings saved.",
-                "error": "Telegram connection failed. Check the bot token and Chat ID, and start a conversation with your bot.",
-                "claim_message": "🎮 <b>Drop Claimed!</b>\n<b>Campaign:</b> {campaign}\n<b>Game:</b> {game}\n<b>Drop:</b> {drop}\n<b>Reward:</b> {rewards}",
-                "test_message": "✅ Telegram notification test successful!",
-                "delivery_failed": "Telegram notification could not be delivered."
-            }
+            "remove_game": "Remove {game}"
         },
         "help": {
             "about": "About Twitch Drops Miner",
@@ -398,6 +377,11 @@
             "historical_claims_help": "These campaigns are no longer in the catalog. Their recorded claims are preserved, but older history does not contain the total reward count needed to verify full completion.",
             "completion_unknown": "Completion unverified",
             "view_claim_history": "View claim history"
+        },
+        "backend": {
+            "proxy_empty": "Proxy URL is empty.",
+            "proxy_connected": "Connected.",
+            "proxy_failed": "Proxy connection failed."
         }
     }
 }

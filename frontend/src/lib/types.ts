@@ -69,7 +69,6 @@ export interface Filters {
 }
 export interface Settings {
   revision?: string;
-  dark_mode: boolean;
   games_to_watch: string[];
   games_available: string[];
   drop_name_blacklist: string[];
@@ -79,9 +78,6 @@ export interface Settings {
   mining_benefits: Record<string, boolean>;
   inventory_filters: Filters;
   inventory_list_view: boolean;
-  telegram_bot_token: string;
-  telegram_chat_id: string;
-  telegram_configured: boolean;
 }
 export interface OAuth {
   url: string;
