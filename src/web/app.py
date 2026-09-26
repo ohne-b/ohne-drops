@@ -73,6 +73,7 @@ class ChannelSelectRequest(BaseModel):
 
 
 class SettingsUpdate(BaseModel):
+    revision: str | None = None
     games_to_watch: list[str] | None = None
     drop_name_blacklist: list[str] | None = None
     dark_mode: bool | None = None
@@ -99,6 +100,10 @@ class TelegramTestRequest(BaseModel):
 # ==================== REST API Endpoints ====================
 
 
+@app.get("/campaigns", response_class=HTMLResponse, include_in_schema=False)
+@app.get("/history", response_class=HTMLResponse, include_in_schema=False)
+@app.get("/activity", response_class=HTMLResponse, include_in_schema=False)
+@app.get("/settings", response_class=HTMLResponse, include_in_schema=False)
 @app.get("/", response_class=HTMLResponse)
 async def serve_index():
     """Serve the main web interface"""
@@ -109,11 +114,11 @@ async def serve_index():
         f"Looking for web files: __file__={__file__}, web_dir={web_dir}, index_file={index_file}, exists={index_file.exists()}"
     )
     if index_file.exists():
-        content = index_file.read_text(encoding="utf-8").replace("__APP_VERSION__", __version__)
+        content = index_file.read_text(encoding="utf-8")
         return HTMLResponse(content=content, headers={"Cache-Control": "no-cache"})
     return HTMLResponse(
-        content=f"<h1>Twitch Drops Miner</h1><p>Web interface files not found. Please check installation.</p><p>Debug: Looking for {index_file}</p>",
-        status_code=500,
+        content="<h1>Twitch miner</h1><p>Build the dashboard: cd frontend &amp;&amp; npm ci &amp;&amp; npm run build</p>",
+        status_code=503,
     )
 
 
@@ -220,6 +225,10 @@ async def update_settings(settings: SettingsUpdate):
         raise HTTPException(status_code=503, detail="GUI not initialized")
 
     settings_dict = settings.model_dump(exclude_unset=True)
+    revision = settings_dict.pop("revision", None)
+    if revision is not None and revision != gui_manager.settings.revision:
+        raise HTTPException(status_code=409, detail="settings_conflict")
+    # No await between checking and saving: concurrent requests cannot interleave.
     updated_settings = gui_manager.settings.update_settings(settings_dict)
     return {"success": True, "settings": updated_settings}
 
@@ -507,6 +516,7 @@ async def connect(sid, environ):
                 "manual_mode": twitch_client.get_manual_mode_info(),
                 "current_drop": gui_manager.progress.get_current_drop(),
                 "wanted_items": gui_manager.get_wanted_game_tree(),
+                "inventory_status": gui_manager.inv.availability,
             },
             room=sid,
         )
@@ -550,9 +560,9 @@ async def get_wanted_items(sid):
 # Web files are in project_root/web/, we're in project_root/src/web/
 web_dir = Path(__file__).parent.parent.parent / "web"
 if web_dir.exists():
-    static_dir = web_dir / "static"
-    if static_dir.exists():
-        app.mount("/static", StaticFiles(directory=static_dir), name="static")
+    assets_dir = web_dir / "assets"
+    if assets_dir.exists():
+        app.mount("/assets", StaticFiles(directory=assets_dir), name="assets")
 
 
 # Development server runner

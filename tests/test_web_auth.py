@@ -3,6 +3,7 @@
 import asyncio
 import importlib
 import json
+import re
 import time
 from collections import deque
 from types import SimpleNamespace
@@ -80,7 +81,7 @@ class TestDashboardAuth:
     def test_dashboard_redirect_and_all_protected_routes(self, protected):
         response = protected.get("/", follow_redirects=False)
         assert response.status_code == 303 and response.headers["location"] == "/login"
-        assert 'id="web-auth-login"' in protected.get("/login").text
+        assert 'id="root"' in protected.get("/login").text
         assert protected.get("/healthz").json() == {"status": "ok"}
         for path, operations in web.app.openapi()["paths"].items():
             if not path.startswith("/api/") or path in ("/api/auth/status", "/api/auth/login"):
@@ -90,7 +91,9 @@ class TestDashboardAuth:
                 assert response.status_code == 401, (method, path)
         for path in ("/docs", "/openapi.json", "/static/app.js", "/socket.io/?EIO=4&transport=polling"):
             assert protected.get(path).status_code == 401, path
-        for path in ("/static/auth.js", "/static/auth.css", "/static/styles.css", "/api/auth/status"):
+        assets = re.findall(r'(?:src|href)="(/assets/[^"]+)"', protected.get("/login").text)
+        assert assets
+        for path in (*assets, "/api/auth/status"):
             assert protected.get(path).status_code == 200, path
 
     def test_wrong_password_and_cookie_tampering(self, protected):

@@ -60,3 +60,14 @@ logs/
 # Other
 .env
 .env.local
+
+# Dashboard build inputs only; never copy local output or test data.
+frontend/node_modules/
+frontend/test-results/
+frontend/playwright-report/
+frontend/tests/
+web/
+.venv/
+.tools/
+artifacts/
+tests/

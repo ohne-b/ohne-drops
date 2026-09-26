@@ -311,6 +311,7 @@ class GUIHistory(TypedDict):
 
 
 class GUIMessages(TypedDict):
+    redesign: dict[str, str]
     auth: GUIAuth
     history: GUIHistory
     output: str

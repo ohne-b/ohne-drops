@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import copy
 import logging
+import secrets
 from collections.abc import Callable
 from typing import TYPE_CHECKING, Any
 
@@ -46,6 +47,7 @@ class SettingsManager:
         self._console = console
         self._on_change = on_change
         self._available_games: list[str] = []
+        self.revision = secrets.token_hex(16)
 
     def get_settings(self, legacy_show_not_linked: bool | None = None) -> dict[str, Any]:
         """Get current settings for display.
@@ -61,6 +63,7 @@ class SettingsManager:
         """
         settings = vars(self._settings).copy()
         settings["games_available"] = self._available_games
+        settings["revision"] = self.revision
         # Never expose the real Telegram bot token to web clients. The token
         # stays server-side; clients only see a configured flag and a mask.
         configured_token = bool(settings.get("telegram_bot_token"))
@@ -154,6 +157,7 @@ class SettingsManager:
         )
 
         self._settings.save()
+        self.revision = secrets.token_hex(16)
         response_settings = self.get_settings(legacy_show_not_linked)
         asyncio.create_task(self._broadcaster.emit("settings_updated", response_settings))
 
@@ -183,7 +187,7 @@ class SettingsManager:
         if new_value is None or getattr(self._settings, key, None) == new_value:
             return False
         setattr(self._settings, key, new_value)
-        log_value = TELEGRAM_TOKEN_MASK if key == "telegram_bot_token" else new_value
+        log_value = TELEGRAM_TOKEN_MASK if key in {"telegram_bot_token", "proxy"} else new_value
         self._log_change(f"Setting changed: {key} = {log_value}")
         action(new_value)
         return should_trigger_update

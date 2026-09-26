@@ -17,13 +17,12 @@ from typing import Literal
 
 import socketio
 from fastapi import APIRouter, HTTPException, Request
-from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
+from fastapi.responses import JSONResponse, RedirectResponse
 from pydantic import BaseModel, SecretStr
 from starlette.requests import HTTPConnection
 from starlette.types import ASGIApp, Receive, Scope, Send
 
 from src.i18n import _
-from src.version import __version__
 from src.web.origin import DashboardOrigin
 
 
@@ -155,8 +154,7 @@ class WebAuth:
 class AuthMiddleware:
     """Guard HTTP and Engine.IO before either application handles the request."""
 
-    PUBLIC = {"/login", "/healthz", "/api/auth/status", "/api/auth/login",
-              "/static/auth.js", "/static/auth.css", "/static/styles.css", "/static/favicon.png"}
+    PUBLIC = {"/login", "/healthz", "/api/auth/status", "/api/auth/login"}
 
     def __init__(self, app: ASGIApp, auth: WebAuth):
         self.app, self.auth = app, auth
@@ -177,8 +175,9 @@ class AuthMiddleware:
         )
         if forbidden:
             return await self.reject(scope, receive, send, 403, "forbidden")
-        if path not in self.PUBLIC and not self.auth.allowed(self.auth.token(scope)):
-            if path == "/" and scope["type"] == "http":
+        public_asset = path.startswith("/assets/") and scope.get("method") in {"GET", "HEAD"}
+        if path not in self.PUBLIC and not public_asset and not self.auth.allowed(self.auth.token(scope)):
+            if path in {"/", "/campaigns", "/history", "/activity", "/settings"} and scope["type"] == "http":
                 return await RedirectResponse("/login", status_code=303,
                     headers={"Cache-Control": "no-store"})(scope, receive, send)
             return await self.reject(scope, receive, send, 401, "authentication_required")
@@ -201,7 +200,11 @@ class AuthMiddleware:
             receive = buffered_receive
 
         async def private_send(message):
-            if message["type"] == "http.response.start" and not path.startswith("/static/"):
+            if message["type"] == "http.response.start" and public_asset and message["status"] == 200:
+                headers = [(k, v) for k, v in message.get("headers", []) if k.lower() != b"cache-control"]
+                headers.append((b"cache-control", b"public, max-age=31536000, immutable"))
+                message["headers"] = headers
+            if message["type"] == "http.response.start" and not path.startswith(("/static/", "/assets/")):
                 headers = [(k, v) for k, v in message.get("headers", [])
                            if k.lower() != b"cache-control"]
                 headers.extend([(b"cache-control", b"no-store"),
@@ -284,8 +287,9 @@ class AuthAPI:
     async def page(self, request: Request):
         if self.auth.allowed(self.auth.token(request.scope)):
             return RedirectResponse("/", status_code=303)
-        path = Path(__file__).resolve().parents[2] / "web" / "login.html"
-        return HTMLResponse(path.read_text(encoding="utf-8").replace("__APP_VERSION__", __version__))
+        from src.web.app import serve_index
+
+        return await serve_index()
 
     async def status(self, request: Request):
         return {"enabled": self.auth.enabled,

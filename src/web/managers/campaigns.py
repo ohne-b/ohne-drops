@@ -33,22 +33,7 @@ class CampaignProgressManager:
         self._current_drop = drop
         self._remaining_seconds = remaining_seconds
         if drop:
-            asyncio.create_task(
-                self._broadcaster.emit(
-                    "drop_progress",
-                    {
-                        "drop_id": drop.id,
-                        "drop_name": drop.name,
-                        "campaign_name": drop.campaign.name,
-                        "campaign_id": drop.campaign.id,
-                        "game_name": drop.campaign.game.name,
-                        "current_minutes": drop.current_minutes,
-                        "required_minutes": drop.required_minutes,
-                        "progress": drop.progress,
-                        "remaining_seconds": remaining_seconds,
-                    },
-                )
-            )
+            asyncio.create_task(self._broadcaster.emit("drop_progress", self.get_current_drop()))
 
     def stop_timer(self):
         """Stop the progress timer and clear the current drop."""
@@ -80,6 +65,8 @@ class CampaignProgressManager:
             "campaign_id": drop.campaign.id,
             "game_name": drop.campaign.game.name,
             "current_minutes": drop.current_minutes,
+            "confirmed_minutes": drop.real_current_minutes,
+            "confirmed_at": drop.confirmed_at.isoformat() if getattr(drop, "confirmed_at", None) else None,
             "required_minutes": drop.required_minutes,
             "progress": drop.progress,
             "remaining_seconds": self._remaining_seconds,
