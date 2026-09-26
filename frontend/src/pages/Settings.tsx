@@ -37,13 +37,6 @@ function Section({
     </section>
   );
 }
-const editable = (settings: SettingsData): SettingsData => ({
-  ...settings,
-  games_to_watch: [...settings.games_to_watch, ...(settings.games_available ?? [])].filter(
-    (game, index, all) =>
-      all.findIndex((other) => other.toLowerCase() === game.toLowerCase()) === index,
-  ),
-});
 function Access({ initial, disabled }: { initial: AuthStatus; disabled: boolean }) {
   const t = useT();
   const [auth, setAuth] = useState(initial);
@@ -148,7 +141,7 @@ function Access({ initial, disabled }: { initial: AuthStatus; disabled: boolean 
 function SettingsContent({ settings, auth }: { settings: SettingsData; auth: AuthStatus }) {
   const { data, connected, autosave } = useMiner();
   const t = useT();
-  const draft = editable(autosave.draft ?? settings);
+  const draft = autosave.draft ?? settings;
   const [ignoredText, setIgnoredText] = useState(draft.drop_name_blacklist.join('\n'));
   const [editingIgnored, setEditingIgnored] = useState(false);
   useEffect(() => {
@@ -319,10 +312,9 @@ function SettingsContent({ settings, auth }: { settings: SettingsData; auth: Aut
                 ))}
               </div>
             )}
-            <p className="muted">{t('all_games_automatic')}</p>
+            <p className="muted">{t('selected_games_help')}</p>
             <GamePriorities
               games={draft.games_to_watch}
-              available={settings.games_available ?? []}
               campaigns={data?.campaigns ?? []}
               onChange={(games) => change('games_to_watch', games)}
             />

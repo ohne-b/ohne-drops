@@ -14,6 +14,7 @@ class StatusMessages(TypedDict):
     claimed_drop: str
     no_channel: str
     no_campaign: str
+    no_selection: str
     catalog_unavailable: str
 
 

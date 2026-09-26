@@ -146,16 +146,18 @@ async def test_cancelled_inventory_waits_for_detail_tasks():
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize("available", [True, False])
-async def test_empty_inventory_reports_catalog_status_truthfully(tmp_path, monkeypatch, available):
+@pytest.mark.parametrize("selected", [[], ["Game"]])
+async def test_empty_inventory_reports_catalog_status_truthfully(tmp_path, monkeypatch, available, selected):
     monkeypatch.setattr("src.core.client.DATA_DIR", tmp_path)
     client = Twitch(SimpleNamespace(**deepcopy(default_settings)))
+    client.settings.games_to_watch = selected
     client.gui = WebGUIManager(client)
     client.gui.inv.availability["available"] = available
     client.get_auth = AsyncMock(return_value=SimpleNamespace(user_id=123))
     client.websocket = MagicMock(start=AsyncMock(), stop=AsyncMock())
     client.fetch_inventory = AsyncMock()
     client._watch_service.watch_loop = AsyncMock()
-    expected = _.t["status"]["no_campaign" if available else "catalog_unavailable"]
+    expected = _.t["status"]["no_selection" if not selected else "no_campaign" if available else "catalog_unavailable"]
     messages = []
     def output(message, **kwargs):
         messages.append(message)

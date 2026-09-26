@@ -50,7 +50,7 @@ class TestWantedGamesFilter(unittest.TestCase):
             DropsCampaign.has_wanted_unclaimed_benefits.__get__(c2, DropsCampaign)
         )
 
-        # Campaign 3: Game3 (newly discovered), Can Earn, Has Benefits -> Included after ranked games
+        # Campaign 3: Game3 (newly discovered) -> not explicitly selected
         c3 = MagicMock(spec=DropsCampaign)
         c3.game = Game({"id": 3, "name": "Game3"})
         c3.id = "campaign3"
@@ -104,7 +104,7 @@ class TestWantedGamesFilter(unittest.TestCase):
         stream_selector = StreamSelector()
         wanted_games = stream_selector.get_wanted_games(self.settings, inventory)
 
-        self.assertEqual([game.name for game in wanted_games], ["Game1", "Game3"])
+        self.assertEqual([game.name for game in wanted_games], ["Game1"])
         self.assertEqual(wanted_games[0].name, "Game1")
 
 
@@ -112,7 +112,7 @@ if __name__ == "__main__":
     unittest.main()
 
 
-def test_new_games_follow_priorities_even_with_empty_or_duplicate_preferences():
+def test_discovery_does_not_select_games_and_explicit_choices_are_deduplicated():
     from types import SimpleNamespace
     from tests.test_watch_drop_filtering import _campaign, _drop
     a = _campaign("a", [_drop("a", "Reward", 10)])
@@ -121,6 +121,24 @@ def test_new_games_follow_priorities_even_with_empty_or_duplicate_preferences():
     b.game = Game({"id": "2", "name": "Beta"})
     selector = StreamSelector()
     settings = SimpleNamespace(games_to_watch=[], mining_benefits={"DIRECT_ENTITLEMENT": True})
-    assert [g.name for g in selector.get_wanted_games(settings, [b, a])] == ["Alpha", "Beta"]
+    assert selector.get_wanted_games(settings, [b, a]) == []
+    assert selector.get_wanted_game_tree(settings, [b, a]) == []
     settings.games_to_watch = ["beta", "BETA"]
-    assert [g.name for g in selector.get_wanted_games(settings, [a, b])] == ["Beta", "Alpha"]
+    assert [g.name for g in selector.get_wanted_games(settings, [a, b])] == ["Beta"]
+    assert settings.games_to_watch == ["beta", "BETA"]
+    a.game = Game({"id": "1", "name": "Fußball Manager"})
+    settings.games_to_watch = ["Fußball Manager"]
+    assert [g.name for g in selector.get_wanted_games(settings, [a])] == ["Fußball Manager"]
+
+
+def test_queue_uses_reward_art_and_allows_missing_art():
+    from types import SimpleNamespace
+    from tests.test_watch_drop_filtering import _campaign, _drop
+    campaign = _campaign("art", [_drop("reward", "Reward", 10)])
+    settings = SimpleNamespace(games_to_watch=[campaign.game.name], mining_benefits={"DIRECT_ENTITLEMENT": True})
+    selector = StreamSelector()
+    benefit = next(iter(campaign.drops)).benefits[0]
+    benefit.image_url = "https://example.test/reward.png"
+    assert selector.get_wanted_game_tree(settings, [campaign])[0]["campaigns"][0]["drops"][0]["image_url"] == benefit.image_url
+    benefit.image_url = None
+    assert selector.get_wanted_game_tree(settings, [campaign])[0]["campaigns"][0]["drops"][0]["image_url"] == ""

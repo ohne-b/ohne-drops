@@ -16,6 +16,8 @@ from src.models.channel import Channel, Stream
 from src.services.campaign_discovery import CampaignDiscovery
 from src.services.inventory_service import InventoryService
 from src.services.watch_service import WatchService
+from src.services.stream_selector import StreamSelector
+from src.web.managers.inventory import InventoryManager
 from tests.test_catalog_availability import campaign
 
 
@@ -55,6 +57,30 @@ def client():
     twitch.get_auth = AsyncMock(return_value=SimpleNamespace(user_id=123))
     twitch._maintenance_service.run_maintenance_task = AsyncMock()
     return twitch
+
+
+@pytest.mark.asyncio
+async def test_recovered_count_reaches_dashboard_without_selecting_games():
+    twitch = client()
+    twitch.settings.mining_benefits = {"DIRECT_ENTITLEMENT": True}
+    twitch.gui.inv = InventoryManager(MagicMock(emit=AsyncMock()), MagicMock())
+    rust = campaign("rust")
+    rust["game"] = {"id": "490100", "name": "Rust"}
+    twitch.gql_request = AsyncMock(side_effect=[
+        {"data": {"currentUser": {"inventory": {"dropCampaignsInProgress": [rust], "gameEventDrops": []}}}},
+        {"data": {"currentUser": {"dropCampaigns": None}}},
+        [{"data": {"game": game_channels("10")}}], directory("10"),
+        [available("10", *(metadata(f"recovered-{i}") for i in range(48)))],
+    ])
+    await InventoryService(twitch).fetch_inventory()
+    await twitch._mnt_task
+    serialized = twitch.gui.inv.get_campaigns()
+    assert twitch.gui.inv.availability["recovered"] == 48
+    assert len(serialized) == 49
+    assert next(c for c in serialized if c["game_name"] == "Rust")["drops"][0]["confirmed_minutes"] == 12
+    assert all(c["active"] and not c["finished"] for c in serialized)
+    assert twitch.settings.games_to_watch == []
+    assert StreamSelector().get_wanted_game_tree(twitch.settings, twitch.inventory) == []
 
 
 @pytest.mark.asyncio

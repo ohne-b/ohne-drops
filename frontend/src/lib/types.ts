@@ -110,7 +110,7 @@ export interface WantedGame {
     id: string;
     name: string;
     url: string;
-    drops: { name: string; benefits: string[] }[];
+    drops: { name: string; benefits: string[]; image_url?: string }[];
   }[];
 }
 export interface ManualMode {

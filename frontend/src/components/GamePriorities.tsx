@@ -7,12 +7,10 @@ import { Art, Button, Empty, Icon } from './ui';
 
 export function GamePriorities({
   games,
-  available,
   campaigns,
   onChange,
 }: {
   games: string[];
-  available: string[];
   campaigns: Campaign[];
   onChange: (games: string[]) => void;
 }) {
@@ -134,15 +132,13 @@ export function GamePriorities({
               className="size-9"
             />
             <span className="min-w-0 flex-1 break-words text-[13px]">{game}</span>
-            {!available.some((item) => item.toLowerCase() === game.toLowerCase()) && (
-              <Button
-                className="px-2"
-                aria-label={t('gui.settings.remove_game', { game })}
-                onClick={() => onChange(games.filter((item) => item !== game))}
-              >
-                <Icon path={mdiClose} />
-              </Button>
-            )}
+            <Button
+              className="px-2"
+              aria-label={t('gui.settings.remove_game', { game })}
+              onClick={() => onChange(games.filter((item) => item !== game))}
+            >
+              <Icon path={mdiClose} />
+            </Button>
           </div>
         ))}
         {!games.length && <Empty title={t('no_game_priorities')} />}

@@ -240,7 +240,7 @@ lang/                # English message catalog
 
 **src/config/settings.py** - Application settings:
 
-- Games to watch is a priority list, never an allowlist. Include all discovered games after saved priorities.
+- Games to watch is the explicit mining allowlist, in priority order. Never add discovered games automatically.
 - Games can also be added manually from the web settings search box. Exact and
   unique partial matches resolve to available game names; ambiguous matches do not
   add a game. Confirmations support keyboard focus and Escape; manual confirmation uses current settings.
@@ -253,7 +253,7 @@ lang/                # English message catalog
   case-insensitive substrings entered one per line; whitespace and blanks are removed and
   duplicates are casefolded while preserving the first spelling/order.
 - Inventory filters (Status, Benefit Type, Game Search); Active/Upcoming/Expired use
-  OR semantics, Not Linked narrows the result, and Finished opts claimed campaigns in.
+  OR semantics; Not Linked narrows the result. Finished is a separate completed-campaign tab.
   Zero-minute subscription rewards are omitted from Inventory and Wanted Drops Queue;
   individually expired and non-mineable rewards are omitted from the queue without hiding
   upcoming or sequential rewards; successful claims refresh the queue immediately; the
@@ -631,11 +631,35 @@ No Telegram service, endpoints, credentials, notification hooks or UI remain. Le
 
 Game-account linking is display metadata, not a local earning gate. Include unlinked item campaigns while retaining timing, channel ACL, prerequisites, benefit types, ignore rules and server-confirmed progress. Twitch still controls reward delivery.
 
-StreamSelector includes every discovered game after saved priorities, case-insensitively deduplicated. Empty priorities still mine all eligible games. Channel display must not hide games absent from the priority list.
-Overview must describe automatic waiting when priorities are empty; never ask users to select games to start mining.
+StreamSelector includes only saved selected games, case-insensitively deduplicated. Empty selection mines nothing.
+Campaign Mine/Stop mining toggles its game through provider-owned autosave; all eligible campaigns for that game participate.
+Settings never appends discovery results to the selected list, and every selected game can be removed.
+Overview prompts for a mining choice when the selection is empty. Campaign visibility is independent of selection.
 
 Keep page introductions compact: no redundant subtitles for Settings, Campaigns, History or Activity, no fixed-dark appearance description, and no generic mining instructions.
 
 Settings autosave lives in MinerProvider so route changes cannot discard pending writes. Debounce and serialize PATCH-like setting updates with revision checks. Retain newer edits during in-flight requests and failed/conflicting input until Retry; never restore whole stale snapshots over other devices.
 
 Game priorities use pointer dragging with the OhneGuessr six-dot handle, pointer capture for touch, Escape/pointer-cancel rollback, and keyboard arrow keys with live announcements. Persist only on drop; cancel if external game priorities change during a drag. No visible arrow buttons or numeric ranks.
+
+Campaigns shows active and upcoming rewards by default, with active confirmed progress first.
+Only the legacy upcoming-only default preset is migrated; custom filters are preserved.
+The visible count and Clear filters control expose hidden results. Ignored/skipped rewards
+are not completed campaigns, and missing artwork must not remove benefit metadata.
+
+CampaignHistory stores completed UI snapshots separately in `data/completed_campaigns.json`,
+using atomic replacement. Inventory clear/batch/refresh and startup snapshots retain these
+records; the archive never enters the mining inventory. Only all-claimed watch rewards mean
+completed, never expired/ignored/skipped. Preserve corrupt archives without overwriting them.
+Legacy claim history without campaign totals is displayed separately as completion unverified.
+
+Overview Up next scrolls inside a 440px maximum-height panel, matching Channels.
+Each queue reward includes item artwork; missing, unsafe, or failed images use the shared Art fallback.
+
+Mine controls remain outside expandable campaign summaries for keyboard/screen-reader access.
+An empty game selection reports that selection is needed, not that Twitch has no campaigns.
+
+New account evidence of unclaimed rewards or a changed reward set invalidates a stale
+completion snapshot durably; metadata-only recovery retains proven completion. Finished
+filters by game/search, including older records. Clearing claim history keeps completed
+campaign snapshots, as its confirmation states. Game matching uses consistent casefolding.

@@ -40,6 +40,73 @@ test('confirmed progress and compact desktop design', async ({ page }) => {
       .evaluate((element) => getComputedStyle(element, '::-webkit-scrollbar').width),
   ).toBe('3px');
 });
+test('Up next scrolls within its panel with reward artwork and safe fallbacks', async ({
+  page,
+  request,
+}) => {
+  const png =
+    'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVQIHWP4z8DwHwAFgAI/ScLbtAAAAABJRU5ErkJggg==';
+  await page.route('https://art.example/**', (route) =>
+    route.request().url().endsWith('broken.png')
+      ? route.abort()
+      : route.fulfill({ contentType: 'image/png', body: Buffer.from(png, 'base64') }),
+  );
+  const game = snapshot.wanted_items[0]!;
+  await request.post('/__test/event', {
+    headers,
+    data: {
+      event: 'wanted_items_update',
+      data: [
+        {
+          ...game,
+          campaigns: [
+            {
+              ...game.campaigns[0],
+              drops: Array.from({ length: 30 }, (_, i) => ({
+                name: `Reward ${i}`,
+                benefits: [`Reward ${i}`],
+                image_url:
+                  i === 0
+                    ? 'https://art.example/reward.png'
+                    : i === 1
+                      ? 'https://art.example/broken.png'
+                      : '',
+              })),
+            },
+          ],
+        },
+      ],
+    },
+  });
+  const panel = page.getByRole('region', { name: 'Up next', exact: true });
+  await expect(panel.locator('li')).toHaveCount(30);
+  await expect(panel.locator('li').first().locator('img')).toHaveAttribute(
+    'src',
+    'https://art.example/reward.png',
+  );
+  await expect(panel.locator('li').nth(1).locator('svg')).toBeVisible();
+  await expect(panel.locator('li').nth(2).locator('svg')).toBeVisible();
+  for (const width of [1440, 390]) {
+    await page.setViewportSize({ width, height: 900 });
+    expect((await panel.boundingBox())!.height).toBeLessThanOrEqual(440);
+    expect(
+      await panel.evaluate(
+        (el) => el.scrollHeight > el.clientHeight && getComputedStyle(el).overflowY === 'auto',
+      ),
+    ).toBe(true);
+    await panel.focus();
+    await page.keyboard.press('End');
+    await expect.poll(() => panel.evaluate((el) => el.scrollTop)).toBeGreaterThan(0);
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(
+      true,
+    );
+  }
+  await page.setViewportSize({ width: 1440, height: 1000 });
+  await panel.evaluate((el) => {
+    el.scrollTop = 0;
+  });
+  await page.screenshot({ path: '../artifacts/overview-queue.png', fullPage: true });
+});
 test('every route loads directly and stays usable on a phone', async ({ page }) => {
   await page.goto('/settings');
   const proxy = await page.getByLabel('Proxy URL', { exact: true }).boundingBox();
@@ -141,8 +208,139 @@ test('campaign filtering and truthful expanded progress', async ({ page }) => {
   await page.getByLabel('Not Linked', { exact: true }).uncheck();
   await expect(page.getByText('Autumn expedition', { exact: true })).toBeVisible();
 });
+test('Finished separates completed, expired, ignored, and unverifiable historical campaigns', async ({
+  page,
+  request,
+}) => {
+  await page.goto('/campaigns');
+  const original = snapshot.campaigns[0]!;
+  await expect(page.getByRole('button', { name: 'Stop mining Rust', exact: true })).toBeEnabled();
+  const completed = {
+    ...original,
+    id: 'completed',
+    name: 'Completed campaign',
+    finished: true,
+    active: false,
+    expired: true,
+    claimed_drops: 2,
+    drops: original.drops.map((drop) => ({ ...drop, is_claimed: true, is_mineable: false })),
+  };
+  const expired = {
+    ...original,
+    id: 'expired',
+    name: 'Expired campaign',
+    active: false,
+    expired: true,
+  };
+  const ignored = { ...original, id: 'ignored', name: 'Ignored campaign', mining_finished: true };
+  await request.post('/__test/event', {
+    headers,
+    data: {
+      event: 'inventory_batch_update',
+      data: { campaigns: [expired, ignored, completed, original] },
+    },
+  });
+  await expect(page.getByText('Completed campaign', { exact: true })).toHaveCount(0);
+  await expect(page.getByText('Ignored campaign', { exact: true })).toBeVisible();
+  await page.getByRole('button', { name: 'Clear filters', exact: true }).click();
+  await expect(page.getByText('Expired campaign', { exact: true })).toBeVisible();
+  await page.route('**/api/history', (route) =>
+    route.fulfill({
+      json: {
+        entries: [
+          {
+            id: 'legacy',
+            campaign_id: 'old',
+            game: 'Rust',
+            campaign: 'Historical campaign',
+            drop_name: 'Old reward',
+            required_minutes: 30,
+            benefits: ['Old reward'],
+            claimed_at: '2025-01-01T00:00:00Z',
+          },
+        ],
+      },
+    }),
+  );
+  await page.getByRole('link', { name: 'Finished', exact: true }).click();
+  await expect(page.getByText('Completed campaign', { exact: true })).toBeVisible();
+  await expect(page.getByText('Completed', { exact: true }).last()).toBeVisible();
+  await expect(page.getByText('Expired campaign', { exact: true })).toHaveCount(0);
+  await expect(page.getByText('Ignored campaign', { exact: true })).toHaveCount(0);
+  await expect(page.getByText('Completion unverified', { exact: true })).toBeVisible();
+  await page.getByRole('button', { name: 'Filters', exact: true }).click();
+  await expect(page.getByRole('checkbox', { name: 'Item', exact: true })).toHaveCount(0);
+  await page.getByRole('checkbox', { name: 'Rust', exact: true }).check();
+  await expect(page.getByText('Completion unverified', { exact: true })).toBeVisible();
+  await page.getByRole('button', { name: 'All games', exact: true }).click();
+  await page.getByRole('searchbox', { name: 'Search campaigns and rewards' }).fill('Completed');
+  await expect(page.getByRole('link', { name: 'Finished', exact: true })).toHaveAttribute(
+    'aria-current',
+    'page',
+  );
+  await expect(page.getByText('Completed campaign', { exact: true })).toBeVisible();
+  await page.screenshot({ path: '../artifacts/campaigns-finished.png', fullPage: true });
+});
+test('Finished historical claims honor game filters and retry failed loading', async ({ page }) => {
+  await page.route('**/api/history', (route) => route.fulfill({ status: 500, json: {} }), {
+    times: 1,
+  });
+  await page.goto('/campaigns?tab=finished');
+  await expect(page.getByRole('alert')).toContainText('Could not load history. Try again.');
+  await page.route('**/api/history', (route) =>
+    route.fulfill({
+      json: {
+        entries: [
+          {
+            id: 'legacy',
+            campaign_id: 'old',
+            game: 'Old game',
+            campaign: 'Historical campaign',
+            drop_name: 'Old reward',
+            required_minutes: 30,
+            benefits: ['Old reward'],
+            claimed_at: '2025-01-01T00:00:00Z',
+          },
+        ],
+      },
+    }),
+  );
+  await page.getByRole('button', { name: 'Try again', exact: true }).click();
+  await expect(page.getByText('Completion unverified', { exact: true })).toBeVisible();
+  await page.getByRole('button', { name: 'Filters', exact: true }).click();
+  await expect(page.getByRole('checkbox', { name: 'Old game', exact: true })).toBeVisible();
+  await page.getByRole('checkbox', { name: 'Rust', exact: true }).check();
+  await expect(page.getByText('Completion unverified', { exact: true })).toHaveCount(0);
+  await page.getByRole('checkbox', { name: 'Old game', exact: true }).check();
+  await expect(page.getByText('Completion unverified', { exact: true })).toBeVisible();
+});
+test('discovery stays visible without mining until Mine is explicitly selected', async ({
+  page,
+  request,
+}) => {
+  await request.post('/api/settings', { headers, data: { games_to_watch: [] } });
+  await page.goto('/campaigns');
+  await expect(page.getByText('Autumn expedition', { exact: true })).toBeVisible();
+  await page.getByRole('button', { name: 'Mine Rust', exact: true }).click();
+  await expect
+    .poll(async () => (await (await request.get('/api/settings')).json()).games_to_watch)
+    .toEqual(['Rust']);
+  await page.reload();
+  await expect(page.getByRole('button', { name: 'Stop mining Rust', exact: true })).toBeVisible();
+  await page.goto('/settings');
+  await expect(page.locator('#mining [data-game]')).toHaveCount(1);
+  await page.getByRole('button', { name: /Remove Rust/ }).click();
+  await expect
+    .poll(async () => (await (await request.get('/api/settings')).json()).games_to_watch)
+    .toEqual([]);
+  await page.goto('/campaigns');
+  await expect(page.getByRole('button', { name: 'Mine Rust', exact: true })).toBeVisible();
+});
 test('game priorities show icons instead of editable numbers', async ({ page, request }) => {
   await page.goto('/settings');
+  await page.getByRole('searchbox', { name: 'Search games...' }).fill('The Elder Scrolls Online');
+  await page.getByRole('button', { name: 'Add Game', exact: true }).click();
+  await expect(page.getByText('Changes saved.', { exact: true })).toBeVisible();
   await expect(page.getByRole('spinbutton', { name: /Priority for/ })).toHaveCount(0);
   await page
     .getByRole('button', { name: 'Reorder The Elder Scrolls Online', exact: true })
@@ -611,7 +809,7 @@ test('password errors stay in Settings and protection changes reach a second bro
   await context.close();
 });
 
-test('automatic game priorities preserve manual spelling and case-insensitive uniqueness', async ({
+test('explicit game priorities preserve manual spelling and case-insensitive uniqueness', async ({
   page,
   request,
 }) => {
@@ -621,15 +819,15 @@ test('automatic game priorities preserve manual spelling and case-insensitive un
   });
   await page.goto('/settings');
   const rows = page.locator('#mining [data-game]');
-  await expect(rows).toHaveCount(4);
+  await expect(rows).toHaveCount(2);
   expect(
     await rows.evaluateAll((items) => items.map((item) => item.getAttribute('data-game'))),
-  ).toEqual(['Custom game', 'rust', 'Sea of Thieves', 'The Elder Scrolls Online']);
+  ).toEqual(['Custom game', 'rust']);
   await expect(page.getByRole('button', { name: 'Select All', exact: true })).toHaveCount(0);
   await page.getByRole('button', { name: 'Reorder rust', exact: true }).press('ArrowUp');
   await expect(page.getByText('Changes saved.', { exact: true })).toBeVisible();
   const games = (await (await request.get('/api/settings')).json()).games_to_watch;
-  expect(games).toEqual(['rust', 'Custom game', 'Sea of Thieves', 'The Elder Scrolls Online']);
+  expect(games).toEqual(['rust', 'Custom game']);
   expect(games.filter((name: string) => name.toLowerCase() === 'rust')).toHaveLength(1);
 });
 
@@ -683,7 +881,7 @@ test('all channels remain available when priorities change', async ({ page, requ
   await expect(page.getByRole('link', { name: 'northwind', exact: true })).toBeVisible();
 });
 
-test('empty priorities still explain automatic mining', async ({ page, request }) => {
+test('empty selection asks for an explicit mining choice', async ({ page, request }) => {
   await request.post('/__test/event', {
     headers,
     data: {
@@ -692,11 +890,7 @@ test('empty priorities still explain automatic mining', async ({ page, request }
     },
   });
   await request.post('/__test/event', { headers, data: { event: 'drop_progress_stop', data: {} } });
-  await expect(
-    page.getByText(
-      'Waiting for an eligible reward and live channel. The miner checks automatically.',
-    ),
-  ).toBeVisible();
+  await expect(page.getByText('Choose Mine on a campaign to select its game.')).toBeVisible();
   await expect(page.getByText('Choose the games you want to mine.')).toHaveCount(0);
 });
 
@@ -705,6 +899,7 @@ test('phone campaign rows retain status and claimed counts', async ({ page }) =>
   await page.goto('/campaigns');
   await expect(page.getByText('0 / 2 claimed · Active', { exact: true })).toBeVisible();
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+  await page.screenshot({ path: '../artifacts/campaigns-phone.png', fullPage: true });
 });
 
 test('long international labels remain usable at phone, tablet and zoom-equivalent widths', async ({
@@ -758,6 +953,10 @@ test('pointer dragging saves on drop and Escape cancels a second drag', async ({
   page,
   request,
 }) => {
+  await request.post('/api/settings', {
+    headers,
+    data: { games_to_watch: ['Rust', 'Sea of Thieves', 'The Elder Scrolls Online'] },
+  });
   await page.goto('/settings');
   const handle = page.getByRole('button', { name: 'Reorder Rust', exact: true });
   await handle.scrollIntoViewIfNeeded();
@@ -769,6 +968,7 @@ test('pointer dragging saves on drop and Escape cancels a second drag', async ({
   expect((await (await request.get('/api/settings')).json()).games_to_watch).toEqual([
     'Rust',
     'Sea of Thieves',
+    'The Elder Scrolls Online',
   ]);
   await page.mouse.up();
   await expect
@@ -813,6 +1013,6 @@ test('touch dragging reorders game priorities', async ({ browser, request }) => 
   await session.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] });
   await expect
     .poll(async () => (await (await request.get('/api/settings')).json()).games_to_watch)
-    .toEqual(['Sea of Thieves', 'Rust', 'The Elder Scrolls Online']);
+    .toEqual(['Sea of Thieves', 'Rust']);
   await context.close();
 });

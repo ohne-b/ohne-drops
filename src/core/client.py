@@ -12,6 +12,7 @@ import aiohttp
 
 from src.api import GQLClient, HTTPClient
 from src.auth import _AuthState
+from src.campaign_history import CampaignHistory
 from src.config import (
     MAX_CHANNELS,
     ClientType,
@@ -99,6 +100,7 @@ class Twitch:
         self._stream_selector: StreamSelector = StreamSelector()
         # Drop history
         self.drop_history: DropHistory = DropHistory(DATA_DIR)
+        self.campaign_history = CampaignHistory(DATA_DIR / "completed_campaigns.json")
 
     def _ensure_api_clients(self) -> None:
         """Ensure API clients are initialized (called after GUI is set)."""
@@ -344,7 +346,7 @@ class Twitch:
                         for drop in campaign.drops:
                             if drop.can_claim:
                                 await drop.claim()
-                # Saved games set priority; all discovered eligible games are included.
+                # Saved games are the explicit mining selection, in priority order.
                 self.wanted_games.clear()
                 games_to_watch: list[str] = self.settings.games_to_watch
                 next_hour: datetime = datetime.now(timezone.utc) + timedelta(hours=1)
@@ -433,7 +435,8 @@ class Twitch:
                     self.change_state(State.CHANNELS_FETCH)
                 else:
                     # with no games available, we switch to IDLE after cleanup
-                    message: Literal["catalog_unavailable", "no_campaign"] = (
+                    message: Literal["no_selection", "catalog_unavailable", "no_campaign"] = (
+                        "no_selection" if not self.settings.games_to_watch else
                         "catalog_unavailable"
                         if self.gui.inv.availability.get("available") is False
                         else "no_campaign"
