@@ -2,7 +2,9 @@
 
 Read this guide before planning, editing, testing or reviewing. Its checklist applies to
 people and coding agents. The canonical repository is `ohne-b/twitch-miner`, targeting
-`main`. Preserve the [MIT license](LICENSE), attribution and frontend asset licenses.
+`main`. Preserve the project's [MIT license](LICENSE), full upstream license in
+[NOTICE.md](NOTICE.md), attribution and frontend asset licenses. Distribute both root
+license files with production images.
 
 This is a personal, self-hosted hobby project. Multiple accounts, channel-points mining,
 a desktop GUI and services hosted for other users are outside the current scope.

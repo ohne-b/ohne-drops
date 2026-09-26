@@ -1,6 +1,16 @@
+# Third-party notices
+
+Twitch Drops Miner is based on
+[rangermix/TwitchDropsMiner](https://github.com/rangermix/TwitchDropsMiner).
+The upstream MIT license is reproduced in full below. The project's own MIT license
+is in [LICENSE](LICENSE). These notices retain the upstream copyright and attribution.
+
+## Upstream MIT license
+
+```text
 MIT License
 
-Copyright (c) 2026 ohne-b (OhneB)
+Copyright (c) 2024 DevilXD
 
 Permission is hereby granted, free of charge, to any person obtaining a copy
 of this software and associated documentation files (the "Software"), to deal
@@ -19,3 +29,11 @@ AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
+```
+
+## Dashboard assets
+
+Font and icon notices remain in
+[frontend/public/assets/licenses](frontend/public/assets/licenses).
+Docker images include both project license files and those asset notices under
+`/usr/share/licenses/twitch-miner/`.

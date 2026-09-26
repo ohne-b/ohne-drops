@@ -143,7 +143,9 @@ Never use live credentials, a live miner or real notifications for automated che
 
 CI requires Rust fmt/Clippy/tests, frontend format/type/build/unit/browser/axe, automation
 contracts, version/lock agreement, and amd64/arm64 production image builds plus isolated health.
-Preserve license notices, 1000:1000 ownership, mounts and port. Health does not prove earning.
+Keep the project's MIT license in `LICENSE` and the full upstream license in `NOTICE.md`;
+include both with frontend asset notices in production images. Preserve 1000:1000 ownership,
+mounts and port. Health does not prove earning.
 
 Cargo manifest/lock own the version. Prepare release opens a draft PR; publish is manual from
 validated main and uses reviewed CHANGELOG notes/GHCR. Every release attaches and verifies
