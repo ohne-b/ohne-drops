@@ -12,6 +12,7 @@ import aiohttp
 
 from src.api import GQLClient, HTTPClient
 from src.auth import _AuthState
+from src.campaign_history import CampaignHistory
 from src.config import (
     MAX_CHANNELS,
     ClientType,
@@ -99,6 +100,7 @@ class Twitch:
         self._stream_selector: StreamSelector = StreamSelector()
         # Drop history
         self.drop_history: DropHistory = DropHistory(DATA_DIR)
+        self.campaign_history = CampaignHistory(DATA_DIR / "completed_campaigns.json")
 
     def _ensure_api_clients(self) -> None:
         """Ensure API clients are initialized (called after GUI is set)."""

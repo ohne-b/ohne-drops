@@ -141,6 +141,74 @@ test('campaign filtering and truthful expanded progress', async ({ page }) => {
   await page.getByLabel('Not Linked', { exact: true }).uncheck();
   await expect(page.getByText('Autumn expedition', { exact: true })).toBeVisible();
 });
+test('Finished separates completed, expired, ignored, and unverifiable historical campaigns', async ({
+  page,
+  request,
+}) => {
+  await page.goto('/campaigns');
+  const original = snapshot.campaigns[0]!;
+  await expect(page.getByRole('button', { name: 'Stop mining Rust', exact: true })).toBeEnabled();
+  const completed = {
+    ...original,
+    id: 'completed',
+    name: 'Completed campaign',
+    finished: true,
+    active: false,
+    expired: true,
+    claimed_drops: 2,
+    drops: original.drops.map((drop) => ({ ...drop, is_claimed: true, is_mineable: false })),
+  };
+  const expired = {
+    ...original,
+    id: 'expired',
+    name: 'Expired campaign',
+    active: false,
+    expired: true,
+  };
+  const ignored = { ...original, id: 'ignored', name: 'Ignored campaign', mining_finished: true };
+  await request.post('/__test/event', {
+    headers,
+    data: {
+      event: 'inventory_batch_update',
+      data: { campaigns: [expired, ignored, completed, original] },
+    },
+  });
+  await expect(page.getByText('Completed campaign', { exact: true })).toHaveCount(0);
+  await expect(page.getByText('Ignored campaign', { exact: true })).toBeVisible();
+  await page.getByRole('button', { name: 'Clear filters', exact: true }).click();
+  await expect(page.getByText('Expired campaign', { exact: true })).toBeVisible();
+  await page.route('**/api/history', (route) =>
+    route.fulfill({
+      json: {
+        entries: [
+          {
+            id: 'legacy',
+            campaign_id: 'old',
+            game: 'Rust',
+            campaign: 'Historical campaign',
+            drop_name: 'Old reward',
+            required_minutes: 30,
+            benefits: ['Old reward'],
+            claimed_at: '2025-01-01T00:00:00Z',
+          },
+        ],
+      },
+    }),
+  );
+  await page.getByRole('link', { name: 'Finished', exact: true }).click();
+  await expect(page.getByText('Completed campaign', { exact: true })).toBeVisible();
+  await expect(page.getByText('Completed', { exact: true }).last()).toBeVisible();
+  await expect(page.getByText('Expired campaign', { exact: true })).toHaveCount(0);
+  await expect(page.getByText('Ignored campaign', { exact: true })).toHaveCount(0);
+  await expect(page.getByText('Completion unverified', { exact: true })).toBeVisible();
+  await page.getByRole('searchbox', { name: 'Search campaigns and rewards' }).fill('Completed');
+  await expect(page.getByRole('link', { name: 'Finished', exact: true })).toHaveAttribute(
+    'aria-current',
+    'page',
+  );
+  await expect(page.getByText('Completed campaign', { exact: true })).toBeVisible();
+  await page.screenshot({ path: '../artifacts/campaigns-finished.png', fullPage: true });
+});
 test('discovery stays visible without mining until Mine is explicitly selected', async ({
   page,
   request,

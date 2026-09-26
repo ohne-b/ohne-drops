@@ -6,14 +6,11 @@ import { useT } from '../lib/i18n';
 import { Art, Icon, ProgressBar, dateTime } from './ui';
 export function Campaign({ campaign, action }: { campaign: CampaignData; action?: ReactNode }) {
   const t = useT();
-  const status =
-    campaign.linked === null
-      ? t('account_link_unknown')
-      : !campaign.linked
-        ? t('gui.inventory.filters.not_linked')
-        : t(
-            `gui.inventory.status.${campaign.expired ? 'expired' : campaign.upcoming ? 'upcoming' : 'active'}`,
-          );
+  const status = campaign.finished
+    ? t('completed')
+    : t(
+        `gui.inventory.status.${campaign.expired ? 'expired' : campaign.upcoming ? 'upcoming' : 'active'}`,
+      );
   return (
     <details className="group border-b border-divider last:border-0">
       <summary className="flex list-none items-center gap-3 px-4 py-4 hover:bg-field">
@@ -21,6 +18,15 @@ export function Campaign({ campaign, action }: { campaign: CampaignData; action?
         <div className="min-w-0 flex-1">
           <p className="font-medium">{campaign.name}</p>
           <p className="muted">{campaign.game_name}</p>
+          {!campaign.finished && campaign.linked !== true && (
+            <p className="muted">
+              {t(
+                campaign.linked === null
+                  ? 'account_link_unknown'
+                  : 'gui.inventory.filters.not_linked',
+              )}
+            </p>
+          )}
           <p className="muted mt-1 sm:hidden">
             {campaign.claimed_drops} / {campaign.total_drops} {t('gui.inventory.claimed_drops')} ·{' '}
             {status}

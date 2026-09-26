@@ -253,7 +253,7 @@ lang/                # English message catalog
   case-insensitive substrings entered one per line; whitespace and blanks are removed and
   duplicates are casefolded while preserving the first spelling/order.
 - Inventory filters (Status, Benefit Type, Game Search); Active/Upcoming/Expired use
-  OR semantics, Not Linked narrows the result, and Finished opts claimed campaigns in.
+  OR semantics; Not Linked narrows the result. Finished is a separate completed-campaign tab.
   Zero-minute subscription rewards are omitted from Inventory and Wanted Drops Queue;
   individually expired and non-mineable rewards are omitted from the queue without hiding
   upcoming or sequential rewards; successful claims refresh the queue immediately; the
@@ -646,3 +646,9 @@ Campaigns shows active and upcoming rewards by default, with active confirmed pr
 Only the legacy upcoming-only default preset is migrated; custom filters are preserved.
 The visible count and Clear filters control expose hidden results. Ignored/skipped rewards
 are not completed campaigns, and missing artwork must not remove benefit metadata.
+
+CampaignHistory stores completed UI snapshots separately in `data/completed_campaigns.json`,
+using atomic replacement. Inventory clear/batch/refresh and startup snapshots retain these
+records; the archive never enters the mining inventory. Only all-claimed watch rewards mean
+completed, never expired/ignored/skipped. Preserve corrupt archives without overwriting them.
+Legacy claim history without campaign totals is displayed separately as completion unverified.
