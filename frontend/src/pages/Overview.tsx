@@ -93,7 +93,6 @@ export default function Overview() {
                     total: progress.required_minutes,
                   })}
                 </span>
-                <span className="text-muted">{t('confirmed_progress')}</span>
               </div>
               {progress.confirmed_at && (
                 <p className="muted mt-2">
