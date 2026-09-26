@@ -111,12 +111,16 @@ class InventoryService:
             response_list_raw if isinstance(response_list_raw, list) else [response_list_raw]
         )
 
-        fetched_data: dict[str, JsonType] = {
-            (campaign_data := response_json["data"]["user"]["dropCampaign"])["id"]: campaign_data
-            for response_json in response_list
-        }
-
-        return GQLClient.merge_data(campaign_ids, fetched_data)
+        fetched_data: dict[str, JsonType] = {}
+        for response_json in response_list:
+            user = response_json["data"].get("user")
+            campaign_data = user and user.get("dropCampaign")
+            if campaign_data:
+                fetched_data[campaign_data["id"]] = campaign_data
+        # A summary alone lacks drops/account data. Keep independent Inventory data
+        # for inaccessible campaigns, but do not construct one from a partial summary.
+        summaries = {cid: summary for cid, summary in campaign_ids.items() if cid in fetched_data}
+        return GQLClient.merge_data(summaries, fetched_data)
 
     async def fetch_inventory(self) -> None:
         """

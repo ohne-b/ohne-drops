@@ -433,8 +433,13 @@ class Twitch:
                     self.change_state(State.CHANNELS_FETCH)
                 else:
                     # with no games available, we switch to IDLE after cleanup
+                    message: Literal["catalog_unavailable", "no_campaign"] = (
+                        "catalog_unavailable"
+                        if self.gui.inv.availability.get("available") is False
+                        else "no_campaign"
+                    )
                     self.print(
-                        _.t["status"]["no_campaign"],
+                        _.t["status"][message],
                         collapse_key="status.no_campaign",
                     )
                     self.change_state(State.IDLE)

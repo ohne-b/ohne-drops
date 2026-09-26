@@ -4,6 +4,14 @@ Settings → Twitch account provides **Log out of Twitch**. It stops account wor
 forgets the server's saved Twitch login, then offers a fresh authorization code.
 Dashboard password access, mining preferences and claimed history are retained.
 
+If Twitch withholds the campaign catalog, the miner retains campaigns returned by
+your in-progress inventory and skips inaccessible campaign details without crashing.
+An unavailable catalog is distinct from an empty one. Smart TV authorization can
+succeed while catalog access fails; logout or cache clearing is not a verified remedy.
+The [upstream investigation](https://github.com/rangermix/TwitchDropsMiner/issues/118)
+tracks an experimental browser export and server renewal helper. That unreleased
+authentication path is not included here; complete discovery is not guaranteed.
+
 > Automatically mine timed Twitch Drops without streaming video or audio.
 
 <p align="center">

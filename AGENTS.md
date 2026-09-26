@@ -108,6 +108,11 @@ lang/                # English message catalog
   HTTP409 keeps the draft for Retry. Keep fields editable while serializing writes.
 - Display confirmed minutes/timestamps separately from local estimates. Catalog null
   means unavailable. Use the actual pending OAuth flow, not an invented reconnect API.
+- Null campaign details must be skipped together with their incomplete summary while
+  preserving independent in-progress Inventory entries. Null catalogs must not print
+  a definitive no-campaign diagnosis. A later valid catalog clears the warning.
+  Smart TV catalog access is an upstream limitation; do not claim cache clearing,
+  relogin or client-ID substitution repairs it.
 - Render API/translated strings as React text; validate external links. Expand Twitch
   art URL placeholders in Art. Preserve locale keys with English fallback. No injected
   HTML or CDN scripts. Keep auth/status translations usable before authentication.
