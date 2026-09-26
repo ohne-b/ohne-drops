@@ -658,8 +658,10 @@ records; the archive never enters the mining inventory. Only all-claimed watch r
 completed, never expired/ignored/skipped. Preserve corrupt archives without overwriting them.
 Legacy claim history without campaign totals is displayed separately as completion unverified.
 
-Overview Channels and Up next share a 552px outer height on desktop, with independently
-scrolling lists below fixed headers. Stacked layouts cap each list at 440px.
+Overview Channels and Up next share the remaining viewport height on desktop, with
+independently scrolling lists below fixed headers. Retain a 240px minimum panel height
+and normal page overflow for short windows; never hide content to suppress scrolling.
+Stacked layouts cap each list at 440px.
 Each queue reward includes item artwork; missing, unsafe, or failed images use the shared Art fallback.
 
 Mine controls remain outside expandable campaign summaries for keyboard/screen-reader access.

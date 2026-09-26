@@ -113,14 +113,13 @@ test('Up next scrolls within its panel with reward artwork and safe fallbacks', 
   for (const width of [1440, 390]) {
     await page.setViewportSize({ width, height: 900 });
     if (width === 1440) {
-      expect((await channels.boundingBox())!.height).toBe(552);
-      expect((await queue.boundingBox())!.height).toBe(552);
+      expect((await channels.boundingBox())!.height).toBe((await queue.boundingBox())!.height);
       expect((await channels.boundingBox())!.y).toBe((await queue.boundingBox())!.y);
     } else {
       expect((await channels.boundingBox())!.y).toBeGreaterThan((await queue.boundingBox())!.y);
     }
     for (const region of [panel, channelPanel]) {
-      expect((await region.boundingBox())!.height).toBeLessThanOrEqual(width === 1440 ? 552 : 440);
+      expect((await region.boundingBox())!.height).toBeLessThanOrEqual(width === 1440 ? 900 : 440);
       expect(
         await region.evaluate(
           (el) => el.scrollHeight > el.clientHeight && getComputedStyle(el).overflowY === 'auto',
@@ -148,6 +147,29 @@ test('Up next scrolls within its panel with reward artwork and safe fallbacks', 
   });
   await expect(panel.getByText('No wanted drops queued...')).toBeVisible();
   expect((await channels.boundingBox())!.height).toBe((await queue.boundingBox())!.height);
+});
+
+test('Overview fits the desktop viewport and only scrolls the page when space is limited', async ({
+  page,
+}) => {
+  for (const [width, height] of [
+    [1920, 945],
+    [1440, 900],
+    [1280, 720],
+  ]) {
+    await page.setViewportSize({ width: width!, height: height! });
+    expect(await page.evaluate(() => document.documentElement.scrollHeight)).toBeLessThanOrEqual(
+      height!,
+    );
+    const channels = page.getByRole('region', { name: 'Channels', exact: true });
+    const queue = page.getByRole('region', { name: 'Up next', exact: true });
+    expect((await channels.boundingBox())!.height).toBeGreaterThan(100);
+    expect((await queue.boundingBox())!.height).toBeGreaterThan(100);
+  }
+  await page.setViewportSize({ width: 1440, height: 480 });
+  expect(await page.evaluate(() => document.documentElement.scrollHeight)).toBeGreaterThan(480);
+  await page.getByRole('region', { name: 'Channels', exact: true }).scrollIntoViewIfNeeded();
+  await expect(page.getByRole('button', { name: 'Watch harbor', exact: true })).toBeVisible();
 });
 test('every route loads directly and stays usable on a phone', async ({ page }) => {
   await page.goto('/settings');
