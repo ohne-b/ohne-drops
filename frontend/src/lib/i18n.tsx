@@ -8,7 +8,7 @@ function lookup(dictionary: Dictionary, key: string): string | undefined {
     value = value && typeof value === 'object' && !Array.isArray(value) ? value[part] : undefined;
   return typeof value === 'string' ? value : undefined;
 }
-// Legacy messages contain decorative emoji; keep prose and strip only presentation symbols.
+// Keep log/status presentation consistent with the neutral interface.
 export const plainText = (text: string) =>
   text
     .replace(/[\p{Extended_Pictographic}\uFE0F\u2713\u2714\u274C\u23F3]/gu, '')
