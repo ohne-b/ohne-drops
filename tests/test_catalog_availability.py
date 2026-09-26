@@ -17,6 +17,13 @@ from src.services.inventory_service import InventoryService
 from src.web.gui_manager import WebGUIManager
 
 
+@pytest.fixture(autouse=True)
+def unavailable_channel_discovery(monkeypatch):
+    monkeypatch.setattr(
+        "src.services.campaign_discovery.CampaignDiscovery.fetch", AsyncMock(return_value={}),
+    )
+
+
 def campaign(cid):
     now = datetime.now(timezone.utc)
     start, end = (now - timedelta(days=1)).isoformat(), (now + timedelta(days=1)).isoformat()
@@ -54,7 +61,7 @@ async def test_missing_catalog_keeps_inventory_then_recovers(ongoing):
             {"data": {"currentUser": {"dropCampaigns": catalog}}},
         ])
         await service.fetch_inventory()
-        twitch.gui.inv.set_availability.assert_called_with(catalog is not None)
+        twitch.gui.inv.set_availability.assert_called_with(catalog is not None, recovered=0)
         assert len(twitch.inventory) == int(ongoing)
         if ongoing:
             assert twitch._drops["ongoing-drop"].current_minutes == 12
@@ -81,7 +88,7 @@ async def test_inaccessible_details_skip_summary_and_preserve_ongoing_inventory(
          {"data": {"user": {"dropCampaign": None}}}, {"data": {"user": None}}],
     ])
     await InventoryService(twitch).fetch_inventory()
-    twitch.gui.inv.set_availability.assert_called_once_with(False)
+    twitch.gui.inv.set_availability.assert_called_once_with(False, recovered=0)
     assert set(twitch._campaigns) == {"new", "ongoing"}
     assert twitch._drops["ongoing-drop"].current_minutes == 12
     await twitch._mnt_task
@@ -105,7 +112,7 @@ async def test_active_summary_without_details_is_unavailable_until_recovery():
             [{"data": {"user": {"dropCampaign": details}}}],
         ])
         await InventoryService(twitch).fetch_inventory()
-        twitch.gui.inv.set_availability.assert_called_with(details is not None)
+        twitch.gui.inv.set_availability.assert_called_with(details is not None, recovered=0)
         assert len(twitch.inventory) == int(details is not None)
         await twitch._mnt_task
 

@@ -32,8 +32,11 @@ class InventoryManager:
         self._batch_mode: bool = False
         self.availability: dict[str, Any] = {"available": True, "checked_at": None}
 
-    def set_availability(self, available: bool) -> None:
-        self.availability = {"available": available, "checked_at": datetime.now(timezone.utc).isoformat()}
+    def set_availability(self, available: bool, *, recovered: int = 0) -> None:
+        self.availability = {
+            "available": available, "recovered": recovered,
+            "checked_at": datetime.now(timezone.utc).isoformat(),
+        }
         asyncio.create_task(self._broadcaster.emit("inventory_status", self.availability))
 
     @staticmethod
@@ -65,7 +68,7 @@ class InventoryManager:
             "name": drop.name,
             "current_minutes": drop.current_minutes,
             "confirmed_minutes": drop.real_current_minutes,
-            "confirmed_at": drop.confirmed_at.isoformat() if getattr(drop, "confirmed_at", None) else None,
+            "confirmed_at": stamp.isoformat() if (stamp := getattr(drop, "confirmed_at", None)) else None,
             "required_minutes": drop.required_minutes,
             "progress": drop.progress,
             "is_claimed": drop.is_claimed,

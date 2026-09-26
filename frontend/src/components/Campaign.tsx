@@ -5,11 +5,14 @@ import { useT } from '../lib/i18n';
 import { Art, Icon, ProgressBar, dateTime } from './ui';
 export function Campaign({ campaign }: { campaign: CampaignData }) {
   const t = useT();
-  const status = !campaign.linked
-    ? t('gui.inventory.filters.not_linked')
-    : t(
-        `gui.inventory.status.${campaign.expired ? 'expired' : campaign.upcoming ? 'upcoming' : 'active'}`,
-      );
+  const status =
+    campaign.linked === null
+      ? t('account_link_unknown')
+      : !campaign.linked
+        ? t('gui.inventory.filters.not_linked')
+        : t(
+            `gui.inventory.status.${campaign.expired ? 'expired' : campaign.upcoming ? 'upcoming' : 'active'}`,
+          );
   return (
     <details className="group border-b border-divider last:border-0">
       <summary className="flex list-none items-center gap-3 px-4 py-4 hover:bg-field">
@@ -48,7 +51,7 @@ export function Campaign({ campaign }: { campaign: CampaignData }) {
                 rel="noreferrer"
                 className="text-link text-[13px]"
               >
-                {t('link_account')}
+                {t(campaign.linked === null ? 'check_account_link' : 'link_account')}
               </a>
             )}
             {safeUrl(campaign.campaign_url) && (

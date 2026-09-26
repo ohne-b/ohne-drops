@@ -18,7 +18,8 @@ from src.api import GQLClient
 from src.config import GQL_OPERATIONS
 from src.exceptions import ExitRequest
 from src.i18n import _
-from src.models import DropsCampaign
+from src.models import DropsCampaign, Game
+from src.services.campaign_discovery import CampaignDiscovery
 from src.utils import chunk
 
 
@@ -50,6 +51,7 @@ class InventoryService:
             twitch: The Twitch client instance
         """
         self._twitch = twitch
+        self._discovery = CampaignDiscovery(twitch)
 
     def _clear_inventory_state(self) -> None:
         """Clear derived campaign and drop state before replacing inventory."""
@@ -181,9 +183,25 @@ class InventoryService:
             await asyncio.gather(*fetch_campaigns_tasks, return_exceptions=True)
             raise
 
-        self._twitch.gui.inv.set_availability(
-            catalog is not None and available_campaigns.keys() <= fetched_ids
-        )
+        available = catalog is not None and available_campaigns.keys() <= fetched_ids
+        recovered_ids: set[str] = set()
+        if not available:
+            seed_games = [
+                Game(data["game"]) for data in [*inventory_data.values(), *available_list]
+                if data.get("game")
+            ]
+            seed_games.extend(
+                Game({"id": "0", "name": name}) for name in self._twitch.settings.games_to_watch
+            )
+            for cid, data in (await self._discovery.fetch(seed_games)).items():
+                # Account Inventory/details take precedence as whole records. Never mix
+                # account state with channel metadata, which has no self edges.
+                if cid not in inventory_data and (catalog is None or cid in available_campaigns):
+                    summary = available_campaigns.get(cid, {})
+                    if summary.get("self"):
+                        data["self"] = summary["self"]
+                    inventory_data[cid] = data
+                    recovered_ids.add(cid)
 
         # filter out invalid campaigns
         for campaign_id in list(inventory_data.keys()):
@@ -191,10 +209,23 @@ class InventoryService:
                 del inventory_data[campaign_id]
 
         # use the merged data to create campaign objects
-        campaigns: list[DropsCampaign] = [
-            DropsCampaign(self._twitch, campaign_data, claimed_benefits)
-            for campaign_data in inventory_data.values()
-        ]
+        campaigns: list[DropsCampaign] = []
+        for cid, campaign_data in inventory_data.items():
+            try:
+                campaign = DropsCampaign(self._twitch, campaign_data, claimed_benefits)
+                # Check time-dependent properties before publishing a recovered record.
+                if cid in recovered_ids and (
+                    not (campaign.active or campaign.upcoming) or not campaign.watch_drops
+                ):
+                    recovered_ids.discard(cid)
+                    continue
+                campaigns.append(campaign)
+            except (KeyError, TypeError, ValueError):
+                if cid not in recovered_ids:
+                    raise
+                recovered_ids.discard(cid)
+                logger.warning("Skipping an incomplete channel campaign record")
+        self._twitch.gui.inv.set_availability(available, recovered=len(recovered_ids))
         campaigns.sort(key=lambda c: c.active, reverse=True)
         campaigns.sort(key=lambda c: c.upcoming and c.starts_at or c.ends_at)
 
