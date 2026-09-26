@@ -6,7 +6,7 @@ COPY frontend/ ./
 COPY lang/ /build/lang/
 RUN npm run build
 
-FROM python:3.12-slim-bookworm AS runtime
+FROM python:3.12-slim-bookworm
 COPY --from=ghcr.io/astral-sh/uv:0.12.19 /uv /usr/local/bin/uv
 ARG BUILD_DATE
 ARG VCS_REF
@@ -36,13 +36,3 @@ EXPOSE 8080
 HEALTHCHECK --interval=30s --timeout=3s --start-period=10s --retries=3 \
     CMD python -c "import urllib.request; urllib.request.urlopen('http://localhost:8080/healthz')" || exit 1
 CMD ["python", "main.py"]
-
-FROM runtime AS renewal
-RUN apt-get update && apt-get install -y --no-install-recommends chromium \
-    && rm -rf /var/lib/apt/lists/*
-HEALTHCHECK NONE
-ENTRYPOINT ["python", "-m", "src.auth.server_renewal"]
-CMD ["--seed", "/state/server-seed.json", "--connection", "/state/renewal.json", "--chromium", "/usr/bin/chromium", "--no-sandbox"]
-
-# The default build remains the ordinary miner without Chromium.
-FROM runtime AS production

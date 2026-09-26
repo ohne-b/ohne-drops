@@ -69,19 +69,6 @@ class HTTPClient:
         self._twitch = twitch
         self._client_type = client_type
         self._session: aiohttp.ClientSession | None = None
-        self._browser_mode = False
-
-    def enable_browser_mode(self, client_type: ClientInfo) -> None:
-        """Use anonymous metadata HTTP alongside browser-owned authenticated GQL.
-
-        Preserve the Android cookie file exactly. It must never contain web
-        credentials, and its cookies must not be sent under the browser identity.
-        """
-        self._browser_mode = True
-        self._client_type = client_type
-        if self._session is not None:
-            self._session.cookie_jar.clear()
-            self._session.headers["User-Agent"] = client_type.USER_AGENT
 
     async def get_session(self) -> aiohttp.ClientSession:
         """
@@ -105,7 +92,7 @@ class HTTPClient:
         # Load cookies
         cookie_jar = aiohttp.CookieJar()
         try:
-            if not self._browser_mode and COOKIES_PATH.exists():
+            if COOKIES_PATH.exists():
                 cookie_jar.load(COOKIES_PATH)
         except Exception:
             # If loading cookies fails, clear the jar and continue
@@ -241,7 +228,6 @@ class HTTPClient:
                 if not cookie:
                     del cookie_jar._cookies[cookie_key]
 
-            if not self._browser_mode:
-                cookie_jar.save(COOKIES_PATH)
+            cookie_jar.save(COOKIES_PATH)
             await self._session.close()
             self._session = None

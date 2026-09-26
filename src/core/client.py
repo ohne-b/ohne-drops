@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import asyncio
 import logging
-import os
 from collections import OrderedDict, abc, deque
 from datetime import datetime, timedelta, timezone
 from functools import partial
@@ -13,9 +12,6 @@ import aiohttp
 
 from src.api import GQLClient, HTTPClient
 from src.auth import _AuthState
-from src.auth.browser_session import BrowserIdentity
-from src.auth.imported_session import ImportedSession, SessionTransport
-from src.auth.session_bundle import SessionError
 from src.config import (
     MAX_CHANNELS,
     ClientType,
@@ -75,12 +71,6 @@ class Twitch:
         self._mnt_triggers: deque[datetime] = deque()
         # Client type and auth
         self._client_type: ClientInfo = ClientType.SMARTBOX
-        import_mode = os.environ.get("TDM_SESSION_IMPORT", "0")
-        if import_mode not in ("0", "1") or any(os.environ.get(name) for name in (
-            "TDM_BROWSER_URL", "TDM_BROWSER_VIEWER_URL", "TDM_BROWSER_DEBUGGER_ADDRESS",
-        )):
-            raise SessionError("CONFIG")
-        self._browser: ImportedSession | None = self._new_import_session() if import_mode == "1" else None
         self._auth_state: _AuthState = _AuthState(self)
         # GUI (will be set by main.py)
         self.gui: WebGUIManager = None  # type: ignore[assignment]
@@ -137,28 +127,6 @@ class Twitch:
         assert self._http_client is not None
         return self._http_client.request(method, url, **kwargs)
 
-    def _new_import_session(self) -> ImportedSession:
-        return ImportedSession(
-            DATA_DIR / "imported-session.json",
-            transport=SessionTransport(lambda: self.settings.proxy or None),
-            bound_user_id=self._import_account,
-            on_identity=self._accept_imported_identity,
-        )
-
-    def _import_account(self) -> int | None:
-        auth = self._auth_state
-        # Do not switch identities while saved device credentials are being validated.
-        # An initial/expired import wait holds the auth lock and must remain resumable.
-        if (self._browser is not None and self._browser.status()["generation"] == 0
-                and not auth.browser_active and not self.gui.login.get_status().get("import_pending")
-                and (auth._lock.locked() or not auth._logged_in.is_set())):
-            raise SessionError("LOGIN_PENDING")
-        return getattr(auth, "user_id", None)
-
-    def _accept_imported_identity(self, identity: BrowserIdentity) -> None:
-        self._auth_state.accept_imported_identity(identity)
-        self.request_inventory_refresh()
-
     async def shutdown(self) -> None:
         start_time = time()
         self.stop_watching()
@@ -171,8 +139,6 @@ class Twitch:
             task.cancel()
         await asyncio.gather(*pending, return_exceptions=True)
         self._watching_task = self._mnt_task = None
-        if self._browser is not None:
-            await self._browser.close()
         if self._http_client is not None:
             await self._http_client.close()
         self._drops.clear()
@@ -285,11 +251,6 @@ class Twitch:
                 await self.shutdown()
                 # close() saves cookies; remove them only after all old account tasks stop.
                 COOKIES_PATH.unlink(missing_ok=True)
-                if self._browser is not None:
-                    self._browser.path.unlink(missing_ok=True)
-                    self._browser = self._new_import_session()
-                self._client_type = ClientType.SMARTBOX
-                self._http_client = self._gql_client = None
                 self._inventory_service.clear_cached_state()
                 self._inventory_loaded = False
                 self._games_update_pending = False

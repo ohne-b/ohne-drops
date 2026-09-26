@@ -7,9 +7,11 @@ History saves reward thumbnails with new claims. Older entries use available cam
 artwork, or a placeholder when the original image is unavailable.
 
 Settings → Twitch account provides **Log out of Twitch**. It stops account work and
-forgets the server's saved Twitch login, then offers a fresh authorization code
-or waits for a browser import when that mode is enabled.
+forgets the server's saved Twitch login, then offers a fresh authorization code.
 Dashboard password access, mining preferences and claimed history are retained.
+
+Twitch login uses the authorization code shown inside Settings. Browser session
+imports and Chromium renewal helpers are no longer used or required.
 
 If Twitch withholds the campaign catalog, the miner retains campaigns returned by
 your in-progress inventory and skips inaccessible campaign details without crashing.
@@ -17,11 +19,8 @@ An unavailable or incomplete catalog is distinct from an empty one. Missing deta
 also keep the warning visible until a complete fetch succeeds. Smart TV authorization can
 succeed while catalog access fails; logout or cache clearing is not a verified remedy.
 The [upstream investigation](https://github.com/rangermix/TwitchDropsMiner/issues/118)
-tracks the experimental browser export and server renewal helper now available
-here as an opt-in recovery. See [browser login setup](docs/browser-login.md).
-It validates real campaign access before switching sessions; Twitch still controls
-availability and earning. Automatic selection already chooses an eligible live
-channel and waits when none can progress a reward.
+tracks an experimental browser export and server renewal helper. That unreleased
+authentication path is not included here; complete discovery is not guaranteed.
 
 > Automatically mine timed Twitch Drops without streaming video or audio.
 
