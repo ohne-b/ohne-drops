@@ -93,7 +93,6 @@ export default function Overview() {
                     total: progress.required_minutes,
                   })}
                 </span>
-                <span className="text-muted">{t('confirmed_progress')}</span>
               </div>
               {progress.confirmed_at && (
                 <p className="muted mt-2">
@@ -125,7 +124,7 @@ export default function Overview() {
           </Button>
         )}
       </section>
-      <div className="grid items-start gap-6 xl:grid-cols-[minmax(0,1fr)_320px]">
+      <div className="grid items-start gap-6 xl:grid-cols-2">
         <section className="panel order-2 xl:order-1">
           <div className="space-y-4 border-b border-divider p-4">
             <div className="flex items-center justify-between">

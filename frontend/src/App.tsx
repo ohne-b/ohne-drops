@@ -69,6 +69,9 @@ function Shell({ auth, onLogout }: { auth: AuthStatus; onLogout: () => Promise<v
           ))}
         </nav>
         <div className="mt-auto hidden border-t border-divider p-4 lg:block">
+          {data?.login.user_id != null && (
+            <p className="mb-2 text-xs tabular-nums text-muted">Twitch: {data.login.user_id}</p>
+          )}
           <a
             className="inline-flex size-9 items-center justify-center rounded text-muted transition-colors hover:text-text"
             href="https://github.com/ohne-b/twitch-miner"
@@ -77,7 +80,7 @@ function Shell({ auth, onLogout }: { auth: AuthStatus; onLogout: () => Promise<v
             aria-label="GitHub repository"
             title="GitHub"
           >
-            <Icon path={mdiGithub} className="size-5" />
+            <Icon path={mdiGithub} className="size-6!" />
           </a>
           {auth.enabled && (
             <Button

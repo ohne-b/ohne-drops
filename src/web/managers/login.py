@@ -37,6 +37,7 @@ class LoginFormManager:
         self._login_data: LoginData | None = None
         self._status = _.t["login"]["status"]["logged_out"]
         self._user_id: int | None = None
+        self._import_pending = False
         self._oauth_pending: dict[str, str] | None = (
             None  # Store OAuth code for late-connecting clients
         )
@@ -60,6 +61,7 @@ class LoginFormManager:
         self._login_data = None
         self._login_event.clear()
         self._oauth_pending = None
+        self._import_pending = False
         self.update(_.t["login"]["status"]["logged_out"], None)
 
     def update(self, status: str, user_id: int | None):
@@ -72,7 +74,7 @@ class LoginFormManager:
         self._status = status
         self._user_id = user_id
         asyncio.create_task(
-            self._broadcaster.emit("login_status", {"status": status, "user_id": user_id})
+            self._broadcaster.emit("login_status", self.get_status())
         )
 
     async def ask_enter_code(self, page_url, user_code: str):
@@ -113,7 +115,19 @@ class LoginFormManager:
             Dictionary with status, user_id, and optional oauth_pending data
         """
         result: dict[str, Any] = {"status": self._status, "user_id": self._user_id}
+        if self._import_pending:
+            result["import_pending"] = True
         # Include OAuth code if pending
         if self._oauth_pending:
             result["oauth_pending"] = self._oauth_pending
         return result
+
+    async def import_pending(self, pending: bool) -> None:
+        if self._import_pending == pending:
+            return
+        self._import_pending = pending
+        if pending:
+            self._oauth_pending = None
+            self._status = _.t["login"]["status"]["required"]
+            self._user_id = None
+        await self._broadcaster.emit("login_status", self.get_status())

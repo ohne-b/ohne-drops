@@ -18,7 +18,7 @@ import json
 import logging
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import TYPE_CHECKING, TypedDict
+from typing import TYPE_CHECKING, NotRequired, TypedDict
 
 
 if TYPE_CHECKING:
@@ -43,6 +43,7 @@ class HistoryEntry(TypedDict):
     benefits: list[str]  # human-readable reward names
     required_minutes: int
     campaign_id: str
+    image_url: NotRequired[str]
 
 
 class DropHistory:
@@ -84,8 +85,12 @@ class DropHistory:
 
         # Collect reward names; fall back gracefully if the API shape differs
         benefits: list[str] = []
+        image_url = ""
         try:
             benefits = [b.name for b in drop.benefits]
+            image_url = next(
+                (str(b.image_url) for b in drop.benefits if getattr(b, "image_url", None)), ""
+            )
         except Exception:
             try:
                 # rewards_text() returns a single formatted string — wrap in a list
@@ -104,6 +109,8 @@ class DropHistory:
             "required_minutes": drop.required_minutes,
             "campaign_id": campaign.id,
         }
+        if image_url:
+            entry["image_url"] = image_url
 
         self._entries.append(entry)
         self._save()

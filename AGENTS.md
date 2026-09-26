@@ -24,7 +24,12 @@ It is the repository's contribution policy, not optional background reading.
 
 ## Development Guidelines
 
-Keep the sidebar footer for the GitHub icon. Live connection/account status belongs in Settings → Twitch account.
+The sidebar footer shows the Twitch account ID and GitHub icon. Live connection status remains in Settings → Twitch account.
+The GitHub glyph is 24px, matching OhneGuessr; its size must override the shared 18px icon default.
+Overview Channels and Up next share equal desktop columns and stack on smaller screens.
+Show confirmed progress values and their timestamp without the redundant "Confirmed by Twitch" label.
+History entries may include image_url. Preserve old entries without artwork; use the
+matching live campaign/drop benefit as a display fallback and the shared safe Art control.
 
 Shared Field controls use content-start so helper text does not stretch adjacent label rows.
 Avoid focus rings; retain a visible keyboard-focus background/border change and system focus in forced-colors mode.
@@ -96,6 +101,20 @@ lang/                # English message catalog
 ```
 
 ### React dashboard
+
+- Optional browser import and server renewal are documented in docs/browser-login.md.
+  Preserve Smart TV operation until validated import. Never mix browser credentials
+  into cookies.jar. Import requires dashboard authentication and validates identity,
+  Inventory and catalog. Retain strict body/header bounds, fixed Twitch destinations,
+  redirect refusal, account binding, and post-validation authorization checks.
+- Serialized legacy login must finish before an import may activate. Logout closes
+  the importer, rejects in-flight replacements, deletes its saved state and creates
+  a fresh importer. Renewal checks its pairing before launching Chromium, including
+  after helper restarts. Helper-owned seeds must be deleted separately on permanent
+  disconnect. Never print/export credentials in logs, fixtures, PRs or chat.
+- Docker's renewal target adds Chromium; the default production target does not.
+  CI builds both targets on amd64/arm64. Linux-only process/permission tests run in
+  CI; Windows private exports require a restricted directory ACL.
 
 - Channel viewer counts are nullable for offline streams. Preserve that API type,
   render unknown counts as a dash, and sort them after known counts within watching priority.

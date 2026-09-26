@@ -76,6 +76,20 @@ def test_persistence_across_instances(tmp_path):
     assert reloaded.get_entries()[0]["drop_name"] == "Watch 30 Minutes"
 
 
+def test_reward_thumbnail_persists_and_legacy_entries_remain_readable(tmp_path):
+    drop = _MockDrop()
+    reward = _MockBenefit("Reward")
+    reward.image_url = "https://static-cdn.jtvnw.net/reward.png"
+    drop.benefits = [reward]
+    history = _fresh_history(tmp_path)
+    history.record(drop, _MockCampaign())
+    history.record(_MockBroadcasterDrop(), _MockBroadcasterCampaign())
+    legacy, current = DropHistory(tmp_path).get_entries()
+    assert current["image_url"] == reward.image_url
+    assert "image_url" not in legacy
+    assert legacy["benefits"] == ["Legacy Reward"]
+
+
 def test_get_entries_filters(tmp_path):
     history = _fresh_history(tmp_path)
     history.record(_MockDrop(), _MockCampaign())

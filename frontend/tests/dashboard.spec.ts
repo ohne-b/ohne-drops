@@ -19,6 +19,17 @@ test('confirmed progress and compact desktop design', async ({ page }) => {
   );
   await expect(page.getByText('48 / 60 min')).toHaveCount(0);
   await page.setViewportSize({ width: 1440, height: 1000 });
+  await expect(page.getByText('Twitch: 123456', { exact: true })).toBeVisible();
+  const github = page.getByRole('link', { name: 'GitHub repository' }).locator('svg');
+  expect((await github.boundingBox())?.width).toBe(24);
+  const channels = page
+    .locator('section')
+    .filter({ has: page.getByRole('heading', { name: 'Channels', exact: true }) });
+  const queue = page
+    .locator('section')
+    .filter({ has: page.getByRole('heading', { name: 'Up next', exact: true }) });
+  expect((await channels.boundingBox())?.width).toBe((await queue.boundingBox())?.width);
+  await expect(page.getByText('Confirmed by Twitch', { exact: true })).toHaveCount(0);
   await page.screenshot({ path: '../artifacts/redesign-desktop.png', fullPage: true });
   expect(await page.evaluate(() => getComputedStyle(document.documentElement).colorScheme)).toBe(
     'dark',
@@ -227,6 +238,124 @@ test('removed notifications have no controls, API or saved credentials', async (
   expect((await request.post('/api/settings/test-telegram', { headers, data: {} })).status()).toBe(
     404,
   );
+});
+
+test('history displays saved reward artwork and preserves old entries', async ({
+  page,
+  request,
+}) => {
+  const history = await (await request.get('/api/history')).json();
+  await page.route('https://static-cdn.jtvnw.net/reward.png', (route) =>
+    route.fulfill({
+      contentType: 'image/svg+xml',
+      body: '<svg xmlns="http://www.w3.org/2000/svg" width="40" height="40" />',
+    }),
+  );
+  await page.route('**/api/history?*', (route) =>
+    route.fulfill({
+      json: {
+        total: 2,
+        entries: [
+          { ...history.entries[0], image_url: 'https://static-cdn.jtvnw.net/reward.png' },
+          { ...history.entries[0], id: 'legacy', drop_name: 'Older reward' },
+        ],
+      },
+    }),
+  );
+  await page.goto('/history');
+  const image = page.locator('img[src="https://static-cdn.jtvnw.net/reward.png"]');
+  await expect(image).toBeVisible();
+  await expect.poll(() => image.evaluate((node: HTMLImageElement) => node.naturalWidth)).toBe(40);
+  await expect(page.getByText('Older reward', { exact: true })).toBeVisible();
+});
+
+test('browser session import validates files and keeps credentials out of the page', async ({
+  page,
+}) => {
+  let ready = false;
+  await page.route('**/api/session', (route) =>
+    route.fulfill({
+      json: {
+        enabled: true,
+        authentication_required: false,
+        session: {
+          state: ready ? 'ready' : 'waiting',
+          expires_at: null,
+          generation: ready ? 1 : 0,
+          paired: false,
+        },
+      },
+    }),
+  );
+  await page.route('**/api/session/import', (route) => {
+    expect(route.request().postDataJSON()).toEqual({ test: 'private-test-context' });
+    ready = true;
+    return route.fulfill({ json: { success: true } });
+  });
+  await page.goto('/settings');
+  const upload = page.getByLabel('Session file', { exact: true });
+  await upload.setInputFiles({
+    name: 'invalid.json',
+    mimeType: 'application/json',
+    buffer: Buffer.from('{bad'),
+  });
+  await expect(
+    page.getByText('Choose the session JSON file exported by the login helper (up to 64 KB).'),
+  ).toBeVisible();
+  await upload.setInputFiles({
+    name: 'session.json',
+    mimeType: 'application/json',
+    buffer: Buffer.from(JSON.stringify({ test: 'private-test-context' })),
+  });
+  await expect(page.getByText('Campaign access verified.', { exact: true })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Download renewal connection' })).toBeEnabled();
+  await expect(page.getByText('private-test-context')).toHaveCount(0);
+});
+
+test('session polling ignores socket bursts and recovers from transient errors', async ({
+  page,
+  request,
+}) => {
+  let calls = 0;
+  await page.route('**/api/session', (route) => {
+    calls += 1;
+    return calls === 1
+      ? route.fulfill({ status: 503, json: { detail: 'unavailable' } })
+      : route.fulfill({
+          json: {
+            enabled: true,
+            authentication_required: false,
+            session: { state: 'ready', expires_at: null, generation: 1, paired: true },
+          },
+        });
+  });
+  await page.clock.install();
+  await page.goto('/settings');
+  const error = page.getByText('Could not check the browser session. Reopen Settings to retry.');
+  await expect(error).toBeVisible();
+  for (let i = 0; i < 8; i++) {
+    await request.post('/__test/event', {
+      headers,
+      data: { event: 'status_update', data: { status: `Update ${i}` } },
+    });
+  }
+  await page.clock.fastForward(1000);
+  expect(calls).toBe(1);
+  await page.clock.fastForward(30000);
+  await expect(page.getByText('Campaign access verified.', { exact: true })).toBeVisible();
+  await expect(error).toHaveCount(0);
+  expect(calls).toBe(2);
+});
+
+test('browser import requires dashboard protection', async ({ page }) => {
+  await page.route('**/api/session', (route) =>
+    route.fulfill({ json: { enabled: true, authentication_required: true } }),
+  );
+  await page.goto('/settings');
+  await expect(
+    page.getByText('Enable a dashboard password below before importing a browser session.'),
+  ).toBeVisible();
+  await expect(page.getByLabel('Session file', { exact: true })).toHaveCount(0);
 });
 
 test('history filters, export and confirmed clearing', async ({ page }) => {
