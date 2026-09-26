@@ -1,330 +1,179 @@
-# Contributing to Twitch Drops Miner
+# Contributing
 
-Contributions are welcome: bug reports, feature requests, code, tests, documentation,
-and English copy. This guide defines the contribution workflow for people and coding
-agents. Agents must read it before starting work and follow the same requirements.
+Read this guide before planning, editing, testing or reviewing. Its checklist applies to
+people and coding agents. The canonical repository is `ohne-b/twitch-miner`, targeting
+`main`. Preserve the [MIT license](LICENSE), attribution and frontend asset licenses.
 
-## About the repository
+This is a personal, self-hosted hobby project. Multiple accounts, channel-points mining,
+a desktop GUI and services hosted for other users are outside the current scope.
+Discuss substantial features or refactoring with the maintainer first; an explicit task
+authorization covers its necessary implementation and cleanup.
 
-Twitch Drops Miner automatically discovers eligible timed Twitch Drops, selects live
-channels, and tracks and claims rewards without downloading stream video or audio.
-It is an asynchronous Python application with a FastAPI and Socket.IO web dashboard,
-Twitch OAuth login, persistent local data, and Docker support.
+## Report a problem
 
-- Python 3.12 or newer; CI currently uses Python 3.12.
-- Node.js 24 for the React/TypeScript build, Vitest, and Playwright.
-- `uv` for dependency management; dependencies are declared in `pyproject.toml` and
-  locked in `uv.lock`.
-- The default branch and pull request target are `main`.
-- The project uses the [MIT license](./LICENSE). Preserve existing license notices
-  and attribution, and contribute only material you have the right to share.
+Search [issues](https://github.com/ohne-b/twitch-miner/issues) and
+[PRs](https://github.com/ohne-b/twitch-miner/pulls) first. Include version/commit, OS,
+installation method, steps, expected/actual behavior and minimal redacted evidence.
+For mining issues, distinguish displayed progress from Twitch inventory progress; include
+campaign eligibility, filters, selected games and simultaneous manual viewing.
+
+Never post credentials, device codes, cookies, passwords, an entire data directory or
+unredacted logs/settings. Report suspected vulnerabilities privately. Feature requests
+should explain a concrete user problem, proposed behavior and acceptance criteria.
+
+## Development
+
+Install Rust through rustup and Node.js 24. `rust-toolchain.toml` pins Rust and its
+fmt/Clippy components. Windows needs the Visual Studio C++ build tools. From the root:
+
+```bash
+npm --prefix frontend ci
+npm --prefix frontend run build
+cargo run --locked -- --host 127.0.0.1
+```
+
+Running the normal executable contacts Twitch and can claim rewards. Automated checks
+must use mocked transports and temporary storage. Never reuse a live miner for testing.
 
 | Location | Purpose |
 | --- | --- |
-| `src/models/`, `src/services/`, `src/core/` | Domain models, business logic, and miner state machine |
-| `src/api/`, `src/auth/`, `src/websocket/` | Twitch API, OAuth, and event connections |
-| `src/web/` | Dashboard backend and optional dashboard authentication |
-| `frontend/`, `web/` | React/TypeScript source and ignored compiled output |
-| `src/config/`, `src/utils/` | Configuration and shared utilities |
-| `src/drop_history.py` | Claimed-drop history, filtering, statistics, and export |
-| `src/i18n/`, `lang/` | English message schema and catalog |
-| `tests/` | Backend, integration, regression, and frontend behavior tests |
-| `.github/workflows/`, `.github/scripts/` | Validation, releases, and contributor automation |
+| `src/domain.rs`, `src/policy.rs`, `src/miner.rs` | Eligibility and owned mining lifecycle |
+| `src/twitch/` | OAuth, HTTP/GQL, inventory, channels and PubSub |
+| `src/store.rs`, `src/config.rs`, `src/auth.rs`, `src/origin.rs` | Persistence, settings and security |
+| `src/web/`, `src/dto.rs` | Axum/Socket.IO dashboard boundary |
+| `src/fixture.rs`, `src/bin/dashboard-fixture.rs` | Offline browser fixture |
+| `frontend/`, `lang/English.json` | Dashboard and English messages |
+| `.github/` | Validation, release and contributor automation |
 
-Read [README.md](./README.md) for setup and user behavior, and
-[AGENTS.md](./AGENTS.md) for architecture and detailed implementation constraints.
-The current scope excludes multiple accounts, channel-points mining, and a desktop GUI. Discuss proposed scope changes before implementing
-them; opening a feature request does not itself approve a change in scope.
+Use concrete Rust structs with methods/composition and shared policies; keep business
+logic out of route handlers. Preserve async cancellation, bounded work, validation,
+credential redaction and atomic disk-before-memory updates. Consult [AGENTS.md](AGENTS.md)
+for detailed domain, security and UI contracts.
 
-This is a hobby project for personal use on your own hardware and home network.
-Support is best-effort and limited to that setup. VPS, cloud, other third-party hosting
-environments, and services operated for other users are outside the support scope.
-Keep bug reports and proposals within this scope; deployment-specific workarounds for
-unsupported hosting environments are not a project maintenance commitment.
+Edit frontend sources, never generated `web/`. Update README and AGENTS for relevant
+behavior/architecture changes, and English messages when UI/console text changes. Render
+translations as React text with validated links. Commit dependency lockfiles and avoid
+unrelated upgrades. Cargo owns version/lock consistency; Vite owns asset hashes.
 
-## Raising an issue
+## Pull requests
 
-Search [existing issues](https://github.com/rangermix/TwitchDropsMiner/issues) and
-[pull requests](https://github.com/rangermix/TwitchDropsMiner/pulls), including closed
-ones, before opening a new issue. Add relevant evidence to an existing report when it
-describes the same problem. Use one issue per distinct problem and a descriptive title,
-such as `Bug: queue keeps an expired reward` or `Feature: filter campaigns by game`.
+1. Inspect the working tree and preserve others' changes. Start a descriptive `feat/` or
+   `fix/` branch from current canonical main. Use conventional commits without assistant branding.
+2. Implement one coherent change with backend unit/regression tests and frontend coverage
+   where practical. Reproduce bugs first; test meaningful success and failure behavior.
+3. Fetch and integrate current main before final validation/review, and again before merge
+   if it advances. Resolve conflicts deliberately and rerun affected checks.
+4. Obtain independent adversarial review. Keep an incomplete PR in draft.
+5. Submit through a PR; ordinary changes never go directly to main. Follow through on
+   findings and CI. Release publication requires separate explicit authorization.
 
-### Bug reports
-
-Include enough information for someone else to reproduce the problem:
-
-- Application version or source commit, installation method, OS, and browser when
-  relevant. For Docker, include the image tag and digest if available.
-- Exact steps, expected behavior, actual behavior, and how often it occurs.
-- Whether it also happens on the latest release, if you can safely check, and the last
-  known working version if this is a regression.
-- Relevant settings and campaign/drop/channel identifiers or public URLs. Include
-  timestamps and timezone for campaign availability or progress problems.
-- Minimal redacted logs, tracebacks, screenshots, or sample responses. Explain any
-  troubleshooting already tried and its result.
-
-For mining problems, check the campaign’s account-link requirements, that the reward is earned by
-watching, the campaign is active, the channel participates, and your game selection or
-ignore rules do not exclude it. Mention simultaneous manual Twitch viewing. Distinguish
-what the miner displays from what Twitch's own inventory reports; a local display issue
-and missing server-side progress may have different causes.
-
-Never attach `cookies.jar`, `data/web_auth.json`, an entire data directory, OAuth/device
-codes, session cookies, passwords, or unredacted settings/logs.
-Verbose output and network captures can contain credentials; inspect them before sharing.
-
-### Feature requests, questions, and other contributions
-
-- **Feature request:** describe the user problem, a concrete use case, proposed
-  behavior, alternatives, and observable acceptance criteria. Note compatibility,
-  privacy, performance, or scope implications where relevant.
-- **Question or support request:** state the goal, what you tried, and which documentation
-  was unclear. Include environment details when they affect the answer.
-- **Documentation or translation issue:** identify the file, page, language, or UI
-  location, the current wording, and the suggested correction with context.
-
-Use an available issue template if one is offered; otherwise use these headings in a
-normal issue. Small, clear fixes can go directly to a PR. Discuss substantial features,
-architectural changes, and significant refactoring with the maintainer first. Coding
-agents must obtain the user's permission before significant refactoring, as required by
-the agent instructions.
-
-For suspected security vulnerabilities, use GitHub private vulnerability reporting if
-it is available for this repository. Otherwise ask the maintainer for a private reporting
-channel without posting exploit details or secrets in a public issue.
-
-## Development setup
-
-Work from the repository root. Use the `env/` virtual environment and activate it before
-every Python command. Create it only if it does not already exist.
-
-On Linux or macOS:
+For a writable origin pointing to this repository:
 
 ```bash
-uv venv env --python 3.12  # first setup only
-source env/bin/activate
-uv sync --active --extra dev --locked --python 3.12
+git fetch origin
+git switch -c fix/short-description origin/main
+# Before final review/merge:
+git fetch origin
+git merge origin/main
 ```
 
-On Windows PowerShell:
+For forks, use `upstream` pointing to the canonical repository in place of `origin` for
+integration, and push to your fork. Rebase is acceptable on a branch you own; coordinate
+before rewriting shared history and use `--force-with-lease` only when authorized.
 
-```powershell
-uv venv env --python 3.12  # first setup only
-. .\env\Scripts\Activate.ps1
-uv sync --active --extra dev --locked --python 3.12
-```
+## Required validation
 
-`--active` selects the activated `env/` instead of creating a separate `.venv/`.
-`--locked` checks that the committed lockfile is current without silently changing it.
-`--python 3.12` keeps the interpreter aligned with CI during creation and synchronization.
-For an intentional dependency change, update `pyproject.toml`, run `uv lock`, review
-the lockfile diff, and sync again. Do not upgrade unrelated packages.
-
-Build first: `npm --prefix frontend ci` and `npm --prefix frontend run build`.
-From the activated environment, run `python main.py` and open
-<http://localhost:8080> for manual testing. `python main.py -vvv` enables verbose logs.
-Running the application can contact Twitch and claim rewards; use your own intended
-test account and data, and keep automated tests isolated from live services.
-
-## Creating a pull request
-
-### 1. Start from current main and keep the change focused
-
-Fork the repository if you do not have write access, then create a topic branch from
-the latest canonical `main`. Check your working tree first and preserve unrelated local
-changes; never discard someone else's work to make a branch clean.
-
-For a fork, configure the canonical repository as `upstream` once:
-
-```bash
-git remote add upstream https://github.com/rangermix/TwitchDropsMiner.git
-git fetch upstream
-git switch -c fix/short-description upstream/main
-```
-
-If `origin` already points to the canonical repository, use `origin` in place of
-`upstream` and skip adding the remote. Use a descriptive topic branch such as
-`feat/react-dashboard` or `fix/settings`. Open and merge a pull request rather than
-committing directly to `main`.
-
-Before requesting final review, and again before merging if `main` has advanced,
-fetch and integrate the latest canonical `main` into your topic branch:
-
-```bash
-git fetch upstream
-git merge upstream/main
-```
-
-Rebasing is also acceptable for a branch you own. Do not rewrite a shared branch
-without coordinating with its collaborators; if an authorized rebase needs a force
-push, use `--force-with-lease`. Resolve conflicts deliberately, inspect the resulting
-diff, and rerun affected checks after integration. Record the base and tested head
-commit IDs in the PR so reviewers can identify what was validated.
-
-Keep each PR about one coherent change. Avoid unrelated cleanup, formatting, dependency
-upgrades, generated files, local data, and credentials. Link a related issue when one
-exists; use closing keywords only when the PR fully resolves that issue.
-
-### 2. Implement with the repository's constraints
-
-- Follow DRY and the existing object-oriented backend architecture. Keep business
-  logic in its owning model/service rather than duplicating it in API or UI handlers.
-- Preserve asynchronous behavior; avoid blocking the event loop and handle cancellation,
-  network failures, retries, and persistent state consistently with nearby code.
-- Add unit tests for backend code changes. For frontend behavior changes, add automated
-  coverage where practical; explain any gap and provide a reproducible manual check.
-- Update `README.md` and the canonical `AGENTS.md` with the relevant behavior or
-  workflow changes. Keep `CLAUDE.md` and `GEMINI.md` as relative symbolic links to
-  `AGENTS.md`; do not replace them with duplicated text. Put agent-specific guidance
-  in clearly named sections of `AGENTS.md`. Update this guide when the contribution
-  workflow changes.
-- For UI or console text changes, update `lang/English.json` and the TypedDict message schema when keys change. Preserve message keys and placeholders. Render translated UI as React text with validated links;
-  allowlist intentional links and create link nodes explicitly.
-- Preserve campaign/drop timing, prerequisites, ignore rules,
-  authentication boundaries, and credential redaction. Cache recovery must preserve
-  credentials and settings. Consult the detailed contracts in the agent instructions.
-- Edit frontend sources in `frontend/`, never generated `web/`. Vite content hashes
-  handle asset invalidation; HTML remains revalidated. Keep application versioning
-  under the existing release workflow. Commit dependency lockfiles when applicable.
-
-### 3. Test the change and protect against regressions
-
-For a bug fix, first reproduce the failure and add a regression test that fails on the
-old behavior and passes with the fix whenever practical. Test public behavior and
-meaningful outcomes, not just internal implementation details. New functionality needs
-both normal and failure-path coverage, including relevant boundary cases.
-
-Use mocked Twitch/network responses and temporary storage. Tests must not
-need real credentials, claim real drops, or send real notifications. Existing tests
-in `tests/` show the repository's conventions. Frontend logic uses Vitest; Playwright
-uses the real API/socket/auth boundary with synthetic data in `tests/dashboard_server.py`.
-Keep the fixture on port 8765, with fixture-only readiness and `reuseExistingServer: false`.
-Never reuse a running miner for browser tests.
-
-Run focused tests while developing, then run the code-change baseline from the
-activated environment before declaring a code PR ready:
+Run focused tests during development, then the baseline for code PRs:
 
 ```bash
 npm --prefix frontend ci
 npm --prefix frontend run format:check
 npm --prefix frontend test
 npm --prefix frontend run build
-python -m ruff check src/
-python -m mypy src/
-python -m pytest tests/
-(cd frontend && npx playwright install chromium && npm run test:browser)
-uv lock --check
+cargo fmt --all -- --check
+cargo clippy --all-targets --all-features --locked -- -D warnings
+cargo test --all-targets --all-features --locked
+node --test .github/scripts/test/*.test.mjs
+node .github/scripts/release.mjs read
 git diff --check
+cd frontend
+npx playwright install chromium
+npm run test:browser
 ```
 
-Mypy currently reports results without blocking CI. Report any diagnostics, distinguish
-existing issues from regressions, and fix new problems introduced by the PR. A green
-workflow does not prove that Mypy was clean. Node.js 24 must be on `PATH`; investigate
-skipped frontend tests rather than claiming they passed.
+Playwright starts the Rust fixture with its explicit feature on loopback port 8765,
+verifies readiness/reset, uses temporary data, and refuses server reuse. Vitest and
+Playwright/axe cover frontend logic, browser behavior and accessibility. No automated
+test needs credentials, sends real watch events, claims real rewards or contacts bots.
 
-Also run these release-script contract tests with Bash and GNU `grep`/`sed` on `PATH`.
-The scripts use `grep -P` and GNU-style `sed -i`; macOS's default utilities are not
-sufficient. On macOS, select GNU tools or use a Linux container/VM. On Windows, use
-a compatible Git Bash or WSL environment with those tools available:
+CI also builds and smoke-tests production images for amd64 and arm64, including UID/GID,
+licenses and isolated health. Required checks must pass on the final PR revision. A health
+check or mock test does not prove live Twitch earning. Disclose unrun/unavailable checks,
+skips and limitations; do not substitute a green workflow for unperformed validation.
 
-```bash
-bash .github/scripts/test/test_validate_semver.sh
-bash .github/scripts/test/test_github_output.sh
-bash .github/scripts/test/test_extract_version.sh
-```
+Select regression coverage according to the actual change:
 
-Select additional regression checks from the actual impact of the change:
-
-| Changed area | Evidence to include |
+| Area | Evidence |
 | --- | --- |
-| Mining, inventory, or channel selection | Eligibility and timing boundaries, prerequisites, ignored drops, claim behavior, and neighboring selection paths |
-| Settings or persistence | Save/reload round trips, defaults/migration, invalid input, and failure handling |
-| Dashboard or translations | Typecheck/build, Vitest, Playwright/axe, locale schema and placeholders, desktop/phone browser checks |
-| Authentication or API access | Unauthorized requests, origin/CSRF handling, session expiry/revocation, and absence of leaked credentials |
-| Dependencies, Docker, or CI/release scripts | Lock/version consistency, relevant script tests, and Docker build/workflow validation |
-| Documentation only | Accurate commands and paths, working local links, Markdown structure, canonical agent guidance, and valid instruction symlinks |
+| Mining | Timing, ACLs, prerequisites, ignore/selection, claim recovery and late responses |
+| Persistence | Existing-file round trips, atomic failures, defaults, corruption and restarts |
+| Security | Authorization, CSRF/origins, cookies, expiry/revocation, rate limits and redaction |
+| Frontend | Build/types, unit/browser/axe, reconnect/autosave and responsive/focus states |
+| Tooling | Lock/version agreement, script contracts, workflow trust boundaries and image builds |
+| Docs only | Accurate commands/links/claims and readable Markdown; normal PR CI still runs |
 
-For documentation-only changes, the last row replaces the local code/test baseline;
-do not invent unit tests for prose. Normal PR CI still runs. For any unrun or unavailable
-check, state exactly what is missing and why. Mocked tests do not establish live Twitch
-progress; report live verification only if it was actually performed.
+For documentation-only changes, the final row replaces the local code baseline. After
+review fixes or main integration, rerun affected checks; do not cite superseded results.
 
-The [validation workflow](./.github/workflows/validation.yml) runs Ruff, advisory Mypy,
-pytest, frontend build/format/unit/browser/accessibility checks, language JSON validation,
-lockfile checks, release-script tests, and Docker
-builds for both supported image architectures. Required CI must pass on the final PR
-revision before merge. After review fixes or main integration, rerun the checks affected
-by those changes; do not rely on results from a superseded revision.
+## Independent adversarial review
 
-### 4. Obtain an independent adversarial review
+Every PR, including docs-only changes, needs a human or separate review agent that did
+not author it. An author's reread does not qualify. For agent-authored work, use a separate
+read-only reviewer when available; otherwise request an independent human. If neither is
+available, keep the PR in draft and state the gap. One implementation agent can still use
+a separate independent reviewer.
 
-Every PR needs an adversarial review before it is ready to merge, including documentation
-changes. Use a human reviewer or a separate review agent that did not author the change;
-an author's own reread is useful but does not satisfy independent review. For
-agent-authored work, delegate this review to a separate review agent when available,
-or request an independent human review. If neither is available, keep the PR in draft
-and state that review is pending.
+Provide the goal, final diff/revision, these instructions, acceptance criteria and actual
+test evidence. Ask for counterexamples involving correctness, security/privacy, missed
+edge cases, regressions, inadequate tests, scope and documentation claims. Record reviewer
+identity/role, reviewed commit, findings and resolutions. Explain rejected findings with
+evidence. Have substantive fixes and later relevant changes rechecked. Unresolved blockers
+prevent readiness. Agent review does not replace required GitHub/maintainer approvals.
 
-Give the reviewer the goal, relevant issue/acceptance criteria, final diff, repository
-instructions, and actual test evidence. Ask them to challenge assumptions and look for
-counterexamples: incorrect behavior, missed edge cases, regressions, security/privacy
-problems, inadequate tests, scope creep, and misleading documentation. Scale the review
-to the change; documentation review should check instructions and claims against the
-repository rather than require unrelated runtime tests.
+Use the [PR template](.github/pull_request_template.md). Include incorporated main and
+tested head commits, exact validation results, relevant screenshots, independent review,
+and remaining limitations. Stage only intended files. Never fabricate results or weaken
+checks/policy to appear complete.
 
-Record the reviewer identity or agent role, reviewed revision, findings with file/line
-references where useful, and how each finding was handled. Fix actionable findings and
-rerun affected tests; give a reason and evidence for any finding you reject. Unresolved
-correctness or security findings block readiness. Have the reviewer recheck substantive
-fixes and any later changes that affect their conclusions. An agent's review provides
-review evidence; it does not replace maintainer approval or GitHub review requirements.
+- [ ] Latest canonical main is integrated and conflicts resolved.
+- [ ] Diff is focused and contains no secrets, local data or unrelated changes.
+- [ ] Applicable unit/frontend/regression coverage is included.
+- [ ] Required checks pass on the final revision; gaps/skips are disclosed.
+- [ ] README, AGENTS, English messages and relevant workflow docs are current.
+- [ ] Independent adversarial review is recorded and blockers resolved/rechecked.
+- [ ] PR description matches the final implementation and evidence.
 
-### 5. Submit clear evidence and follow through
+## Release and automation
 
-Inspect `git status` and the diff, stage only the intended files with `git add`, and
-commit with a concise message describing the change. Push the topic branch to your
-fork or writable remote (normally `git push -u origin HEAD`). On GitHub, open a pull
-request with `rangermix/TwitchDropsMiner` as the base repository, `main` as the base
-branch, and your topic branch as the compare branch. You can open a draft early to
-collect feedback and CI results while tests or independent review are still pending.
+Version ownership is `Cargo.toml` and `Cargo.lock`. **Prepare release**, manually run on
+main, uses `PUBLISHER_TOKEN` to create a draft version PR whose checks run normally. The
+token needs repository contents/PR access; configure it as a secret, never in source.
+Review and merge that PR under the same policy. **Publish release** then runs manually
+from main for that version, requires successful push validation on the exact commit,
+and uses the `prod` environment. It builds both architectures, publishes
+`ghcr.io/ohne-b/twitch-miner:VERSION`, and creates a `vVERSION` GitHub release with generated
+notes. Stable releases update `latest`; prereleases do not. The first GHCR package may
+need public visibility configured for anonymous pulls. Ordinary merges publish nothing.
 
-Use the [PR template](./.github/pull_request_template.md). Explain the original problem,
-resulting behavior, scope, linked issues, test commands/results, regression coverage,
-adversarial review, and remaining limitations. Include before/after screenshots for
-visible UI changes when useful. Mark work in progress as a draft; do not describe a
-partial implementation or unavailable check as complete.
+Do not rewrite published tags or bypass checks. Revert source through a normal PR; an
+installation rollback redeploys a previously validated image with its backed-up data.
 
-Before requesting merge, confirm:
+Contributor credit is the narrow existing automation exception for README-only commits.
+Its `pull_request_target` write token executes trusted default-branch code only, never
+PR-head code. Preserve exactly one contributor marker pair and its table header in README;
+malformed sections fail closed. Keep Buildx/Build Push action pins consistent between
+validation and release workflows. Do not alter trust boundaries in ordinary contributions.
 
-- [ ] The branch incorporates the latest canonical `main`; conflicts are resolved.
-- [ ] The diff is focused and contains no secrets, local data, or unrelated changes.
-- [ ] Backend unit tests and applicable frontend/regression checks are included.
-- [ ] Required checks pass for the final revision; skips and limitations are recorded.
-- [ ] README, agent instructions, translations, and release notes/requirements are
-  updated where applicable under the rules above.
-- [ ] An independent adversarial review is recorded and blocking findings are resolved.
-- [ ] The PR description matches the final implementation and includes evidence.
-
-Respond to review feedback respectfully and support technical disagreements with
-reproducible evidence. Maintainers decide when to merge and release. Contributor credit
-is updated automatically after merge; preserve the README contributor table and markers.
-Release automation updates `src/version.py`, `pyproject.toml`, and `uv.lock` together.
-Do not publish releases, change workflow trust boundaries, or bypass required checks as
-part of an ordinary contribution.
-
-## Additional requirements for coding agents
-
-Read this guide and the applicable agent instructions before planning, editing, testing,
-or reviewing. Pass these requirements to any delegated implementation or review agent.
-The checklist is a completion requirement, not an optional suggestion.
-
-Inspect the current checkout and preserve existing user changes. Stay within the
-authorized task; a request to edit files does not by itself authorize publishing a PR,
-merging, or releasing. Do not weaken tests, remove security checks, or alter this policy
-merely to make your current task appear complete.
-
-In the final handoff or PR, report what changed, actual validation results, adversarial
-review outcome, and any unfinished work. If a required check or review cannot be
-completed, state the gap and do not claim merge readiness. Never fabricate test runs,
-reviewer approval, live behavior, or CI success.
+Agents must pass this policy to reviewers, preserve existing user changes, and distinguish
+editing authorization from PR/merge/release/deployment authorization. Final handoffs report
+actual changes, tests, review and unfinished work honestly.

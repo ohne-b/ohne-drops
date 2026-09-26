@@ -76,9 +76,8 @@ src/
     mod.rs               Axum routes, middleware and static assets
     socket.rs            authenticated Socket.IO snapshots/events
   bin/dashboard-fixture.rs  offline browser fixture, feature gated
-tests/                    Rust integration tests and sanitized JSON fixtures
+  miner/tests.rs         lifecycle integration and regression tests
 frontend/                 existing React application
-scripts/                  current development/release helpers where useful
 .github/                  validation, contribution and release automation
 docs/                     current architecture, operation, and migration evidence
 ```
@@ -295,7 +294,8 @@ Retain all existing data and backup files during the source migration.
 - Replace contributor automation with Node and its tests. Preserve trusted-main checkout
   under pull_request_target, strict contributor markers, human authors and alphabetic order.
 - Move release version ownership to Cargo.toml/Cargo.lock. Update release extraction,
-  creation, rollback, notes and tests together. Remove obsolete manifests from all workflows.
+  preparation, publication, notes and tests together. Rollback uses an earlier validated image
+  and its backed-up data; source rollback uses a normal revert PR. Remove obsolete manifests from all workflows.
   Generate release notes from repository changes without an external AI-service credential.
   Do not recreate the user-deleted release-notes file; GitHub releases own published notes.
 - Build frontend with Node 24, backend with pinned Rust, and run only the Rust executable in
@@ -360,3 +360,8 @@ claiming independent of mining selection with the 24-hour grace, the 15-minute e
 ceiling with recovery, and wiring retained network/refresh controls into real behavior.
 All three are included above and have explicit acceptance cases. No architecture blocker
 was reported. Final implementation review remains required.
+
+Implementation review milestones: foundation and protocol fixes were rechecked independently.
+At `5e3a446`, the reviewer cleared the mining lifecycle and durable-claim findings, independently
+running 25 committed miner tests and two additional recovery/failure probes. Final packaging,
+whole-rewrite review, CI and merge gates remain pending until recorded with their final revisions.
