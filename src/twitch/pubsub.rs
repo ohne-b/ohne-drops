@@ -122,7 +122,7 @@ mod lifecycle_tests {
             }
             "full_queue" => {
                 tokio::time::timeout(Duration::from_secs(5), async {
-                    while received.len() == 0 {
+                    while received.is_empty() {
                         tokio::task::yield_now().await;
                     }
                 })

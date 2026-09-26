@@ -225,7 +225,7 @@ mod tests {
 
     async fn device(server: &MockServer, expires: u64) {
         Mock::given(method("POST")).and(path("/oauth2/device")).and(body_string_contains("scopes="))
-            .and(body_string_contains(&format!("client_id={CLIENT_ID}")))
+            .and(body_string_contains(format!("client_id={CLIENT_ID}")))
             .respond_with(ResponseTemplate::new(200).insert_header("Content-Type","application/json; charset=utf-8")
                 .set_body_raw(serde_json::to_vec(&json!({"device_code":"privatecode","user_code":"ABCD1234","verification_uri":"https://www.twitch.tv/activate?device-code=ABCD1234","interval":1,"expires_in":expires})).unwrap(),"application/json; charset=utf-8"))
             .mount(server).await;

@@ -4,7 +4,7 @@ pub mod oauth;
 pub mod operations;
 pub mod pubsub;
 #[cfg(test)]
-mod tests;
+pub(crate) mod tests;
 
 use std::{collections::VecDeque, sync::Arc, time::Duration};
 

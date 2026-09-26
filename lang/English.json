@@ -381,7 +381,11 @@
         "backend": {
             "proxy_empty": "Proxy URL is empty.",
             "proxy_connected": "Connected.",
-            "proxy_failed": "Proxy connection failed."
+            "proxy_failed": "Proxy connection failed.",
+            "session_storage": "The saved Twitch session could not be removed. Check the data directory permissions.",
+            "twitch_error": "Twitch operation failed: {error}. Retrying...",
+            "worker_failed": "The mining task stopped unexpectedly. Shutting down safely.",
+            "drop_claimed": "Drop claimed"
         }
     }
 }
