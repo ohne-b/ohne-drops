@@ -652,3 +652,6 @@ using atomic replacement. Inventory clear/batch/refresh and startup snapshots re
 records; the archive never enters the mining inventory. Only all-claimed watch rewards mean
 completed, never expired/ignored/skipped. Preserve corrupt archives without overwriting them.
 Legacy claim history without campaign totals is displayed separately as completion unverified.
+
+Overview Up next scrolls inside a 440px maximum-height panel, matching Channels.
+Each queue reward includes item artwork; missing, unsafe, or failed images use the shared Art fallback.
