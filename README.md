@@ -242,6 +242,7 @@ failures do not undo a Twitch claim, and failed notifications are not retried.
 
 ## Contributing
 
+Use descriptive `feat/` or `fix/` branches and merge changes through a pull request.
 See [CONTRIBUTING.md](./CONTRIBUTING.md) for issue reporting, development setup,
 pull requests, required unit and regression checks, and independent adversarial review.
 Coding agents must follow the mandatory workflow in [AGENTS.md](./AGENTS.md), also

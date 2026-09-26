@@ -24,6 +24,9 @@ It is the repository's contribution policy, not optional background reading.
 
 ## Development Guidelines
 
+Use descriptive `feat/` or `fix/` branch names. Keep branch names, documentation, commits,
+and PR descriptions free of assistant branding. Changes to main go through a pull request.
+
 1. **Testing**:
    - Always add unit tests for backend changes.
    - Frontend changes should have tests if possible.

@@ -145,8 +145,9 @@ git switch -c fix/short-description upstream/main
 ```
 
 If `origin` already points to the canonical repository, use `origin` in place of
-`upstream` and skip adding the remote. Use a descriptive topic branch; Codex-created
-branches use `codex/` as their prefix. Do not work directly on `main`.
+`upstream` and skip adding the remote. Use a descriptive topic branch such as
+`feat/react-dashboard` or `fix/settings`. Open and merge a pull request rather than
+committing directly to `main`.
 
 Before requesting final review, and again before merging if `main` has advanced,
 fetch and integrate the latest canonical `main` into your topic branch:
