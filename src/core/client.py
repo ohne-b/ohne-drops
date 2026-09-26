@@ -18,7 +18,7 @@ from src.config import (
     State,
     WebsocketTopic,
 )
-from src.config.paths import DATA_DIR
+from src.config.paths import COOKIES_PATH, DATA_DIR
 from src.drop_history import DropHistory
 from src.exceptions import (
     ExitRequest,
@@ -62,6 +62,8 @@ class Twitch:
         self._inventory_loaded = False
         self._inventory_refresh_pending = False
         self._clear_cache_pending = False
+        self._session_task: asyncio.Task[None] | None = None
+        self._logout_waiter: asyncio.Future[None] | None = None
         self.wanted_games: list[Game] = []
         self.inventory: list[DropsCampaign] = []
         self._drops: dict[str, TimedDrop] = {}
@@ -79,6 +81,7 @@ class Twitch:
         self.channels: OrderedDict[int, Channel] = OrderedDict()
         self.watching_channel: AwaitableValue[Channel] = AwaitableValue()
         self._watching_task: asyncio.Task[None] | None = None
+        self._channel_tasks: set[asyncio.Task[None]] = set()
         self._watching_restart = asyncio.Event()
         # Manual mode tracking
         self._manual_target_channel: Channel | None = None
@@ -127,14 +130,15 @@ class Twitch:
     async def shutdown(self) -> None:
         start_time = time()
         self.stop_watching()
-        if self._watching_task is not None:
-            self._watching_task.cancel()
-            self._watching_task = None
-        if self._mnt_task is not None:
-            self._mnt_task.cancel()
-            self._mnt_task = None
-        # stop websocket and close HTTP session
+        # Stop event producers before draining their remaining account work.
         await self.websocket.stop(clear_topics=True)
+        tasks = [self._watching_task, self._mnt_task]
+        tasks.extend(self._channel_tasks)
+        pending = [task for task in tasks if task is not None]
+        for task in pending:
+            task.cancel()
+        await asyncio.gather(*pending, return_exceptions=True)
+        self._watching_task = self._mnt_task = None
         if self._http_client is not None:
             await self._http_client.close()
         self._drops.clear()
@@ -209,6 +213,8 @@ class Twitch:
         usually by the console or application window being closed.
         """
         self.change_state(State.EXIT)
+        if self._session_task is not None and not self._session_task.cancelling():
+            self._session_task.cancel()
 
     def print(self, message: str, *, collapse_key: str | None = None) -> None:
         """Print a message in the GUI."""
@@ -224,15 +230,51 @@ class Twitch:
             self.websocket.remove_topics(topics_to_remove)
 
     async def run(self) -> None:
-        """Main entry point for the miner - handles exit requests."""
-        while True:
-            try:
-                await self._run()
-                break
-            except ExitRequest:
-                break
-            except aiohttp.ContentTypeError as exc:
-                raise RequestException(_.t["login"]["unexpected_content"]) from exc
+        """Run account sessions; logout restarts authentication without closing the dashboard."""
+        try:
+            while self._state not in (State.EXIT,):
+                self._session_task = asyncio.create_task(self._run())
+                try:
+                    await self._session_task
+                except asyncio.CancelledError:
+                    current = asyncio.current_task()
+                    if (current is not None and current.cancelling()) or (
+                        self._logout_waiter is None and self._state not in (State.EXIT,)
+                    ):
+                        raise
+                except ExitRequest:
+                    break
+                except aiohttp.ContentTypeError as exc:
+                    raise RequestException(_.t["login"]["unexpected_content"]) from exc
+                if self._logout_waiter is None:
+                    break
+                await self.shutdown()
+                # close() saves cookies; remove them only after all old account tasks stop.
+                COOKIES_PATH.unlink(missing_ok=True)
+                self._inventory_service.clear_cached_state()
+                self._inventory_loaded = False
+                self._games_update_pending = False
+                self._inventory_refresh_pending = False
+                self._clear_cache_pending = False
+                self.gui.login.reset()
+                self.gui.status.update(_.t["login"]["status"]["logged_out"])
+                self._logout_waiter.set_result(None)
+                self._logout_waiter = None
+        finally:
+            self._session_task = None
+            if self._logout_waiter is not None:
+                self._logout_waiter.set_exception(RuntimeError("Twitch logout did not complete"))
+                self._logout_waiter = None
+
+    async def logout(self) -> None:
+        """Forget this server's Twitch login, coalescing simultaneous requests."""
+        if self._logout_waiter is None:
+            if self._session_task is None or self._session_task.done() or self._state is State.EXIT:
+                raise RuntimeError("The miner is shutting down")
+            self._logout_waiter = asyncio.get_running_loop().create_future()
+            self._session_task.cancel()
+        # A browser disconnect must not interrupt credential removal.
+        await asyncio.shield(self._logout_waiter)
 
     async def _run(self) -> None:
         """

@@ -223,7 +223,7 @@ async def verify_proxy(request: ProxyVerifyRequest):
         # Test connection to Twitch
         async with (
             aiohttp.ClientSession() as session,
-            session.get("https://www.twitch.tv", proxy=proxy_url, timeout=10) as response,
+            session.get("https://www.twitch.tv", proxy=proxy_url, timeout=aiohttp.ClientTimeout(total=10)) as response,
         ):
             # Just checking if we can connect and get a response
             if response.status < 500:
@@ -259,7 +259,7 @@ async def get_version():
         async with (
             aiohttp.ClientSession() as session,
             session.get(
-                "https://api.github.com/repos/rangermix/TwitchDropsMiner/releases/latest", timeout=5
+                "https://api.github.com/repos/rangermix/TwitchDropsMiner/releases/latest", timeout=aiohttp.ClientTimeout(total=5)
             ) as response,
         ):
             if response.status == 200:
@@ -288,6 +288,18 @@ async def submit_login(login_data: LoginRequest):
         raise HTTPException(status_code=503, detail="GUI not initialized")
 
     gui_manager.login.submit_login(login_data.username, login_data.password, login_data.token)
+    return {"success": True}
+
+
+@app.post("/api/twitch/logout")
+async def logout_twitch():
+    """Remove the miner's saved Twitch login while keeping dashboard access."""
+    if not twitch_client:
+        raise HTTPException(status_code=503, detail="Twitch client not initialized")
+    try:
+        await twitch_client.logout()
+    except RuntimeError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
     return {"success": True}
 
 

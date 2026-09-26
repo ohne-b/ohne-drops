@@ -170,10 +170,11 @@ class ChannelService:
                     channel_data: JsonType = response_json["data"]["user"]
                     if channel_data is not None:
                         acl_streams_map[int(channel_data["id"])] = channel_data
-        except Exception:
+        except BaseException:
             # asyncio.as_completed doesn't cancel tasks on errors
             for task in stream_gql_tasks:
                 task.cancel()
+            await asyncio.gather(*stream_gql_tasks, return_exceptions=True)
             raise
 
         # Update all channels with their stream data

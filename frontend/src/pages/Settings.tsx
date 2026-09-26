@@ -165,6 +165,7 @@ function SettingsContent({ settings, auth }: { settings: SettingsData; auth: Aut
   const command = useAction();
   const proxyAction = useAction();
   const oauthAction = useAction();
+  const logoutAction = useAction();
   const dirty = autosave.pending || autosave.busy;
   useEffect(() => {
     void request<{ current_version: string }>('/api/version')
@@ -233,6 +234,15 @@ function SettingsContent({ settings, auth }: { settings: SettingsData; auth: Aut
         <p className="muted">{t(connected ? 'connected' : 'connecting')}</p>
         <p>{plainText(data?.login.status ?? '')}</p>
         {data?.login.user_id && <p className="muted">Twitch ID: {data.login.user_id}</p>}
+        {data?.login.user_id && (
+          <Button
+            disabled={!connected || logoutAction.busy}
+            onClick={() => void logoutAction.run(() => request('/api/twitch/logout', {}))}
+          >
+            {t('twitch_logout')}
+          </Button>
+        )}
+        <ActionResult action={logoutAction} />
         {oauth ? (
           <div className="panel max-w-lg space-y-4 p-5">
             <p className="text-[13px] text-muted">{t('gui.login.oauth_prompt')}</p>

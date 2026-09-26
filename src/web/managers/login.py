@@ -55,6 +55,13 @@ class LoginFormManager:
             )
         )
 
+    def reset(self) -> None:
+        """Discard the previous account and pending authorization form."""
+        self._login_data = None
+        self._login_event.clear()
+        self._oauth_pending = None
+        self.update(_.t["login"]["status"]["logged_out"], None)
+
     def update(self, status: str, user_id: int | None):
         """Update login status display.
 

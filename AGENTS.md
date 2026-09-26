@@ -247,6 +247,13 @@ progress to an ignored drop while the miner intentionally targets another reward
 
 ### Authentication
 
+- `/api/twitch/logout` is separate from dashboard logout. The session owner cancels
+  and drains inventory/channel batches, watch/maintenance work, delayed channel
+  tasks and active/retiring websocket callbacks before deleting saved cookies.
+  Keep the dashboard alive for a fresh OAuth flow. Preserve settings/history.
+  Concurrent logout requests coalesce; shutdown must not interrupt task drainage.
+  Mypy targets Python3.12, matching the required runtime and asyncio cancellation APIs.
+
 - Uses OAuth device code flow (user enters code at twitch.tv/activate)
 - Managed by `src/auth/auth_state.py` (`_AuthState` class)
 - Access tokens stored in `cookies.jar` in DATA_DIR
