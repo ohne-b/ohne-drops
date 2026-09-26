@@ -106,6 +106,12 @@ class FakeTwitch:
     def close(self):
         pass
 
+    async def logout(self):
+        state["login"] = {"status": "Logged out", "user_id": None, "oauth_pending": {
+            "url": "https://www.twitch.tv/activate", "code": "NEWCODE",
+        }}
+        await web.sio.emit("login_status", state["login"])
+
 
 web.app.router.routes = [
     route

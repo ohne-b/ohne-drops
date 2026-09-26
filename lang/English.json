@@ -371,7 +371,8 @@
             "reorder_game": "Reorder {game}",
             "reordered_game": "{game}, position {position} of {total}.",
             "game_priorities": "Game priorities",
-            "no_game_priorities": "Games appear here when campaigns are discovered."
+            "no_game_priorities": "Games appear here when campaigns are discovered.",
+            "twitch_logout": "Log out of Twitch"
         }
     }
 }

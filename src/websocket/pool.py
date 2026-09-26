@@ -37,6 +37,7 @@ class WebsocketPool:
         self._twitch: Twitch = twitch
         self._running = asyncio.Event()
         self.websockets: list[Websocket] = []
+        self._retiring: set[asyncio.Task[None]] = set()
 
     @property
     def running(self) -> bool:
@@ -61,6 +62,7 @@ class WebsocketPool:
         """
         self._running.clear()
         await asyncio.gather(*(ws.stop(remove=clear_topics) for ws in self.websockets))
+        await asyncio.gather(*self._retiring)
 
     def add_topics(self, topics: abc.Iterable[WebsocketTopic]):
         """
@@ -126,7 +128,9 @@ class WebsocketPool:
             if count <= (len(self.websockets) - 1) * WS_TOPICS_LIMIT:
                 ws = self.websockets.pop()
                 recycled_topics.extend(ws.topics.values())
-                ws.stop_nowait(remove=True)
+                task = asyncio.create_task(ws.stop(remove=True))
+                self._retiring.add(task)
+                task.add_done_callback(self._retiring.discard)
             else:
                 break
         if recycled_topics:

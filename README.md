@@ -1,5 +1,9 @@
 # Twitch Drops Miner
 
+Settings → Twitch account provides **Log out of Twitch**. It stops account work and
+forgets the server's saved Twitch login, then offers a fresh authorization code.
+Dashboard password access, mining preferences and claimed history are retained.
+
 > Automatically mine timed Twitch Drops without streaming video or audio.
 
 <p align="center">
