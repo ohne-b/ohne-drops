@@ -19,6 +19,17 @@ test('confirmed progress and compact desktop design', async ({ page }) => {
   );
   await expect(page.getByText('48 / 60 min')).toHaveCount(0);
   await page.setViewportSize({ width: 1440, height: 1000 });
+  await expect(page.getByText('Twitch: 123456', { exact: true })).toBeVisible();
+  const github = page.getByRole('link', { name: 'GitHub repository' }).locator('svg');
+  expect((await github.boundingBox())?.width).toBe(24);
+  const channels = page
+    .locator('section')
+    .filter({ has: page.getByRole('heading', { name: 'Channels', exact: true }) });
+  const queue = page
+    .locator('section')
+    .filter({ has: page.getByRole('heading', { name: 'Up next', exact: true }) });
+  expect((await channels.boundingBox())?.width).toBe((await queue.boundingBox())?.width);
+  await expect(page.getByText('Confirmed by Twitch', { exact: true })).toHaveCount(0);
   await page.screenshot({ path: '../artifacts/redesign-desktop.png', fullPage: true });
   expect(await page.evaluate(() => getComputedStyle(document.documentElement).colorScheme)).toBe(
     'dark',
