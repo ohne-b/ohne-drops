@@ -31,7 +31,7 @@ export interface Campaign {
   link_url: string;
   starts_at: string;
   ends_at: string;
-  linked: boolean;
+  linked: boolean | null;
   active: boolean;
   upcoming: boolean;
   expired: boolean;
@@ -120,6 +120,7 @@ export interface ManualMode {
 }
 export interface InventoryStatus {
   available: boolean;
+  recovered?: number;
   checked_at: string | null;
 }
 export interface Snapshot {

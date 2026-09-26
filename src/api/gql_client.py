@@ -97,19 +97,13 @@ class GQLClient:
         for delay in backoff:
             async with self._qgl_limiter:
                 auth_state = await self._auth_state.validate()
-                response_json: JsonType | list[JsonType]
-                if auth_state.browser_active is True:
-                    browser = auth_state._twitch._browser
-                    assert browser is not None
-                    response_json = await browser.gql(ops)
-                else:
-                    async with self.http_client.request(
-                        "POST",
-                        "https://gql.twitch.tv/gql",
-                        json=ops,
-                        headers=auth_state.headers(user_agent=self._client_type.USER_AGENT, gql=True),
-                    ) as response:
-                        response_json = await response.json()
+                async with self.http_client.request(
+                    "POST",
+                    "https://gql.twitch.tv/gql",
+                    json=ops,
+                    headers=auth_state.headers(user_agent=self._client_type.USER_AGENT, gql=True),
+                ) as response:
+                    response_json: JsonType | list[JsonType] = await response.json()
 
             gql_logger.debug(f"GQL Response: {response_json}")
             orig_response = response_json

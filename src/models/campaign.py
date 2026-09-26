@@ -32,7 +32,7 @@ class DropsCampaign:
         self.campaign_url: str = f"https://www.twitch.tv/drops/campaigns?dropID={self.id}"
         self.name: str = data["name"]
         self.game: Game = Game(data["game"])
-        self.linked: bool = data["self"]["isAccountConnected"]
+        self.linked: bool | None = data["self"]["isAccountConnected"]
         self.link_url: str = data["accountLinkURL"]
         # campaign's image actually comes from the game object
         # we use regex to get rid of the dimensions part (ex. ".../game_id-285x380.jpg")
@@ -44,6 +44,10 @@ class DropsCampaign:
             [Channel.from_acl(twitch, channel_data) for channel_data in allowed["channels"]]
             if allowed["channels"] and allowed.get("isEnabled", True)
             else []
+        )
+        self.discovery_channels: list[Channel] | None = (
+            [Channel.from_acl(twitch, channel) for channel in data["discovery_channels"]]
+            if "discovery_channels" in data else None
         )
         self.timed_drops: dict[str, TimedDrop] = {
             drop_data["id"]: TimedDrop(self, drop_data, claimed_benefits)
@@ -202,6 +206,7 @@ class DropsCampaign:
                 or (  # channel isn't specified,
                     # or there's no ACL, or the channel is in the ACL
                     (not self.allowed_channels or channel in self.allowed_channels)
+                    and (self.discovery_channels is None or channel in self.discovery_channels)
                     # and the channel plays the campaign's game, or is a live
                     # participant in a special-category campaign with an ACL
                     and (

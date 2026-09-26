@@ -36,6 +36,13 @@ describe('boundary behavior', () => {
     const filters = snapshot.settings.inventory_filters;
     expect(matchesCampaign(campaign, { ...filters, show_upcoming: true }, '')).toBe(true);
     expect(matchesCampaign(campaign, { ...filters, show_only_not_linked: true }, '')).toBe(false);
+    expect(
+      matchesCampaign(
+        { ...campaign, linked: null },
+        { ...filters, show_only_not_linked: true },
+        '',
+      ),
+    ).toBe(false);
     expect(matchesCampaign({ ...campaign, finished: true }, filters, '')).toBe(false);
     expect(matchesCampaign({ ...campaign, mining_finished: true }, filters, '')).toBe(false);
     expect(matchesCampaign({ ...campaign, drops: [] }, filters, '')).toBe(true);

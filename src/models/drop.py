@@ -48,20 +48,14 @@ class BaseDrop:
             self.claim_id = data["self"]["dropInstanceID"]
             self.is_claimed = data["self"]["isClaimed"]
         elif (
-            # If there's no self edge available, we can use claimed_benefits to determine
-            # (with pretty good certainty) if this drop has been claimed or not.
-            # To do this, we check if the benefitEdges appear in claimed_benefits, and then
-            # deref their "lastAwardedAt" timestamps into a list to check against.
-            # If the benefits were claimed while the drop was active,
-            # the drop has been claimed too.
-            (
-                dts := [
-                    claimed_benefits[bid]
-                    for benefit in self.benefits
-                    if (bid := benefit.id) in claimed_benefits
-                ]
+            # Without a self edge, require account evidence for every benefit.
+            # A partial match must not mark the whole drop claimed or skip mining.
+            self.benefits
+            and all(
+                (awarded := claimed_benefits.get(benefit.id)) is not None
+                and self.starts_at <= awarded < self.ends_at
+                for benefit in self.benefits
             )
-            and all(self.starts_at <= dt < self.ends_at for dt in dts)
         ):
             self.is_claimed = True
         self.precondition_drops: list[str] = [d["id"] for d in (data["preconditionDrops"] or [])]
@@ -233,7 +227,9 @@ class TimedDrop(BaseDrop):
         )
         self.required_minutes: int = data["requiredMinutesWatched"]
         self.extra_current_minutes: int = 0
-        self.confirmed_at = datetime.now(timezone.utc)
+        self.confirmed_at: datetime | None = (
+            datetime.now(timezone.utc) if "self" in data else None
+        )
         if self.is_claimed:
             # claimed drops may report inconsistent current minutes, so we need to overwrite them
             self.real_current_minutes = self.required_minutes
