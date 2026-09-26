@@ -192,18 +192,11 @@ class GUISettings(TypedDict):
     search_games: str
     add_game: str
     add_game_hint: str
-    select_all: str
-    deselect_all: str
-    deselect_all_warning: str
     confirm_btn: str
     cancel_btn: str
-    selected_games: str
-    game_priority: str
     remove_game: str
     available_games: str
-    no_games_selected: str
     no_games_match: str
-    all_games_selected: str
     multiple_games_found: str
     manual_game_warning: str
     actions: str

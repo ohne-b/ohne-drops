@@ -114,7 +114,7 @@ lang/                # English message catalog
   Smart TV catalog access is an upstream limitation; do not claim cache clearing,
   relogin or client-ID substitution repairs it.
 - Render API/translated strings as React text; validate external links. Expand Twitch
-  art URL placeholders in Art. Preserve locale keys with English fallback. No injected
+  art URL placeholders in Art. Keep the English message schema consistent. No injected
   HTML or CDN scripts. Keep auth/status translations usable before authentication.
 - Vitest/Playwright replace tests that extracted app.js functions. The browser suite
   starts `tests/dashboard_server.py` with synthetic data on port 8765 and temporary
@@ -439,7 +439,7 @@ npm --prefix frontend test
 ```
 
 The suite covers settings and proxy behavior, inventory-filter behavior, API filtering,
-GraphQL watch events, batched channel discovery, full-locale translation schema and
+GraphQL watch events, batched channel discovery, English message schema and
 placeholder consistency, frontend DOM safety, case-insensitive channel filtering,
 watch-drop count and expiry semantics, immediate claim refresh behavior, consecutive
 no-campaign console collapsing, contributor README automation, and the claimed-drop
@@ -582,7 +582,6 @@ with this policy when reviewing proposals or documenting deployment options.
 
 - Multi-account support
 - Channel points mining
-- Mining for unlinked campaigns
 - Desktop GUI
 
 ### Claimed Drop History
@@ -591,7 +590,7 @@ with this policy when reviewing proposals or documenting deployment options.
 by drop ID. The History tab provides game/date filters, pagination, statistics, CSV export,
 and confirmed local deletion. Date-only filters mean midnight UTC; aware timestamps
 preserve their instant. CSV attachment names use UTF-8 percent encoding with an ASCII
-fallback. History text is defined in `gui.history` for every locale and rendered as text.
+fallback. History text is defined in the English `gui.history` catalog and rendered as text.
 Tests cover persistence, filtering, Unicode exports, offsets, and translated UI behavior.
 
 English is the only language. The settings loader discards old language preferences; do not reintroduce locale APIs, selection controls, or language broadcasts.
