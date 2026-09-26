@@ -11,6 +11,7 @@ import pytest
 from src.auth import _AuthState
 from src.config import ClientType
 from src.core.client import Twitch
+from src.exceptions import LoginException
 
 
 class OAuthServer:
@@ -131,3 +132,17 @@ async def test_device_login_migrates_and_restores_sessions(tmp_path, monkeypatch
     assert restored.access_token == auth.access_token
     assert restored_server.device_requests == 0
     assert restored_server.validations == ["OAuth smartbox-test-token"]
+
+
+@pytest.mark.asyncio
+async def test_rejected_device_client_reports_status_without_parsing_missing_code():
+    client = SimpleNamespace(
+        _client_type=ClientType.ANDROID_APP,
+        gui=SimpleNamespace(login=MagicMock()),
+        request=OAuthServer(aiohttp.CookieJar()).request,
+    )
+    auth = _AuthState(client)
+    auth.device_id = "test-device"
+    with pytest.raises(LoginException, match="DEVICE_AUTH_400"):
+        await auth._oauth_login()
+    client.gui.login.ask_enter_code.assert_not_called()

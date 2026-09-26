@@ -165,12 +165,3 @@ jobs:
           push: false
           cache-from: type=gha
           cache-to: type=gha,mode=max
-
-      - name: Build optional renewal helper
-        uses: docker/build-push-action@53b7df96c91f9c12dcc8a07bcb9ccacbed38856a # v7.3.0
-        with:
-          context: .
-          target: renewal
-          platforms: linux/amd64,linux/arm64
-          push: false
-          cache-from: type=gha

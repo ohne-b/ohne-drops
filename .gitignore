@@ -36,7 +36,3 @@ frontend/playwright-report/
 /web/
 .venv/
 .tools/
-tdm-session.json
-tdm-connection.json
-server-seed.json
-renewal-state/

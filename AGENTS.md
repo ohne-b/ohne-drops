@@ -102,20 +102,6 @@ lang/                # English message catalog
 
 ### React dashboard
 
-- Optional browser import and server renewal are documented in docs/browser-login.md.
-  Preserve Smart TV operation until validated import. Never mix browser credentials
-  into cookies.jar. Import requires dashboard authentication and validates identity,
-  Inventory and catalog. Retain strict body/header bounds, fixed Twitch destinations,
-  redirect refusal, account binding, and post-validation authorization checks.
-- Serialized legacy login must finish before an import may activate. Logout closes
-  the importer, rejects in-flight replacements, deletes its saved state and creates
-  a fresh importer. Renewal checks its pairing before launching Chromium, including
-  after helper restarts. Helper-owned seeds must be deleted separately on permanent
-  disconnect. Never print/export credentials in logs, fixtures, PRs or chat.
-- Docker's renewal target adds Chromium; the default production target does not.
-  CI builds both targets on amd64/arm64. Linux-only process/permission tests run in
-  CI; Windows private exports require a restricted directory ACL.
-
 - Channel viewer counts are nullable for offline streams. Preserve that API type,
   render unknown counts as a dash, and sort them after known counts within watching priority.
 
@@ -275,6 +261,10 @@ progress to an ignored drop while the miner intentionally targets another reward
 7. Loop between CHANNEL_SWITCH and periodic INVENTORY_FETCH (hourly)
 
 ### Authentication
+
+- Use the in-app device-code flow only. Browser session import routes, credentials,
+  helper containers and renewal services have been removed. Retain credential-safe
+  HTTP/websocket logging and report device authorization failures by status code.
 
 - `/api/twitch/logout` is separate from dashboard logout. The session owner cancels
   and drains inventory/channel batches, watch/maintenance work, delayed channel

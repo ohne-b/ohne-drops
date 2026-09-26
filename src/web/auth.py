@@ -176,22 +176,20 @@ class AuthMiddleware:
         if forbidden:
             return await self.reject(scope, receive, send, 403, "forbidden")
         public_asset = path.startswith("/assets/") and scope.get("method") in {"GET", "HEAD"}
-        renewal = scope["type"] == "http" and path == "/api/session/renew" and scope.get("method") == "POST"
-        if path not in self.PUBLIC and not public_asset and not renewal and not self.auth.allowed(self.auth.token(scope)):
+        if path not in self.PUBLIC and not public_asset and not self.auth.allowed(self.auth.token(scope)):
             if path in {"/", "/campaigns", "/history", "/activity", "/settings"} and scope["type"] == "http":
                 return await RedirectResponse("/login", status_code=303,
                     headers={"Cache-Control": "no-store"})(scope, receive, send)
             return await self.reject(scope, receive, send, 401, "authentication_required")
         # Bound auth payloads before Pydantic parses them; do not echo submitted secrets.
-        if mutation and path.startswith(("/api/auth/", "/api/session/")):
-            limit = 65536 if path.startswith("/api/session/") else 16384
+        if mutation and path.startswith("/api/auth/"):
             body = b""
             while True:
                 message = await receive()
                 if message["type"] == "http.disconnect":
                     return
                 body += message.get("body", b"")
-                if len(body) > limit:
+                if len(body) > 16384:
                     return await self.reject(scope, receive, send, 413, "invalid_request")
                 if not message.get("more_body"):
                     break
