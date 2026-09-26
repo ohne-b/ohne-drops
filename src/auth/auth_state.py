@@ -9,7 +9,10 @@ from typing import TYPE_CHECKING, cast
 import aiohttp
 from yarl import URL
 
-from src.config import COOKIES_PATH
+from src.auth.browser_session import BrowserIdentity, browser_error
+from src.auth.imported_session import ImportedSession
+from src.config import COOKIES_PATH, ClientInfo, ClientType
+from src.exceptions import LoginException
 from src.i18n import _
 from src.utils import CHARS_HEX_LOWER, create_nonce
 
@@ -43,6 +46,7 @@ class _AuthState:
         self.session_id: str
         self.access_token: str
         self.client_version: str
+        self.browser_active = False
 
     def _hasattrs(self, *attrs: str) -> bool:
         """Check if all specified attributes exist."""
@@ -64,6 +68,53 @@ class _AuthState:
             "client_version",
         )
         self._logged_in.clear()
+        self.browser_active = False
+
+    async def _browser_login(self, expected_user_id: int | None = None) -> None:
+        if expected_user_id is None:
+            expected_user_id = getattr(self, "user_id", None)
+        browser = self._twitch._browser
+        assert browser is not None
+        if isinstance(browser, ImportedSession):
+            browser.bind_account(expected_user_id)
+        identity = await browser.authenticate(self._twitch.gui.login)
+        if expected_user_id is not None and identity.user_id != expected_user_id:
+            await browser.close()
+            raise browser_error("ACCOUNT_MISMATCH")
+        self._use_browser_identity(identity)
+
+    def _use_browser_identity(self, identity: BrowserIdentity) -> None:
+        client_info = ClientInfo(
+            ClientType.WEB.CLIENT_URL, ClientType.WEB.CLIENT_ID, identity.user_agent,
+        )
+        self._twitch._client_type = client_info
+        self._twitch._ensure_api_clients()
+        assert self._twitch._http_client is not None
+        assert self._twitch._gql_client is not None
+        self._twitch._http_client.enable_browser_mode(client_info)
+        self._twitch._gql_client._client_type = client_info
+        self.access_token = identity.token
+        self.user_id = identity.user_id
+        self.device_id = identity.device_id
+        self.browser_active = True
+        self._logged_in.set()
+        self._twitch.gui.login.update(_.t["login"]["status"]["logged_in"], self.user_id)
+
+    def accept_imported_identity(self, identity: BrowserIdentity) -> None:
+        """Refresh every consumer when an already active imported account renews."""
+        if getattr(self, "user_id", identity.user_id) != identity.user_id:
+            raise browser_error("ACCOUNT_MISMATCH")
+        changed_token = getattr(self, "access_token", None) != identity.token
+        if (
+            not self.browser_active or changed_token or getattr(self, "device_id", None) != identity.device_id
+            or identity.user_agent != self._twitch._client_type.USER_AGENT
+            or self._twitch.gui.login.get_status().get("import_pending")
+            or not self._logged_in.is_set()
+        ):
+            self._use_browser_identity(identity)
+        if changed_token:
+            for websocket in self._twitch.websocket.websockets:
+                websocket.request_reconnect()
 
     async def _oauth_login(self) -> str:
         """
@@ -107,6 +158,12 @@ class _AuthState:
                 async with self._twitch.request(
                     "POST", "https://id.twitch.tv/oauth2/device", headers=headers, data=payload
                 ) as response:
+                    if response.status != 200:
+                        raise LoginException(
+                            _.t["login"]["error_code"].format(
+                                error_code=f"DEVICE_AUTH_{response.status}"
+                            )
+                        )
                     # {
                     #     "device_code": "40 chars [A-Za-z0-9]",
                     #     "expires_in": 1800,
@@ -211,10 +268,24 @@ class _AuthState:
         """
         if not hasattr(self, "session_id"):
             self.session_id = create_nonce(CHARS_HEX_LOWER, 16)
+        if isinstance(self._twitch._browser, ImportedSession) and (
+            self.browser_active or self._twitch._browser.status()["generation"] > 0
+        ):
+            if self._twitch._browser.status()["state"] != "ready":
+                self._logged_in.clear()
+            identity = await self._twitch._browser.authenticate(self._twitch.gui.login)
+            self.accept_imported_identity(identity)
+            return
+        if self.browser_active and not self._hasattrs("access_token", "user_id"):
+            await self._browser_login(expected_user_id=getattr(self, "user_id", None))
+            return
         if not self._hasattrs("device_id", "access_token", "user_id"):
             session = await self._twitch.get_session()
             jar = cast(aiohttp.CookieJar, session.cookie_jar)
             client_info: ClientInfo = self._twitch._client_type
+            if self._twitch._browser is not None and "auth-token" not in jar.filter_cookies(client_info.CLIENT_URL):
+                await self._browser_login()
+                return
         if not self._hasattrs("device_id"):
             async with self._twitch.request(
                 "GET", client_info.CLIENT_URL, headers=self.headers()
@@ -249,6 +320,9 @@ class _AuthState:
                         headers={"Authorization": f"OAuth {self.access_token}"},
                     ) as response:
                         if response.status == 401:
+                            if self._twitch._browser is not None:
+                                await self._browser_login()
+                                return
                             # the access token we have is invalid - clear the cookie and reauth
                             logger.info("Restored session is invalid")
                             assert client_info.CLIENT_URL.host is not None
@@ -262,8 +336,14 @@ class _AuthState:
                 # ensure the cookie's client ID matches the currently selected client
                 if validate_response["client_id"] == client_info.CLIENT_ID:
                     break
-                # otherwise, we need to delete the entire cookie file and clear the jar
+                # A client switch cannot convert a token. Preserve the saved
+                # credentials instead of destroying them before a new login fails.
                 logger.info("Cookie client ID mismatch")
+                self._delattrs("access_token", "user_id")
+                if self._twitch._browser is not None:
+                    await self._browser_login(expected_user_id=int(validate_response["user_id"]))
+                    return
+                # Keep the original device-login migration when import is disabled.
                 jar.clear()
                 COOKIES_PATH.unlink(missing_ok=True)
             else:

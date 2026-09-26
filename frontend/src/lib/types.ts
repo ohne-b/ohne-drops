@@ -135,6 +135,7 @@ export interface Snapshot {
   inventory_status?: InventoryStatus;
 }
 export interface HistoryEntry {
+  image_url?: string;
   id: string;
   claimed_at: string;
   game: string;
