@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import json
+import os
+import tempfile
 from collections.abc import Callable, Mapping
 from datetime import datetime, timezone
 from enum import Enum
@@ -160,5 +162,10 @@ def json_save(path: Path, contents: Mapping[Any, Any], *, sort: bool = False) ->
         contents: Data to serialize
         sort: If True, sort keys alphabetically
     """
-    with open(path, "w", encoding="utf8") as file:
-        json.dump(contents, file, default=_serialize, sort_keys=sort, indent=4)
+    fd, temporary = tempfile.mkstemp(prefix=f".{path.name}-", dir=path.parent)
+    try:
+        with os.fdopen(fd, "w", encoding="utf8") as file:
+            json.dump(contents, file, default=_serialize, sort_keys=sort, indent=4)
+        os.replace(temporary, path)
+    finally:
+        Path(temporary).unlink(missing_ok=True)

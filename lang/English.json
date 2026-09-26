@@ -343,7 +343,7 @@
             "not_found": "Page not found",
             "server_unavailable": "The dashboard server is unavailable. Check the connection and try again.",
             "settings_sections": "Settings sections",
-            "settings_conflict": "Settings changed in another view. Cancel your draft to load the latest values, then apply your changes again.",
+            "settings_conflict": "Settings changed on another device. Review your edits, then retry to apply them.",
             "unsaved": "Unsaved changes",
             "move_up": "Move {game} up",
             "move_down": "Move {game} down",
@@ -363,7 +363,10 @@
             "help_link_accounts": "Link the appropriate game account on",
             "help_priorities": "Select games above and arrange their priority. Keep the miner running to track timed rewards.",
             "source_license": "Source code and MIT license",
-            "all_games_automatic": "All games are included automatically. This order sets their priority."
+            "all_games_automatic": "All games are included automatically. This order sets their priority.",
+            "autosave_help": "Changes save automatically.",
+            "settings_invalid": "Enter a valid proxy URL and a whole refresh interval from 1 to 1440 minutes.",
+            "settings_save_failed": "Changes could not be saved. Your edits are kept here."
         }
     }
 }

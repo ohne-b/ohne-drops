@@ -76,6 +76,8 @@ class SettingsManager:
         Args:
             settings_data: Dictionary of settings to update
         """
+        previous = {key: copy.deepcopy(getattr(self._settings, key))
+                    for key in default_settings if hasattr(self._settings, key)}
         should_trigger_update = False
         should_trigger_update |= self.check_and_update_setting(
             "games_to_watch", settings_data.get("games_to_watch"), True
@@ -121,7 +123,12 @@ class SettingsManager:
             "mining_benefits", settings_data.get("mining_benefits"), True
         )
 
-        self._settings.save()
+        try:
+            self._settings.save()
+        except Exception:
+            for key, value in previous.items():
+                setattr(self._settings, key, value)
+            raise
         self.revision = secrets.token_hex(16)
         response_settings = self.get_settings(legacy_show_not_linked)
         asyncio.create_task(self._broadcaster.emit("settings_updated", response_settings))
