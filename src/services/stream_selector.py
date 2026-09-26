@@ -27,7 +27,7 @@ class StreamSelector:
 
             # Find all campaigns for this game
             for campaign in campaigns:
-                if campaign.game.name.lower() != game_name_lower:
+                if campaign.game.name.casefold() != game_name_lower:
                     continue
 
                 if game_obj is None:

@@ -432,3 +432,11 @@ Finished also groups older recorded rewards when campaign metadata is gone, clea
 
 Overview Up next scrolls inside a 440px maximum-height panel, matching Channels.
 Each queue reward includes item artwork; missing, unsafe, or failed images use the shared Art fallback.
+
+Mine controls remain outside expandable campaign summaries for keyboard/screen-reader access.
+An empty game selection reports that selection is needed, not that Twitch has no campaigns.
+
+New account evidence of unclaimed rewards or a changed reward set invalidates a stale
+completion snapshot durably; metadata-only recovery retains proven completion. Finished
+filters by game/search, including older records. Clearing claim history keeps completed
+campaign snapshots, as its confirmation states. Game matching uses consistent casefolding.

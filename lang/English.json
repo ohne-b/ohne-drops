@@ -7,7 +7,8 @@
         "claimed_drop": "Claimed drop: {drop}",
         "no_channel": "No available channels to watch. Waiting for an ONLINE channel...",
         "no_campaign": "No active campaigns to mine drops for. Waiting for an active campaign...",
-        "catalog_unavailable": "Twitch did not provide the complete campaign catalog. Waiting for available inventory..."
+        "catalog_unavailable": "Twitch did not provide the complete campaign catalog. Waiting for available inventory...",
+        "no_selection": "No games selected for mining. Choose Mine in Campaigns to start."
     },
     "login": {
         "unexpected_content": "Unexpected content type returned, usually due to being redirected. Do you need to login for internet access?",
@@ -264,7 +265,7 @@
             "next": "Next",
             "by_game": "By game",
             "by_month": "By month",
-            "clear_confirm": "Delete all locally recorded drop history? This cannot be undone.",
+            "clear_confirm": "Delete the locally recorded claim list? Completed campaign snapshots in Finished are kept. This cannot be undone.",
             "cleared": "History cleared.",
             "clear_error": "Failed to clear history: {error}",
             "stats_error": "Failed to load statistics: {error}"

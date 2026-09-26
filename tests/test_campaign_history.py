@@ -100,8 +100,53 @@ async def test_archive_does_not_override_new_authoritative_campaign_state(tmp_pa
     await inv.add_campaign(model("same", claimed=True))
     await inv.add_campaign(model("same"))
     assert not inv.get_campaigns()[0]["finished"]
+    inv.clear()
+    assert inv.get_campaigns() == []
+    assert manager(path).get_campaigns() == []
+    await asyncio.sleep(0)
+    await inv.add_campaign(model("same", claimed=True))
     contents = json.loads(path.read_text())
     invalid = deepcopy(contents)
     invalid["campaigns"][0]["drops"][0]["is_claimed"] = False
     path.write_text(json.dumps(invalid))
     assert CampaignHistory(path).get_campaigns() == {}
+
+
+@pytest.mark.asyncio
+async def test_metadata_only_refresh_preserves_proven_completion(tmp_path):
+    path = tmp_path / "completed_campaigns.json"
+    inv = manager(path)
+    await inv.add_campaign(model("same", claimed=True))
+    unknown = model("same")
+    for drop in unknown.drops:
+        drop.confirmed_at = None
+    await inv.add_campaign(unknown)
+    assert inv.get_campaigns()[0]["finished"]
+    assert inv._broadcaster.emit.call_args.args[1]["finished"]
+    assert not unknown.finished  # display history never manufactures miner progress
+    inv.clear()
+    assert manager(path).get_campaigns()[0]["finished"]
+    await asyncio.sleep(0)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("invalid", ["benefits", "totals", "duplicate"])
+async def test_malformed_ui_snapshot_stays_readonly(tmp_path, invalid):
+    path = tmp_path / "completed_campaigns.json"
+    inv = manager(path)
+    await inv.add_campaign(model("complete", claimed=True))
+    contents = json.loads(path.read_text())
+    data = contents["campaigns"][0]
+    if invalid == "benefits":
+        data["drops"][0]["benefits"] = {}
+    elif invalid == "totals":
+        data["total_drops"] = 9
+    else:
+        data["drops"].append(deepcopy(data["drops"][0]))
+        data["total_drops"] = data["claimed_drops"] = 2
+    path.write_text(json.dumps(contents))
+    original = path.read_bytes()
+    restarted = manager(path)
+    assert restarted.get_campaigns() == []
+    await restarted.add_campaign(model("new", claimed=True))
+    assert path.read_bytes() == original
