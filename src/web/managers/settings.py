@@ -11,6 +11,7 @@ from typing import TYPE_CHECKING, Any
 
 from src.config.settings import default_settings
 from src.models.game import Game
+from src.services.telegram_service import TELEGRAM_TOKEN_MASK, TelegramNotifier
 from src.utils import DropIgnorePolicy, merge_json
 
 
@@ -58,6 +59,8 @@ class SettingsManager:
         settings = vars(self._settings).copy()
         settings["games_available"] = self._available_games
         settings["revision"] = self.revision
+        settings["telegram_configured"] = bool(settings.get("telegram_bot_token"))
+        settings["telegram_bot_token"] = TELEGRAM_TOKEN_MASK if settings["telegram_configured"] else ""
         # TODO(remove in 1.3.x): Retain this POST-only echo long enough for stale
         # pre-versioned frontends to age out; it never survives a page reload.
         if legacy_show_not_linked is not None:
@@ -108,6 +111,11 @@ class SettingsManager:
             "minimum_refresh_interval_minutes",
             settings_data.get("minimum_refresh_interval_minutes"),
         )
+        token = (settings_data.get("telegram_bot_token") or "").strip()
+        if token and token != TELEGRAM_TOKEN_MASK:
+            self.check_and_update_setting("telegram_bot_token", token)
+        if settings_data.get("telegram_chat_id") is not None:
+            self.check_and_update_setting("telegram_chat_id", settings_data["telegram_chat_id"].strip())
         inventory_filters = settings_data.get("inventory_filters")
         legacy_show_not_linked = None
         if inventory_filters is not None:
@@ -138,6 +146,13 @@ class SettingsManager:
 
         return response_settings
 
+    async def test_telegram(self, bot_token: str, chat_id: str) -> bool:
+        """Test draft credentials without persisting them; blank token reuses the saved one."""
+        token = bot_token.strip()
+        if not token or token == TELEGRAM_TOKEN_MASK:
+            token = self._settings.telegram_bot_token
+        return await TelegramNotifier(token, chat_id.strip()).test_connection()
+
     def _normalize_inventory_filters(self, updates: dict[str, Any]) -> dict[str, Any]:
         """Merge partial filter updates and discard legacy or unknown keys."""
         current: dict[str, Any] = copy.deepcopy(dict(self._settings.inventory_filters))
@@ -159,7 +174,11 @@ class SettingsManager:
         if new_value is None or getattr(self._settings, key, None) == new_value:
             return False
         setattr(self._settings, key, new_value)
-        log_value = "••••••••" if key == "proxy" else new_value
+        log_value = (
+            TELEGRAM_TOKEN_MASK
+            if key in {"proxy", "telegram_bot_token", "telegram_chat_id"}
+            else new_value
+        )
         self._log_change(f"Setting changed: {key} = {log_value}")
         action(new_value)
         return should_trigger_update

@@ -409,7 +409,24 @@ Field labels and controls stay aligned when only one field has helper text.
 Keyboard focus uses subtle control/background changes without a surrounding ring.
 Native checkboxes highlight their label, and forced-colors mode retains system focus outlines.
 
-Notification integration has been removed. Obsolete notification credentials are discarded when settings are loaded and saved.
+### Telegram notifications
+
+In Settings → Telegram Notifications, enter a token from [@BotFather](https://t.me/BotFather)
+and a chat ID. The setup instructions are in that section. Send `/start` to your bot first.
+**Save Settings** saves without sending a message. **Test Connection** sends a test message
+and saves the entered credentials only after success. Failed saves retain your edits;
+Retry after a settings conflict applies only the Telegram fields.
+
+Leave the token blank to reuse the saved token. Clearing the chat ID and saving disables
+notifications. Tokens are stored in `data/settings.json` and masked in API/socket responses;
+keep this file private. Credentials still present in older settings are preserved, but
+credentials already discarded by a previous version must be entered again.
+
+Alerts include the campaign, game, drop and reward names for new successful claims from
+live events and inventory/startup checks. Repeated claim events do not notify again;
+existing historical claims are not resent. Delivery is best effort with a 10-second
+timeout and no retry. Delivery failures do not undo claims, and claim history is recorded
+before sending. Tests use mocked Telegram transport; no live delivery is claimed.
 
 Only games explicitly selected with **Mine** or **Add Game** are mined. An empty list mines nothing.
 **Stop mining** or removing a game in Settings leaves its campaigns visible and preserves progress.
