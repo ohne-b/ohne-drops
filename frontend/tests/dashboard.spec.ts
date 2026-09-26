@@ -141,8 +141,33 @@ test('campaign filtering and truthful expanded progress', async ({ page }) => {
   await page.getByLabel('Not Linked', { exact: true }).uncheck();
   await expect(page.getByText('Autumn expedition', { exact: true })).toBeVisible();
 });
+test('discovery stays visible without mining until Mine is explicitly selected', async ({
+  page,
+  request,
+}) => {
+  await request.post('/api/settings', { headers, data: { games_to_watch: [] } });
+  await page.goto('/campaigns');
+  await expect(page.getByText('Autumn expedition', { exact: true })).toBeVisible();
+  await page.getByRole('button', { name: 'Mine Rust', exact: true }).click();
+  await expect
+    .poll(async () => (await (await request.get('/api/settings')).json()).games_to_watch)
+    .toEqual(['Rust']);
+  await page.reload();
+  await expect(page.getByRole('button', { name: 'Stop mining Rust', exact: true })).toBeVisible();
+  await page.goto('/settings');
+  await expect(page.locator('#mining [data-game]')).toHaveCount(1);
+  await page.getByRole('button', { name: /Remove Rust/ }).click();
+  await expect
+    .poll(async () => (await (await request.get('/api/settings')).json()).games_to_watch)
+    .toEqual([]);
+  await page.goto('/campaigns');
+  await expect(page.getByRole('button', { name: 'Mine Rust', exact: true })).toBeVisible();
+});
 test('game priorities show icons instead of editable numbers', async ({ page, request }) => {
   await page.goto('/settings');
+  await page.getByRole('searchbox', { name: 'Search games...' }).fill('The Elder Scrolls Online');
+  await page.getByRole('button', { name: 'Add Game', exact: true }).click();
+  await expect(page.getByText('Changes saved.', { exact: true })).toBeVisible();
   await expect(page.getByRole('spinbutton', { name: /Priority for/ })).toHaveCount(0);
   await page
     .getByRole('button', { name: 'Reorder The Elder Scrolls Online', exact: true })
@@ -611,7 +636,7 @@ test('password errors stay in Settings and protection changes reach a second bro
   await context.close();
 });
 
-test('automatic game priorities preserve manual spelling and case-insensitive uniqueness', async ({
+test('explicit game priorities preserve manual spelling and case-insensitive uniqueness', async ({
   page,
   request,
 }) => {
@@ -621,15 +646,15 @@ test('automatic game priorities preserve manual spelling and case-insensitive un
   });
   await page.goto('/settings');
   const rows = page.locator('#mining [data-game]');
-  await expect(rows).toHaveCount(4);
+  await expect(rows).toHaveCount(2);
   expect(
     await rows.evaluateAll((items) => items.map((item) => item.getAttribute('data-game'))),
-  ).toEqual(['Custom game', 'rust', 'Sea of Thieves', 'The Elder Scrolls Online']);
+  ).toEqual(['Custom game', 'rust']);
   await expect(page.getByRole('button', { name: 'Select All', exact: true })).toHaveCount(0);
   await page.getByRole('button', { name: 'Reorder rust', exact: true }).press('ArrowUp');
   await expect(page.getByText('Changes saved.', { exact: true })).toBeVisible();
   const games = (await (await request.get('/api/settings')).json()).games_to_watch;
-  expect(games).toEqual(['rust', 'Custom game', 'Sea of Thieves', 'The Elder Scrolls Online']);
+  expect(games).toEqual(['rust', 'Custom game']);
   expect(games.filter((name: string) => name.toLowerCase() === 'rust')).toHaveLength(1);
 });
 
@@ -683,7 +708,7 @@ test('all channels remain available when priorities change', async ({ page, requ
   await expect(page.getByRole('link', { name: 'northwind', exact: true })).toBeVisible();
 });
 
-test('empty priorities still explain automatic mining', async ({ page, request }) => {
+test('empty selection asks for an explicit mining choice', async ({ page, request }) => {
   await request.post('/__test/event', {
     headers,
     data: {
@@ -692,11 +717,7 @@ test('empty priorities still explain automatic mining', async ({ page, request }
     },
   });
   await request.post('/__test/event', { headers, data: { event: 'drop_progress_stop', data: {} } });
-  await expect(
-    page.getByText(
-      'Waiting for an eligible reward and live channel. The miner checks automatically.',
-    ),
-  ).toBeVisible();
+  await expect(page.getByText('Choose Mine on a campaign to select its game.')).toBeVisible();
   await expect(page.getByText('Choose the games you want to mine.')).toHaveCount(0);
 });
 
@@ -758,6 +779,10 @@ test('pointer dragging saves on drop and Escape cancels a second drag', async ({
   page,
   request,
 }) => {
+  await request.post('/api/settings', {
+    headers,
+    data: { games_to_watch: ['Rust', 'Sea of Thieves', 'The Elder Scrolls Online'] },
+  });
   await page.goto('/settings');
   const handle = page.getByRole('button', { name: 'Reorder Rust', exact: true });
   await handle.scrollIntoViewIfNeeded();
@@ -769,6 +794,7 @@ test('pointer dragging saves on drop and Escape cancels a second drag', async ({
   expect((await (await request.get('/api/settings')).json()).games_to_watch).toEqual([
     'Rust',
     'Sea of Thieves',
+    'The Elder Scrolls Online',
   ]);
   await page.mouse.up();
   await expect
@@ -813,6 +839,6 @@ test('touch dragging reorders game priorities', async ({ browser, request }) => 
   await session.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] });
   await expect
     .poll(async () => (await (await request.get('/api/settings')).json()).games_to_watch)
-    .toEqual(['Sea of Thieves', 'Rust', 'The Elder Scrolls Online']);
+    .toEqual(['Sea of Thieves', 'Rust']);
   await context.close();
 });

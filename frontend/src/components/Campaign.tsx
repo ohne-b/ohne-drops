@@ -1,9 +1,10 @@
 import { mdiChevronDown, mdiOpenInNew } from '@mdi/js';
+import type { ReactNode } from 'react';
 import type { Campaign as CampaignData } from '../lib/types';
 import { safeUrl } from '../lib/api';
 import { useT } from '../lib/i18n';
 import { Art, Icon, ProgressBar, dateTime } from './ui';
-export function Campaign({ campaign }: { campaign: CampaignData }) {
+export function Campaign({ campaign, action }: { campaign: CampaignData; action?: ReactNode }) {
   const t = useT();
   const status =
     campaign.linked === null
@@ -31,6 +32,7 @@ export function Campaign({ campaign }: { campaign: CampaignData }) {
           </p>
           <p className="text-muted">{status}</p>
         </div>
+        {action}
         <Icon
           path={mdiChevronDown}
           className="text-muted transition-transform group-open:rotate-180"
