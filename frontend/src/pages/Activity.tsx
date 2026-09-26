@@ -18,7 +18,6 @@ export default function Activity() {
     <div className="space-y-5">
       <div>
         <h1 className="text-[22px] font-semibold">{t('activity')}</h1>
-        <p className="mt-1 text-muted">{t('activity_description')}</p>
       </div>
       <div className="flex gap-3">
         <div className="flex-1">

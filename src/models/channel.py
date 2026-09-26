@@ -384,9 +384,13 @@ class Channel:
         The 'stream-up' event is sent before the stream actually goes online,
         so just wait a bit and check if it's actually online by then.
         """
-        await asyncio.sleep(ONLINE_DELAY.total_seconds())
-        self._pending_stream_up = None  # for 'display' to work properly
-        await self.update_stream()
+        try:
+            await asyncio.sleep(ONLINE_DELAY.total_seconds())
+            await self.update_stream()
+        finally:
+            if self._pending_stream_up is asyncio.current_task():
+                self._pending_stream_up = None
+        self.display()
 
     def check_online(self) -> None:
         """
@@ -403,6 +407,8 @@ class Channel:
         """
         if self._pending_stream_up is None:
             self._pending_stream_up = asyncio.create_task(self._online_delay())
+            self._twitch._channel_tasks.add(self._pending_stream_up)
+            self._pending_stream_up.add_done_callback(self._twitch._channel_tasks.discard)
             self.display()
 
     def set_offline(self) -> None:

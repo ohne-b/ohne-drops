@@ -24,6 +24,12 @@ It is the repository's contribution policy, not optional background reading.
 
 ## Development Guidelines
 
+Keep the sidebar footer for the GitHub icon. Live connection/account status belongs in Settings → Twitch account.
+
+Shared Field controls use content-start so helper text does not stretch adjacent label rows.
+Avoid focus rings; retain a visible keyboard-focus background/border change and system focus in forced-colors mode.
+Focus styles must outrank Tailwind component/utility layers; verify computed focus states for fields, primary/secondary buttons and native checkboxes.
+
 Use descriptive `feat/` or `fix/` branch names. Keep branch names, documentation, commits,
 and PR descriptions free of assistant branding. Changes to main go through a pull request.
 
@@ -40,7 +46,7 @@ and PR descriptions free of assistant branding. Changes to main go through a pul
    - **Permission Required**: You MUST ask for user permission before significant refactoring.
 
 4. **Localization (i18n)**:
-   - Update translation files if there are changes to UI text or console messages.
+   - Update lang/English.json if UI text or console messages change; no other locales or language settings are supported.
    - Frontend translation rendering must use safe DOM construction. Do not inject translated strings with non-clearing `innerHTML`; allowlist any intentional links and build them as DOM nodes.
 
 5. **Documentation**:
@@ -85,12 +91,8 @@ src/
 ├── version.py       # Version string
 └── __main__.py      # Entry point
 
-lang/                # Translation JSON files (20 languages)
-├── English.json     # Default/fallback translations
-├── Español.json
-├── Français.json
-├── Deutsch.json
-└── ...              # 16 more languages
+lang/                # English message catalog
+└── English.json
 ```
 
 ### React dashboard
@@ -102,13 +104,19 @@ lang/                # Translation JSON files (20 languages)
 - `web/` is ignored Vite output. Run `npm ci` and `npm run build` in `frontend/`
   before starting Python or backend static-asset tests. Never edit output.
 - One typed provider handles complete snapshots and incremental events. Reconnect
-  hydrates a new snapshot; commands stay disabled until it arrives. Dirty settings
-  are separate from live state. Include the original revision in saves; HTTP409
-  keeps the draft. Lock fields during saves and preserve concurrent manual game edits.
+  hydrates a new snapshot; commands stay disabled until it arrives. Pending settings
+  edits are separate from live state. Include the original revision in autosaves;
+  HTTP409 keeps the draft for Retry. Keep fields editable while serializing writes.
 - Display confirmed minutes/timestamps separately from local estimates. Catalog null
   means unavailable. Use the actual pending OAuth flow, not an invented reconnect API.
+- Null campaign details must be skipped together with their incomplete summary while
+  preserving independent in-progress Inventory entries. Null catalogs must not print
+  a definitive no-campaign diagnosis. A later valid catalog clears the warning.
+  Missing details also mean incomplete discovery, even when summaries were returned.
+  Smart TV catalog access is an upstream limitation; do not claim cache clearing,
+  relogin or client-ID substitution repairs it.
 - Render API/translated strings as React text; validate external links. Expand Twitch
-  art URL placeholders in Art. Preserve locale keys with English fallback. No injected
+  art URL placeholders in Art. Keep the English message schema consistent. No injected
   HTML or CDN scripts. Keep auth/status translations usable before authentication.
 - Vitest/Playwright replace tests that extracted app.js functions. The browser suite
   starts `tests/dashboard_server.py` with synthetic data on port 8765 and temporary
@@ -164,8 +172,7 @@ lang/                # Translation JSON files (20 languages)
   `ignore_channel_status=True` checks retain their discovery-only status bypass.
 - `WatchService.can_watch()` requires the campaign's game in `wanted_games`, a live
   channel, and `campaign.can_earn(channel)`. Special categories bypass the channel's
-  drops-enabled flag; regular campaigns still require it. Account eligibility, campaign
-  and drop timing, prerequisites, claims, and ignore rules remain enforced.
+  drops-enabled flag; regular campaigns still require it. Campaign and drop timing, prerequisites, claims, and ignore rules remain enforced.
 - Channel priority still uses the streamed category; channels outside `wanted_games`
   retain `MAX_INT` fallback priority. Preserve special-category eligibility when changing
   watch selection; do not reintroduce an unconditional campaign/channel game equality gate.
@@ -209,17 +216,12 @@ lang/                # Translation JSON files (20 languages)
 
 **src/config/settings.py** - Application settings:
 
-- Games to watch list (auto-populated from available campaigns if empty)
+- Games to watch is a priority list, never an allowlist. Include all discovered games after saved priorities.
 - Games can also be added manually from the web settings search box. Exact and
   unique partial matches resolve to available game names; ambiguous matches do not
-  add a game. Confirmations support keyboard focus and Escape. Select All preserves
-  priority order and manual entries, and manual confirmation uses current settings.
-- Games to Watch supports up/down buttons and editable integer priority numbers. Clamp valid
-  ranks to the list bounds; reject blank/fractional values without changing settings.
-  Keep priority and remove-control labels translated and accessible. Regression tests in
-  `frontend/tests/` cover order, bounds, invalid inputs, and persistence calls.
+  add a game. Confirmations support keyboard focus and Escape; manual confirmation uses current settings.
+- Game priorities show Twitch box artwork with an icon fallback. Do not show numeric rank fields.
 - Connection quality multiplier
-- Language selection
 - Proxy support (including verification)
 - Logging and dump flags from command-line arguments
 - Persistence to JSON file (`settings.json`) in DATA_DIR
@@ -234,21 +236,6 @@ lang/                # Translation JSON files (20 languages)
   actively watched channel remains visible while game settings are changing
 - Consecutive identical no-active-campaign console prompts are collapsed until another
   console message appears
-- Telegram drop notifications use a bot token stored server-side. The web API/socket
-  never echoes the stored token: `get_settings()` returns only a `telegram_configured`
-  flag and a masked placeholder, console logs mask the value, and a submitted value equal
-  to the mask (or empty) leaves the stored credential untouched.
-- Telegram alerts originate in the shared `BaseDrop.claim()` successful unclaimed-to-claimed
-  transition, covering websocket, startup, and inventory-refresh claims without duplicate
-  alerts for repeated events. Telegram failures must not change a successful Twitch claim.
-- The Telegram form reuses the saved token when its input is blank. Clearing the chat ID
-  and saving disables alerts. Test Connection waits for settings persistence before showing
-  success; HTTP, network, and application save failures must remain visible as errors.
-- `frontend/tests/dashboard.spec.ts`, `tests/test_telegram_api.py`, and
-  `tests/test_telegram_integration.py` cover translated Help rendering, stored credentials,
-  failed saves, disabling, all shared claim paths, and transport failures without sending
-  real Telegram messages. Keep Telegram UI result strings in every locale.
-
 Drop-name ignore policy is dependency-aware: a matching unclaimed drop and its dependent
 branches are ignored dynamically. Prerequisite-only branches with no mineable reward are
 skipped, while shared prerequisites required by an allowed reward remain mineable. Ignored
@@ -266,6 +253,13 @@ progress to an ignored drop while the miner intentionally targets another reward
 7. Loop between CHANNEL_SWITCH and periodic INVENTORY_FETCH (hourly)
 
 ### Authentication
+
+- `/api/twitch/logout` is separate from dashboard logout. The session owner cancels
+  and drains inventory/channel batches, watch/maintenance work, delayed channel
+  tasks and active/retiring websocket callbacks before deleting saved cookies.
+  Keep the dashboard alive for a fresh OAuth flow. Preserve settings/history.
+  Concurrent logout requests coalesce; shutdown must not interrupt task drainage.
+  Mypy targets Python3.12, matching the required runtime and asyncio cancellation APIs.
 
 - Uses OAuth device code flow (user enters code at twitch.tv/activate)
 - Managed by `src/auth/auth_state.py` (`_AuthState` class)
@@ -313,7 +307,7 @@ progress to an ignored drop while the miner intentionally targets another reward
 - React Login and Settings own dashboard auth controls; the shared fetch helper adds
   the same-origin write header. Failed initial auth status leaves login/retry usable.
   Preserve public auth translations and synchronize protection status across devices.
-  Keep auth strings in `gui.auth`, rendered as text with native password fields.
+  Keep English auth strings in `gui.auth`, rendered as text with native password fields.
 - `tests/test_web_auth.py` and `frontend/tests/dashboard.spec.ts` cover access control,
   credential persistence, cookie lifetimes, CSRF, rate limiting, revocation, and UI errors.
   The idle socket-expiry regression controls the auth wall clock and captures the
@@ -360,52 +354,11 @@ Runs in background to trigger:
 - Channel cleanup when drops start/end (based on time_triggers)
 - Inventory reload every ~60 minutes
 
-### Translation System
+### English messages
 
-**Architecture:**
-
-- All translations stored as JSON files in `lang/` directory (20 languages supported)
-- English (`lang/English.json`) is the single source of truth and fallback language
-- Strongly typed with TypedDict schema defined in `src/i18n/translator.py`
-- Translator class (`src/i18n/translator.py`) handles language loading and fallback
-- Singleton instance `_` available via `from src.i18n import _`
-
-**Supported Languages:**
-
-- English, Dansk (Danish), Deutsch (German), Español (Spanish), Français (French)
-- Magyar (Hungarian), Indonesian, Italiano (Italian), Nederlandse (Dutch), Polski (Polish), Português (Portuguese)
-- Română (Romanian), Türkçe (Turkish), Čeština (Czech)
-- Русский (Russian), Українська (Ukrainian), العربية (Arabic)
-- 日本語 (Japanese), 简体中文 (Simplified Chinese), 繁體中文 (Traditional Chinese)
-
-**Translation Structure:**
-
-```python
-Translation = {
-    "language_name": str,      # Display name of language
-    "english_name": str,       # English name of language
-    "status": StatusMessages,  # Console status messages
-    "login": LoginMessages,    # Login-related messages
-    "error": ErrorMessages,    # Error messages
-    "gui": GUIMessages        # All web GUI text (tabs, settings, help, etc.)
-}
-```
-
-**Usage:**
-
-```python
-from src.i18n import _
-
-# Access translations
-status_text = _.t["gui"]["status"]["idle"]  # Returns "Idle"
-login_text = _.t["login"]["status"]["logged_in"]  # Returns "Logged in"
-```
-
-**Language Persistence:**
-
-- Language selection persisted in `settings.json` (DATA_DIR)
-- Dynamic language switching supported in web GUI
-- Changes take effect immediately without restart
+`lang/English.json` contains all interface and miner messages. Its TypedDict schema
+lives in `src/i18n/translator.py`; the singleton `_` exposes `_.t`. The frontend
+bundles this one catalog. There are no locale selection, loading or switching APIs.
 
 ## Key Files
 
@@ -421,7 +374,7 @@ login_text = _.t["login"]["status"]["logged_in"]  # Returns "Logged in"
 - **src/i18n/** - Internationalization package with TypedDict schema and Translator class
   - **translator.py** - Translator class with typed translation schema (Translation TypedDict)
   - **__init__.py** - Exports translation types and `_` (Translator instance)
-- **lang/** - Translation JSON files for 20 languages (English.json is the single source of truth)
+- **lang/** - English.json message catalog
 - **src/version.py** - Version string
 - **src/web/app.py** - FastAPI application with REST API and Socket.IO
 - **src/web/managers/cache.py** - ImageCache for campaign artwork caching
@@ -488,7 +441,7 @@ npm --prefix frontend test
 ```
 
 The suite covers settings and proxy behavior, inventory-filter behavior, API filtering,
-GraphQL watch events, batched channel discovery, full-locale translation schema and
+GraphQL watch events, batched channel discovery, English message schema and
 placeholder consistency, frontend DOM safety, case-insensitive channel filtering,
 watch-drop count and expiry semantics, immediate claim refresh behavior, consecutive
 no-campaign console collapsing, contributor README automation, and the claimed-drop
@@ -631,7 +584,6 @@ with this policy when reviewing proposals or documenting deployment options.
 
 - Multi-account support
 - Channel points mining
-- Mining for unlinked campaigns
 - Desktop GUI
 
 ### Claimed Drop History
@@ -640,5 +592,20 @@ with this policy when reviewing proposals or documenting deployment options.
 by drop ID. The History tab provides game/date filters, pagination, statistics, CSV export,
 and confirmed local deletion. Date-only filters mean midnight UTC; aware timestamps
 preserve their instant. CSV attachment names use UTF-8 percent encoding with an ASCII
-fallback. History text is defined in `gui.history` for every locale and rendered as text.
+fallback. History text is defined in the English `gui.history` catalog and rendered as text.
 Tests cover persistence, filtering, Unicode exports, offsets, and translated UI behavior.
+
+English is the only language. The settings loader discards old language preferences; do not reintroduce locale APIs, selection controls, or language broadcasts.
+
+No Telegram service, endpoints, credentials, notification hooks or UI remain. Legacy stored fields are ignored and removed on the next settings save.
+
+Game-account linking is display metadata, not a local earning gate. Include unlinked item campaigns while retaining timing, channel ACL, prerequisites, benefit types, ignore rules and server-confirmed progress. Twitch still controls reward delivery.
+
+StreamSelector includes every discovered game after saved priorities, case-insensitively deduplicated. Empty priorities still mine all eligible games. Channel display must not hide games absent from the priority list.
+Overview must describe automatic waiting when priorities are empty; never ask users to select games to start mining.
+
+Keep page introductions compact: no redundant subtitles for Settings, Campaigns, History or Activity, no fixed-dark appearance description, and no generic mining instructions.
+
+Settings autosave lives in MinerProvider so route changes cannot discard pending writes. Debounce and serialize PATCH-like setting updates with revision checks. Retain newer edits during in-flight requests and failed/conflicting input until Retry; never restore whole stale snapshots over other devices.
+
+Game priorities use pointer dragging with the OhneGuessr six-dot handle, pointer capture for touch, Escape/pointer-cancel rollback, and keyboard arrow keys with live announcements. Persist only on drop; cancel if external game priorities change during a drag. No visible arrow buttons or numeric ranks.

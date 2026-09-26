@@ -59,6 +59,17 @@ def configure(client, action="enable", current="", password=PASSWORD, confirm=No
 
 
 class TestDashboardAuth:
+    def test_twitch_logout_preserves_dashboard_session_and_requires_csrf(self, protected, monkeypatch):
+        logout = AsyncMock()
+        monkeypatch.setattr(web, "twitch_client", SimpleNamespace(logout=logout))
+        assert protected.post("/api/twitch/logout").status_code == 401
+        assert login(protected).status_code == 200
+        assert protected.post("/api/twitch/logout", headers={"X-TDM-Request": ""}).status_code == 403
+        assert protected.post("/api/twitch/logout", headers={"Origin": "https://foreign.test"}).status_code == 403
+        assert protected.post("/api/twitch/logout").json() == {"success": True}
+        logout.assert_awaited_once()
+        assert protected.get("/api/auth/status").json()["authenticated"]
+
     def test_disabled_by_default_and_login_redirects(self, client):
         assert client.get("/").status_code == 200
         assert client.get("/login", follow_redirects=False).headers["location"] == "/"

@@ -1,7 +1,7 @@
 # Contributing to Twitch Drops Miner
 
 Contributions are welcome: bug reports, feature requests, code, tests, documentation,
-and translations. This guide defines the contribution workflow for people and coding
+and English copy. This guide defines the contribution workflow for people and coding
 agents. Agents must read it before starting work and follow the same requirements.
 
 ## About the repository
@@ -27,14 +27,13 @@ Twitch OAuth login, persistent local data, and Docker support.
 | `frontend/`, `web/` | React/TypeScript source and ignored compiled output |
 | `src/config/`, `src/utils/` | Configuration and shared utilities |
 | `src/drop_history.py` | Claimed-drop history, filtering, statistics, and export |
-| `src/i18n/`, `lang/` | Translation schema and locale files |
+| `src/i18n/`, `lang/` | English message schema and catalog |
 | `tests/` | Backend, integration, regression, and frontend behavior tests |
 | `.github/workflows/`, `.github/scripts/` | Validation, releases, and contributor automation |
 
 Read [README.md](./README.md) for setup and user behavior, and
 [AGENTS.md](./AGENTS.md) for architecture and detailed implementation constraints.
-The current scope excludes multiple accounts, channel-points mining, unlinked
-campaign mining, and a desktop GUI. Discuss proposed scope changes before implementing
+The current scope excludes multiple accounts, channel-points mining, and a desktop GUI. Discuss proposed scope changes before implementing
 them; opening a feature request does not itself approve a change in scope.
 
 This is a hobby project for personal use on your own hardware and home network.
@@ -65,14 +64,14 @@ Include enough information for someone else to reproduce the problem:
 - Minimal redacted logs, tracebacks, screenshots, or sample responses. Explain any
   troubleshooting already tried and its result.
 
-For mining problems, check that the game account is linked, the reward is earned by
+For mining problems, check the campaign’s account-link requirements, that the reward is earned by
 watching, the campaign is active, the channel participates, and your game selection or
 ignore rules do not exclude it. Mention simultaneous manual Twitch viewing. Distinguish
 what the miner displays from what Twitch's own inventory reports; a local display issue
 and missing server-side progress may have different causes.
 
 Never attach `cookies.jar`, `data/web_auth.json`, an entire data directory, OAuth/device
-codes, session cookies, passwords, Telegram bot tokens, or unredacted settings/logs.
+codes, session cookies, passwords, or unredacted settings/logs.
 Verbose output and network captures can contain credentials; inspect them before sharing.
 
 ### Feature requests, questions, and other contributions
@@ -180,11 +179,9 @@ exists; use closing keywords only when the PR fully resolves that issue.
   `AGENTS.md`; do not replace them with duplicated text. Put agent-specific guidance
   in clearly named sections of `AGENTS.md`. Update this guide when the contribution
   workflow changes.
-- For UI or console text changes, update the English source, every affected locale in
-  `lang/`, and the TypedDict translation schema when keys change. Preserve key and
-  placeholder parity. Render translated UI as React text with validated links;
+- For UI or console text changes, update `lang/English.json` and the TypedDict message schema when keys change. Preserve message keys and placeholders. Render translated UI as React text with validated links;
   allowlist intentional links and create link nodes explicitly.
-- Preserve account eligibility, campaign/drop timing, prerequisites, ignore rules,
+- Preserve campaign/drop timing, prerequisites, ignore rules,
   authentication boundaries, and credential redaction. Cache recovery must preserve
   credentials and settings. Consult the detailed contracts in the agent instructions.
 - Edit frontend sources in `frontend/`, never generated `web/`. Vite content hashes
@@ -198,7 +195,7 @@ old behavior and passes with the fix whenever practical. Test public behavior an
 meaningful outcomes, not just internal implementation details. New functionality needs
 both normal and failure-path coverage, including relevant boundary cases.
 
-Use mocked Twitch/Telegram/network responses and temporary storage. Tests must not
+Use mocked Twitch/network responses and temporary storage. Tests must not
 need real credentials, claim real drops, or send real notifications. Existing tests
 in `tests/` show the repository's conventions. Frontend logic uses Vitest; Playwright
 uses the real API/socket/auth boundary with synthetic data in `tests/dashboard_server.py`.

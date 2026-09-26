@@ -18,7 +18,7 @@ from src.config import (
     State,
     WebsocketTopic,
 )
-from src.config.paths import DATA_DIR
+from src.config.paths import COOKIES_PATH, DATA_DIR
 from src.drop_history import DropHistory
 from src.exceptions import (
     ExitRequest,
@@ -62,6 +62,8 @@ class Twitch:
         self._inventory_loaded = False
         self._inventory_refresh_pending = False
         self._clear_cache_pending = False
+        self._session_task: asyncio.Task[None] | None = None
+        self._logout_waiter: asyncio.Future[None] | None = None
         self.wanted_games: list[Game] = []
         self.inventory: list[DropsCampaign] = []
         self._drops: dict[str, TimedDrop] = {}
@@ -79,6 +81,7 @@ class Twitch:
         self.channels: OrderedDict[int, Channel] = OrderedDict()
         self.watching_channel: AwaitableValue[Channel] = AwaitableValue()
         self._watching_task: asyncio.Task[None] | None = None
+        self._channel_tasks: set[asyncio.Task[None]] = set()
         self._watching_restart = asyncio.Event()
         # Manual mode tracking
         self._manual_target_channel: Channel | None = None
@@ -127,14 +130,15 @@ class Twitch:
     async def shutdown(self) -> None:
         start_time = time()
         self.stop_watching()
-        if self._watching_task is not None:
-            self._watching_task.cancel()
-            self._watching_task = None
-        if self._mnt_task is not None:
-            self._mnt_task.cancel()
-            self._mnt_task = None
-        # stop websocket and close HTTP session
+        # Stop event producers before draining their remaining account work.
         await self.websocket.stop(clear_topics=True)
+        tasks = [self._watching_task, self._mnt_task]
+        tasks.extend(self._channel_tasks)
+        pending = [task for task in tasks if task is not None]
+        for task in pending:
+            task.cancel()
+        await asyncio.gather(*pending, return_exceptions=True)
+        self._watching_task = self._mnt_task = None
         if self._http_client is not None:
             await self._http_client.close()
         self._drops.clear()
@@ -209,6 +213,8 @@ class Twitch:
         usually by the console or application window being closed.
         """
         self.change_state(State.EXIT)
+        if self._session_task is not None and not self._session_task.cancelling():
+            self._session_task.cancel()
 
     def print(self, message: str, *, collapse_key: str | None = None) -> None:
         """Print a message in the GUI."""
@@ -224,15 +230,51 @@ class Twitch:
             self.websocket.remove_topics(topics_to_remove)
 
     async def run(self) -> None:
-        """Main entry point for the miner - handles exit requests."""
-        while True:
-            try:
-                await self._run()
-                break
-            except ExitRequest:
-                break
-            except aiohttp.ContentTypeError as exc:
-                raise RequestException(_.t["login"]["unexpected_content"]) from exc
+        """Run account sessions; logout restarts authentication without closing the dashboard."""
+        try:
+            while self._state not in (State.EXIT,):
+                self._session_task = asyncio.create_task(self._run())
+                try:
+                    await self._session_task
+                except asyncio.CancelledError:
+                    current = asyncio.current_task()
+                    if (current is not None and current.cancelling()) or (
+                        self._logout_waiter is None and self._state not in (State.EXIT,)
+                    ):
+                        raise
+                except ExitRequest:
+                    break
+                except aiohttp.ContentTypeError as exc:
+                    raise RequestException(_.t["login"]["unexpected_content"]) from exc
+                if self._logout_waiter is None:
+                    break
+                await self.shutdown()
+                # close() saves cookies; remove them only after all old account tasks stop.
+                COOKIES_PATH.unlink(missing_ok=True)
+                self._inventory_service.clear_cached_state()
+                self._inventory_loaded = False
+                self._games_update_pending = False
+                self._inventory_refresh_pending = False
+                self._clear_cache_pending = False
+                self.gui.login.reset()
+                self.gui.status.update(_.t["login"]["status"]["logged_out"])
+                self._logout_waiter.set_result(None)
+                self._logout_waiter = None
+        finally:
+            self._session_task = None
+            if self._logout_waiter is not None:
+                self._logout_waiter.set_exception(RuntimeError("Twitch logout did not complete"))
+                self._logout_waiter = None
+
+    async def logout(self) -> None:
+        """Forget this server's Twitch login, coalescing simultaneous requests."""
+        if self._logout_waiter is None:
+            if self._session_task is None or self._session_task.done() or self._state is State.EXIT:
+                raise RuntimeError("The miner is shutting down")
+            self._logout_waiter = asyncio.get_running_loop().create_future()
+            self._session_task.cancel()
+        # A browser disconnect must not interrupt credential removal.
+        await asyncio.shield(self._logout_waiter)
 
     async def _run(self) -> None:
         """
@@ -302,14 +344,14 @@ class Twitch:
                         for drop in campaign.drops:
                             if drop.can_claim:
                                 await drop.claim()
-                # figure out which games we want based on games_to_watch whitelist
+                # Saved games set priority; all discovered eligible games are included.
                 self.wanted_games.clear()
                 games_to_watch: list[str] = self.settings.games_to_watch
                 next_hour: datetime = datetime.now(timezone.utc) + timedelta(hours=1)
                 logger.info("games_to_watch: %s", games_to_watch)
                 logger.info(
-                    "inventory has %d eligible campaigns",
-                    sum(1 for c in self.inventory if c.eligible),
+                    "inventory has %d campaigns",
+                    len(self.inventory),
                 )
                 logger.debug("inventories: %s", self.inventory)
 
@@ -333,7 +375,7 @@ class Twitch:
                         "No wanted games found! games_to_watch=%s, eligible_campaigns=%d",
                         games_to_watch,
                         sum(
-                            1 for c in self.inventory if c.eligible and c.can_earn_within(next_hour)
+                            1 for c in self.inventory if c.can_earn_within(next_hour)
                         ),
                     )
 
@@ -391,8 +433,13 @@ class Twitch:
                     self.change_state(State.CHANNELS_FETCH)
                 else:
                     # with no games available, we switch to IDLE after cleanup
+                    message: Literal["catalog_unavailable", "no_campaign"] = (
+                        "catalog_unavailable"
+                        if self.gui.inv.availability.get("available") is False
+                        else "no_campaign"
+                    )
                     self.print(
-                        _.t["status"]["no_campaign"],
+                        _.t["status"][message],
                         collapse_key="status.no_campaign",
                     )
                     self.change_state(State.IDLE)
@@ -711,36 +758,14 @@ class Twitch:
         """Delegate to ChannelService."""
         await self._channel_service.bulk_check_online(channels)
 
-    def _filter_wanted_campaigns(self, next_hour: datetime) -> list[Game]:
-        """
-        Filter campaigns to find wanted games based on settings and benefits.
-        """
-        wanted_games: list[Game] = []
-        games_to_watch: list[str] = self.settings.games_to_watch
-        mining_benefits: dict[str, bool] = self.settings.mining_benefits
-
-        for game_name in games_to_watch:
-            game_name_lower: str = game_name.lower()
-            for campaign in self.inventory:
-                game: Game = campaign.game
-                if (
-                    game.name.lower() == game_name_lower
-                    and game not in wanted_games
-                    and campaign.can_earn_within(next_hour)
-                    and campaign.has_wanted_unclaimed_benefits(mining_benefits)
-                ):
-                    wanted_games.append(game)
-                    break
-        return wanted_games
-
     def _output_campaign_mapping(self, next_hour: datetime) -> None:
         logger.info("=== Active Campaigns Mapping ===")
         from collections import defaultdict
 
         game_campaign_map: dict[str, list[tuple[DropsCampaign, list[str]]]] = defaultdict(list)
         for campaign in self.inventory:
-            if campaign.eligible and not campaign.mining_finished:
-                logger.info("eligible Campaign: %s - %s", campaign.name, campaign.game.name)
+            if not campaign.mining_finished:
+                logger.info("Mineable campaign: %s - %s", campaign.name, campaign.game.name)
             if campaign.can_earn_within(next_hour):
                 channel_names = []
                 if campaign.allowed_channels:

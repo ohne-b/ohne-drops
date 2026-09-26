@@ -69,7 +69,6 @@ export interface Filters {
 }
 export interface Settings {
   revision?: string;
-  language: string;
   dark_mode: boolean;
   games_to_watch: string[];
   games_available: string[];
@@ -80,9 +79,6 @@ export interface Settings {
   mining_benefits: Record<string, boolean>;
   inventory_filters: Filters;
   inventory_list_view: boolean;
-  telegram_bot_token: string;
-  telegram_chat_id: string;
-  telegram_configured: boolean;
 }
 export interface OAuth {
   url: string;
@@ -187,7 +183,6 @@ export interface ServerEvents {
   settings_updated: (data: Settings) => void;
   games_available: (data: { games: string[] }) => void;
   manual_mode_update: (data: ManualMode) => void;
-  language_changed: (data: { language: string }) => void;
   wanted_items_update: (data: WantedGame[]) => void;
   notification: (data: { title: string; message: string }) => void;
   attention_required: (data: { sound: boolean }) => void;

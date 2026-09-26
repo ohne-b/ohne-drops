@@ -25,8 +25,6 @@ CHANNEL_ID = 100
 def twitch():
     client = MagicMock()
     client.settings.drop_name_blacklist = []
-    client.settings.telegram_bot_token = ""
-    client.settings.telegram_chat_id = ""
     client.watching_channel.get_with_default.side_effect = lambda default: default
     return client
 
@@ -91,6 +89,17 @@ def _channel(twitch, playing=TEST_GAME, *, id=CHANNEL_ID, online=True, drops_ena
 )
 def test_special_categories_are_identified_by_id(game, expected):
     assert Game({**game, "name": "Localized category name"}).is_special() is expected
+
+
+@pytest.mark.parametrize("game", [TEST_GAME, SPECIAL_EVENTS, IRL])
+def test_unlinked_game_accounts_can_earn_timed_items(twitch, game):
+    campaign = _campaign(twitch, game, benefit_type="DIRECT_ENTITLEMENT")
+    channel = _channel(twitch)
+    assert not campaign.linked
+    assert campaign.can_earn(channel)
+    assert campaign.can_earn_within(datetime.now(timezone.utc) + timedelta(hours=1))
+    assert WatchService(twitch).can_watch(channel)
+    assert InventoryService(twitch).get_active_campaign(channel) is campaign
 
 
 @pytest.mark.parametrize("game", [SPECIAL_EVENTS, IRL])
@@ -196,7 +205,6 @@ def test_regular_campaign_keeps_game_and_drops_enabled_checks(
         "upcoming_drop",
         "claimed",
         "ignored",
-        "unlinked",
         "missing_precondition",
         "subscription",
     ],
@@ -205,7 +213,7 @@ def test_special_campaign_preserves_earning_requirements(twitch, blocker):
     campaign = _campaign(
         twitch,
         SPECIAL_EVENTS,
-        benefit_type="DIRECT_ENTITLEMENT" if blocker == "unlinked" else "EMOTE",
+        benefit_type="DIRECT_ENTITLEMENT",
     )
     drop = campaign.timed_drops["event-drop"]
     now = datetime.now(timezone.utc)

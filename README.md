@@ -1,5 +1,18 @@
 # Twitch Drops Miner
 
+Settings → Twitch account provides **Log out of Twitch**. It stops account work and
+forgets the server's saved Twitch login, then offers a fresh authorization code.
+Dashboard password access, mining preferences and claimed history are retained.
+
+If Twitch withholds the campaign catalog, the miner retains campaigns returned by
+your in-progress inventory and skips inaccessible campaign details without crashing.
+An unavailable or incomplete catalog is distinct from an empty one. Missing details
+also keep the warning visible until a complete fetch succeeds. Smart TV authorization can
+succeed while catalog access fails; logout or cache clearing is not a verified remedy.
+The [upstream investigation](https://github.com/rangermix/TwitchDropsMiner/issues/118)
+tracks an experimental browser export and server renewal helper. That unreleased
+authentication path is not included here; complete discovery is not guaranteed.
+
 > Automatically mine timed Twitch Drops without streaming video or audio.
 
 <p align="center">
@@ -40,7 +53,6 @@ dark surfaces, compact fields, and a thin custom native scrollbar. See the
 - **Optional dashboard password** — protects the web UI, API, and live connections with one password
 - **Drop history** — records every claimed drop locally (date, game, campaign, rewards)
   with a filterable **History** tab, aggregated stats, and one-click **Export CSV**
-- **Telegram notifications** — sends an alert when a drop is claimed, including claims found during startup and inventory refresh
 - **Headless deployment** — runs on your own home hardware, including Docker, without a desktop GUI
 - **Safe rendering** — React text rendering and validated external links; no injected HTML
 
@@ -90,8 +102,8 @@ Use the compiled build for deployment.
 
 1. Log in with your Twitch account through the OAuth device flow.
 2. Wait for the miner to discover available campaigns.
-3. Choose the games you want to prioritize. You can also search for a game, select
-   **Add Game**, and then **Save changes**. The miner applies the new priorities.
+3. All discovered games are included automatically; choose their priority. You can also search for a game, select
+   **Add Game**, and the miner saves the priority automatically.
 4. Leave the miner running while it selects eligible channels and tracks drop progress.
 
 Twitch login uses the Smart TV device authorization flow. This fixes the
@@ -100,15 +112,12 @@ client. After upgrading from 1.3.0 or earlier, you may need to authorize the min
 once more at `twitch.tv/activate`; the new session is saved for later runs. Channel
 pages still use the public Twitch website to discover the watch-event endpoint.
 
-In **Settings → Mining**, use the up/down buttons or type a priority number to move a
-game directly. Save changes explicitly; Cancel restores the latest server settings.
-Priority 1 is highest; out-of-range numbers are clamped to the list ends.
-Blank or fractional values leave the order unchanged. Priority controls and remove buttons
-use translated labels for screen readers.
+In **Settings → Mining**, game artwork replaces numeric priority fields. Drag the subtle six-dot handle to reorder. Keyboard users can focus the handle and
+press the up/down arrow keys. The first game has the highest priority; changes save automatically.
 
 **Special Events** and **IRL** campaigns can be mined on their listed participating
 channels even when those channels stream another category or lack a drops-enabled flag.
-Include the campaign's category in **Games to Watch**. Channels must be live and eligible;
+These categories are included automatically. Channels must be live and eligible;
 campaigns without an enabled participating-channel list still require a matching category.
 Channels streaming categories outside Games to Watch retain the lowest automatic priority.
 When the watched channel goes offline or becomes ineligible, another eligible participant
@@ -204,30 +213,15 @@ turning off protection. **Clear All Cache** preserves dashboard authentication.
 The **History** tab logs every successfully claimed drop to `data/drop_history.json`.
 Filter the table by game name or "claimed on or after" date, view per-game and per-month
 stats, or download the current view as a CSV file (UTF-8 BOM so Excel opens it cleanly).
-Existing translations are retained; new labels have English fallback. The date filter starts at
+The interface uses English. The date filter starts at
 midnight UTC on the selected date; displayed claim times use your browser’s local timezone.
 CSV downloads support Unicode game names. Existing Twitch claims are not backfilled.
 **Clear local history** requires confirmation and deletes local history; this does not affect your
 Twitch account or already-claimed rewards.
 
-### Telegram notifications
-
-In **Settings → Telegram Notifications**, enter a bot token from
-[@BotFather](https://t.me/BotFather) and your chat ID. Start a conversation with your bot
-before testing. Select **Save changes**, then **Send test message**. Testing stays disabled
-while settings are unsaved. A failed test or save displays an error beside the action.
-
-The bot token is stored on the server and is never returned to the browser. Leave the token
-field blank to reuse it when testing or changing the chat ID. To disable notifications,
-clear the chat ID and save. Enter a new chat ID to enable notifications again.
-
-Notifications cover new successful claims from both live events and inventory checks.
-Repeated events for an already claimed drop do not send another alert. Telegram delivery
-failures do not undo a Twitch claim, and failed notifications are not retried.
-
 > [!NOTE]
-> Your Twitch account must be linked to the relevant game accounts. Review your
-> [Twitch Drops campaigns](https://www.twitch.tv/drops/campaigns) before mining.
+> Unlinked game accounts are included in mining. Twitch may require linking before
+> a reward can be delivered. Check the campaign’s account-link requirement.
 
 ## Important notes
 
@@ -336,34 +330,21 @@ update the shared guidance.
 This fork is maintained with AI-assisted development tools. Changes are validated through
 automated tests and code-quality checks, but users should still review updates before
 deploying them. The validation suite includes GraphQL watch events and batched channel
-discovery, alongside settings, full-locale translation schema and placeholder checks,
+discovery, alongside settings, English message schema and placeholder checks,
 and frontend safety checks. Use the software
 responsibly. Release automation verifies that the runtime, package, and lockfile versions
 match before publishing tags and Docker images. Docker validation and release jobs use
 the same pinned, Node-24-native Buildx and image-build action releases.
 The suite also covers ignored-keyword normalization, dependency branches, the combined
-expiry/ignore Wanted Queue guard, watch selection, API persistence, translated placeholder
+expiry/ignore Wanted Queue guard, watch selection, API persistence, English placeholder
 parity, frontend rendering, and the claimed-drop history store with CSV export and API
 endpoints. Vite generates content-hashed assets with immutable caching; HTML is revalidated.
 Source changes no longer need a manual browser cache-key bump. The existing release workflow
 still controls application versioning and image publication.
 
-Telegram regression coverage includes translated controls, saved-token reuse,
-disabling notifications, failed saves, claim deduplication, and mocked Telegram transport
-errors. From the activated environment, run:
-
-```bash
-python -m pytest tests/test_telegram_api.py tests/test_telegram_integration.py
-cd frontend
-npm run test:browser
-```
-
-No real Telegram messages are sent by these tests.
-
-Games to Watch supports Enter to add an exact or unique partial match. Ambiguous
-searches ask for a more specific name. Manual names and Deselect All require a
-confirmation; Escape cancels and keyboard focus stays in the dialog. Select All
-retains the existing priority order and manual entries, adding missing games only.
+Game priorities support Enter to add an exact or unique partial match. Ambiguous
+searches ask for a more specific name. Manual names require confirmation; Escape
+cancels and keyboard focus stays in the dialog. All discovered games are included.
 
 ## Dashboard development and checks
 
@@ -375,9 +356,8 @@ stale browser cannot overwrite a newer save. Proxy credentials are masked in log
 
 History shows 25 records per page while preserving full filtered exports. Activity retains
 at most 1,000 lines and follows new messages only while the view is at the bottom. Dirty
-settings survive reconnects; saving locks their fields until the response arrives. A stale
-save keeps the draft and offers Cancel to load current settings. New UI copy has English
-fallback; German includes translated labels, alongside all existing locales.
+settings survive reconnects and navigation; saves are serialized while fields stay editable.
+A failed or conflicting save keeps the draft and offers Retry. All UI copy is English.
 
 Install development dependencies with `uv sync --active --extra dev --locked --python 3.12`
 in the activated environment. Then:
@@ -397,6 +377,22 @@ npm run test:browser
 
 Browser tests use the production build and a separate synthetic FastAPI/Socket.IO server
 on port 8765, temporary storage, and mocked services. They refuse to reuse an existing
-server and do not contact Twitch or send Telegram messages. CI also runs accessibility
+server and do not contact Twitch. CI also runs accessibility
 checks, release-script tests, and Docker builds for amd64 and arm64. See
 [CONTRIBUTING.md](./CONTRIBUTING.md) for the full workflow.
+
+The interface and miner messages use English only. Older saved language preferences are ignored.
+
+Field labels and controls stay aligned when only one field has helper text.
+Keyboard focus uses subtle control/background changes without a surrounding ring.
+Native checkboxes highlight their label, and forced-colors mode retains system focus outlines.
+
+Notification integration has been removed. Obsolete notification credentials are discarded when settings are loaded and saved.
+
+All eligible discovered games are mined, including games absent from the saved priority list. New games follow saved priorities; Select all and Deselect all are unnecessary.
+An empty priority list also mines automatically; no initial game selection is needed.
+
+Page headings stand on their own; repeated descriptive and appearance copy has been removed.
+Connection status lives under Settings → Twitch account; the sidebar footer links to GitHub.
+
+Settings save automatically after a short pause. Pending edits survive navigation; failed or conflicting saves retain input and offer Retry. Only changed fields are submitted, so other preferences are preserved.
