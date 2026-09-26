@@ -1,5 +1,7 @@
 # Twitch Drops Miner
 
+The desktop sidebar shows your signed-in Twitch account ID.
+
 Settings → Twitch account provides **Log out of Twitch**. It stops account work and
 forgets the server's saved Twitch login, then offers a fresh authorization code.
 Dashboard password access, mining preferences and claimed history are retained.
