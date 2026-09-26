@@ -24,6 +24,8 @@ It is the repository's contribution policy, not optional background reading.
 
 ## Development Guidelines
 
+Keep the sidebar footer for the GitHub icon. Live connection/account status belongs in Settings → Twitch account.
+
 Shared Field controls use content-start so helper text does not stretch adjacent label rows.
 Avoid focus rings; retain a visible keyboard-focus background/border change and system focus in forced-colors mode.
 
