@@ -110,16 +110,22 @@ test('Up next scrolls within its panel with reward artwork and safe fallbacks', 
   );
   await expect(panel.locator('li').nth(1).locator('svg')).toBeVisible();
   await expect(panel.locator('li').nth(2).locator('svg')).toBeVisible();
-  for (const width of [1440, 390]) {
-    await page.setViewportSize({ width, height: 900 });
-    if (width === 1440) {
+  for (const [width, height] of [
+    [1440, 900],
+    [1598, 520],
+    [390, 900],
+  ] as const) {
+    await page.setViewportSize({ width, height });
+    if (width >= 1280) {
       expect((await channels.boundingBox())!.height).toBe((await queue.boundingBox())!.height);
       expect((await channels.boundingBox())!.y).toBe((await queue.boundingBox())!.y);
     } else {
       expect((await channels.boundingBox())!.y).toBeGreaterThan((await queue.boundingBox())!.y);
     }
     for (const region of [panel, channelPanel]) {
-      expect((await region.boundingBox())!.height).toBeLessThanOrEqual(width === 1440 ? 900 : 440);
+      expect((await region.boundingBox())!.height).toBeLessThanOrEqual(
+        width >= 1280 ? height : 440,
+      );
       expect(
         await region.evaluate(
           (el) => el.scrollHeight > el.clientHeight && getComputedStyle(el).overflowY === 'auto',
@@ -170,6 +176,13 @@ test('Overview fits the desktop viewport and only scrolls the page when space is
   expect(await page.evaluate(() => document.documentElement.scrollHeight)).toBeGreaterThan(480);
   await page.getByRole('region', { name: 'Channels', exact: true }).scrollIntoViewIfNeeded();
   await expect(page.getByRole('button', { name: 'Watch harbor', exact: true })).toBeVisible();
+  await page.evaluate(() => window.scrollTo(0, document.documentElement.scrollHeight));
+  expect((await page.locator('aside').boundingBox())!.y).toBeCloseTo(0, 0);
+  await expect(
+    page.getByRole('navigation').getByRole('link', { name: 'Overview' }),
+  ).toBeInViewport();
+  await expect(page.getByText('Twitch: 123456', { exact: true })).toBeInViewport();
+  await page.screenshot({ path: '../artifacts/overview-short-window.png', fullPage: true });
 });
 test('every route loads directly and stays usable on a phone', async ({ page }) => {
   await page.goto('/settings');

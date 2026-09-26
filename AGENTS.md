@@ -661,6 +661,9 @@ Legacy claim history without campaign totals is displayed separately as completi
 Overview Channels and Up next share the remaining viewport height on desktop, with
 independently scrolling lists below fixed headers. Retain a 240px minimum panel height
 and normal page overflow for short windows; never hide content to suppress scrolling.
+Overview's wrapper must grow to its intrinsic minimum so the sidebar's sticky containing
+block encloses the content. Size containment on the panel grid excludes long lists from
+that minimum; test the sidebar after scrolling short windows, not just panel visibility.
 Stacked layouts cap each list at 440px.
 Each queue reward includes item artwork; missing, unsafe, or failed images use the shared Art fallback.
 
