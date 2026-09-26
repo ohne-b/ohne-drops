@@ -229,6 +229,35 @@ test('removed notifications have no controls, API or saved credentials', async (
   );
 });
 
+test('history displays saved reward artwork and preserves old entries', async ({
+  page,
+  request,
+}) => {
+  const history = await (await request.get('/api/history')).json();
+  await page.route('https://static-cdn.jtvnw.net/reward.png', (route) =>
+    route.fulfill({
+      contentType: 'image/svg+xml',
+      body: '<svg xmlns="http://www.w3.org/2000/svg" width="40" height="40" />',
+    }),
+  );
+  await page.route('**/api/history?*', (route) =>
+    route.fulfill({
+      json: {
+        total: 2,
+        entries: [
+          { ...history.entries[0], image_url: 'https://static-cdn.jtvnw.net/reward.png' },
+          { ...history.entries[0], id: 'legacy', drop_name: 'Older reward' },
+        ],
+      },
+    }),
+  );
+  await page.goto('/history');
+  const image = page.locator('img[src="https://static-cdn.jtvnw.net/reward.png"]');
+  await expect(image).toBeVisible();
+  await expect.poll(() => image.evaluate((node: HTMLImageElement) => node.naturalWidth)).toBe(40);
+  await expect(page.getByText('Older reward', { exact: true })).toBeVisible();
+});
+
 test('history filters, export and confirmed clearing', async ({ page }) => {
   await page.goto('/history');
   await expect(page.getByText('Canvas pack', { exact: true }).first()).toBeVisible();

@@ -6,6 +6,7 @@ import { useT } from '../lib/i18n';
 import { request } from '../lib/api';
 import type { HistoryEntry } from '../lib/types';
 import {
+  Art,
   Button,
   Dialog,
   Empty,
@@ -141,7 +142,15 @@ export default function History() {
       ) : (
         <div className="panel">
           {entries.slice(currentPage * 25, (currentPage + 1) * 25).map((entry) => (
-            <div className="row flex-col items-start sm:flex-row sm:items-center" key={entry.id}>
+            <div className="row flex-wrap sm:flex-nowrap" key={entry.id}>
+              <Art
+                url={
+                  entry.image_url ??
+                  data?.campaigns
+                    .find((campaign) => campaign.id === entry.campaign_id)
+                    ?.drops.find((drop) => drop.id === entry.id)?.benefits[0]?.image_url
+                }
+              />
               <div className="min-w-0 flex-1">
                 <p className="font-medium">{entry.drop_name}</p>
                 <p className="muted">

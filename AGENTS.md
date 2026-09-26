@@ -28,6 +28,8 @@ The sidebar footer shows the Twitch account ID and GitHub icon. Live connection 
 The GitHub glyph is 24px, matching OhneGuessr; its size must override the shared 18px icon default.
 Overview Channels and Up next share equal desktop columns and stack on smaller screens.
 Show confirmed progress values and their timestamp without the redundant "Confirmed by Twitch" label.
+History entries may include image_url. Preserve old entries without artwork; use the
+matching live campaign/drop benefit as a display fallback and the shared safe Art control.
 
 Shared Field controls use content-start so helper text does not stretch adjacent label rows.
 Avoid focus rings; retain a visible keyboard-focus background/border change and system focus in forced-colors mode.
