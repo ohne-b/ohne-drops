@@ -159,8 +159,11 @@ test('game priorities show icons instead of editable numbers', async ({ page, re
 
 test('Twitch logout leaves the dashboard available and shows the next login', async ({ page }) => {
   await page.goto('/settings');
+  await expect(page.getByText('Dashboard connected', { exact: true })).toBeVisible();
   await page.getByRole('button', { name: 'Log out of Twitch', exact: true }).click();
   await expect(page.getByText('NEWCODE', { exact: true })).toBeVisible();
+  await expect(page.getByText('Dashboard connected', { exact: true })).toBeVisible();
+  await expect(page.getByText('Connected', { exact: true })).toHaveCount(0);
   await expect(page.getByRole('button', { name: 'Log out of Twitch', exact: true })).toHaveCount(0);
   await expect(page.getByRole('heading', { name: 'Settings', exact: true })).toBeVisible();
   await page.reload();
