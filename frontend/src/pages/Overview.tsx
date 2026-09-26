@@ -25,16 +25,7 @@ export default function Overview() {
   const progress = data.current_drop;
   const campaign = data.campaigns.find((item) => item.id === progress?.campaign_id);
   const watching = data.channels.find((channel) => channel.watching);
-  const selectedGames = new Set(
-    data.settings.games_to_watch.map((game) => game.toLocaleLowerCase()),
-  );
   const channels = data.channels
-    .filter(
-      (channel) =>
-        channel.watching ||
-        selectedGames.size === 0 ||
-        (!!channel.game && selectedGames.has(channel.game.toLocaleLowerCase())),
-    )
     .filter((channel) =>
       `${channel.name} ${channel.game ?? ''}`
         .toLocaleLowerCase()
@@ -112,13 +103,7 @@ export default function Overview() {
         ) : (
           <Empty
             title={t('gui.progress.no_drop')}
-            detail={
-              !data.login.user_id
-                ? t('connect_help')
-                : !data.settings.games_to_watch.length
-                  ? t('choose_games')
-                  : t('waiting_help')
-            }
+            detail={t(data.login.user_id ? 'waiting_help' : 'connect_help')}
           >
             <Link
               className="button"

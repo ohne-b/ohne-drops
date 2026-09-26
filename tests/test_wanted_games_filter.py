@@ -50,9 +50,12 @@ class TestWantedGamesFilter(unittest.TestCase):
             DropsCampaign.has_wanted_unclaimed_benefits.__get__(c2, DropsCampaign)
         )
 
-        # Campaign 3: Game3 (Not in games_to_watch), Can Earn, Has Benefits -> Should NOT be selected
+        # Campaign 3: Game3 (newly discovered), Can Earn, Has Benefits -> Included after ranked games
         c3 = MagicMock(spec=DropsCampaign)
         c3.game = Game({"id": 3, "name": "Game3"})
+        c3.id = "campaign3"
+        c3.name = "New campaign"
+        c3.campaign_url = "https://example.test/campaign3"
         c3.can_earn_within.return_value = True
         d3 = MagicMock()
         d3.is_claimed = False
@@ -101,9 +104,23 @@ class TestWantedGamesFilter(unittest.TestCase):
         stream_selector = StreamSelector()
         wanted_games = stream_selector.get_wanted_games(self.settings, inventory)
 
-        self.assertEqual(len(wanted_games), 1)
+        self.assertEqual([game.name for game in wanted_games], ["Game1", "Game3"])
         self.assertEqual(wanted_games[0].name, "Game1")
 
 
 if __name__ == "__main__":
     unittest.main()
+
+
+def test_new_games_follow_priorities_even_with_empty_or_duplicate_preferences():
+    from types import SimpleNamespace
+    from tests.test_watch_drop_filtering import _campaign, _drop
+    a = _campaign("a", [_drop("a", "Reward", 10)])
+    b = _campaign("b", [_drop("b", "Reward", 10)])
+    a.game = Game({"id": "1", "name": "Alpha"})
+    b.game = Game({"id": "2", "name": "Beta"})
+    selector = StreamSelector()
+    settings = SimpleNamespace(games_to_watch=[], mining_benefits={"DIRECT_ENTITLEMENT": True})
+    assert [g.name for g in selector.get_wanted_games(settings, [b, a])] == ["Alpha", "Beta"]
+    settings.games_to_watch = ["beta", "BETA"]
+    assert [g.name for g in selector.get_wanted_games(settings, [a, b])] == ["Beta", "Alpha"]

@@ -1,4 +1,4 @@
-"""Offline browser-test server. Never starts the miner or contacts Twitch/Telegram."""
+"""Offline browser-test server. Never starts the miner or contacts Twitch."""
 
 import asyncio
 import copy
@@ -8,7 +8,6 @@ from pathlib import Path
 from types import SimpleNamespace
 
 from src.drop_history import DropHistory
-from src.i18n import _
 from src.web import app as web
 from src.web.managers.settings import SettingsManager
 
@@ -48,7 +47,7 @@ class FakeGui:
         values = {
             key: value
             for key, value in state["settings"].items()
-            if key not in {"revision", "games_available", "telegram_configured"}
+            if key not in {"revision", "games_available"}
         }
         self.settings = SettingsManager(Broadcast(), FakeSettings(**values), self.output)
         self.settings._available_games = state["settings"]["games_available"]
@@ -107,12 +106,18 @@ class FakeTwitch:
     def close(self):
         pass
 
+    async def logout(self):
+        state["login"] = {"status": "Logged out", "user_id": None, "oauth_pending": {
+            "url": "https://www.twitch.tv/activate", "code": "NEWCODE",
+        }}
+        await web.sio.emit("login_status", state["login"])
+
 
 web.app.router.routes = [
     route
     for route in web.app.router.routes
     if getattr(route, "path", "")
-    not in {"/api/version", "/api/settings/test-telegram", "/api/settings/verify-proxy"}
+    not in {"/api/version", "/api/settings/verify-proxy"}
 ]
 
 
@@ -126,7 +131,6 @@ async def version():
     }
 
 
-@web.app.post("/api/settings/test-telegram")
 @web.app.post("/api/settings/verify-proxy")
 async def test_connection():
     return {"success": True}
@@ -153,7 +157,6 @@ async def reconnect():
 @web.app.post("/__test/reset")
 async def reset():
     global state
-    _.set_language("English")
     state = copy.deepcopy(fixture)
     web.web_auth.save("", {})
     web.web_auth.attempts.clear()

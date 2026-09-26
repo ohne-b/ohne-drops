@@ -8,7 +8,6 @@ from .client_info import ClientInfo, ClientType
 from .constants import (
     BASE_TOPICS,
     CALL,
-    DEFAULT_LANG,
     FILE_FORMATTER,
     LOGGING_LEVELS,
     MAX_CHANNELS,
@@ -64,7 +63,6 @@ __all__ = [
     "TOPICS_PER_CHANNEL",
     "MAX_TOPICS",
     "MAX_CHANNELS",
-    "DEFAULT_LANG",
     "PING_INTERVAL",
     "PING_TIMEOUT",
     "ONLINE_DELAY",

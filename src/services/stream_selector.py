@@ -14,7 +14,9 @@ class StreamSelector:
         Ignoring 'can earn within' time constraint.
         """
         wanted_games = []
-        games_to_watch = settings.games_to_watch
+        # Saved names rank games; newly discovered games are included automatically.
+        names = settings.games_to_watch + sorted({c.game.name for c in campaigns})
+        games_to_watch = list({name.casefold(): name for name in names}.values())
         mining_benefits = settings.mining_benefits
         now = datetime.now(timezone.utc)
         next_hour = now + timedelta(hours=1)

@@ -14,7 +14,7 @@ from fastapi.exception_handlers import request_validation_exception_handler
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import HTMLResponse, JSONResponse, PlainTextResponse
 from fastapi.staticfiles import StaticFiles
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from src.config.paths import DATA_DIR
 from src.version import __version__
@@ -77,12 +77,9 @@ class SettingsUpdate(BaseModel):
     games_to_watch: list[str] | None = None
     drop_name_blacklist: list[str] | None = None
     dark_mode: bool | None = None
-    language: str | None = None
     proxy: str | None = None
-    connection_quality: int | None = None
-    minimum_refresh_interval_minutes: int | None = None
-    telegram_bot_token: str | None = None
-    telegram_chat_id: str | None = None
+    connection_quality: int | None = Field(default=None, ge=1, le=6)
+    minimum_refresh_interval_minutes: int | None = Field(default=None, ge=1, le=1440)
     inventory_filters: dict | None = None
     inventory_list_view: bool | None = None
     mining_benefits: dict[str, bool] | None = None
@@ -90,11 +87,6 @@ class SettingsUpdate(BaseModel):
 
 class ProxyVerifyRequest(BaseModel):
     proxy: str
-
-
-class TelegramTestRequest(BaseModel):
-    telegram_bot_token: str
-    telegram_chat_id: str
 
 
 # ==================== REST API Endpoints ====================
@@ -200,24 +192,6 @@ async def get_settings():
     return gui_manager.settings.get_settings()
 
 
-@app.get("/api/languages")
-async def get_languages():
-    """Get available languages"""
-    if not gui_manager:
-        raise HTTPException(status_code=503, detail="GUI not initialized")
-
-    return gui_manager.settings.get_languages()
-
-
-@app.get("/api/translations")
-async def get_translations():
-    """Get translations for current language"""
-    from src.i18n.translator import _
-
-    # Return the full Translation object
-    return _.t
-
-
 @app.post("/api/settings")
 async def update_settings(settings: SettingsUpdate):
     """Update application settings"""
@@ -249,7 +223,7 @@ async def verify_proxy(request: ProxyVerifyRequest):
         # Test connection to Twitch
         async with (
             aiohttp.ClientSession() as session,
-            session.get("https://www.twitch.tv", proxy=proxy_url, timeout=10) as response,
+            session.get("https://www.twitch.tv", proxy=proxy_url, timeout=aiohttp.ClientTimeout(total=10)) as response,
         ):
             # Just checking if we can connect and get a response
             if response.status < 500:
@@ -268,53 +242,6 @@ async def verify_proxy(request: ProxyVerifyRequest):
         return {"success": False, "message": f"Connection failed: {str(e)}"}
 
 
-@app.post("/api/settings/test-telegram")
-async def test_telegram(request: TelegramTestRequest):
-    """Test Telegram bot connection"""
-    # Ensure project root is on sys.path so `src` package can be imported
-    import sys
-    from pathlib import Path
-
-    project_root = Path(__file__).parent.parent.parent
-    if str(project_root) not in sys.path:
-        sys.path.insert(0, str(project_root))
-
-    from src.services.telegram_service import TelegramNotifier
-    from src.web.managers.settings import TELEGRAM_TOKEN_MASK
-
-    # Never trust a masked/empty token from the client: fall back to the
-    # stored credential so tests work without echoing the secret back.
-    bot_token = (request.telegram_bot_token or "").strip()
-    chat_id = (request.telegram_chat_id or "").strip()
-    if gui_manager is not None:
-        stored_settings = getattr(gui_manager.settings, "_settings", None)
-        if not bot_token or bot_token == TELEGRAM_TOKEN_MASK:
-            bot_token = str(getattr(stored_settings, "telegram_bot_token", "") or "").strip()
-        if not chat_id:
-            chat_id = str(getattr(stored_settings, "telegram_chat_id", "") or "").strip()
-
-    if not bot_token or not chat_id:
-        return {"success": False, "message": "Bot token and chat ID are required"}
-
-    try:
-        notifier = TelegramNotifier(bot_token, chat_id)
-        result = await notifier.test_connection()
-
-        if result:
-            return {
-                "success": True,
-                "message": "✓ Telegram connection successful! You will receive drop notifications."
-            }
-        else:
-            return {
-                "success": False,
-                "message": "Failed to connect to Telegram. Please check your bot token and chat ID."
-            }
-    except Exception as e:
-        return {
-            "success": False,
-            "message": f"Telegram error: {str(e)}"
-        }
 @app.get("/api/version")
 async def get_version():
     """Get current application version and check for updates"""
@@ -332,7 +259,7 @@ async def get_version():
         async with (
             aiohttp.ClientSession() as session,
             session.get(
-                "https://api.github.com/repos/rangermix/TwitchDropsMiner/releases/latest", timeout=5
+                "https://api.github.com/repos/rangermix/TwitchDropsMiner/releases/latest", timeout=aiohttp.ClientTimeout(total=5)
             ) as response,
         ):
             if response.status == 200:
@@ -361,6 +288,18 @@ async def submit_login(login_data: LoginRequest):
         raise HTTPException(status_code=503, detail="GUI not initialized")
 
     gui_manager.login.submit_login(login_data.username, login_data.password, login_data.token)
+    return {"success": True}
+
+
+@app.post("/api/twitch/logout")
+async def logout_twitch():
+    """Remove the miner's saved Twitch login while keeping dashboard access."""
+    if not twitch_client:
+        raise HTTPException(status_code=503, detail="Twitch client not initialized")
+    try:
+        await twitch_client.logout()
+    except RuntimeError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
     return {"success": True}
 
 

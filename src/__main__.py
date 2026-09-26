@@ -54,16 +54,11 @@ if __name__ == "__main__":
 
     # client run
     async def main():
-        # set language
-        if settings.language:
-            _.set_language(settings.language)
-
         logger.info("=== TwitchDropsMiner Starting ===")
         logger.info(f"Version: {__version__}")
         logger.info(f"Python version: {sys.version}")
         logger.info(f"Platform: {sys.platform}")
         logger.info(f"Proxy: {settings.proxy}")
-        logger.info(f"Language: {settings.language}")
         logger.info(
             f"Minimum refresh interval: {settings.minimum_refresh_interval_minutes} minutes"
         )

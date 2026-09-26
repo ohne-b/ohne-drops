@@ -1,8 +1,9 @@
 import { useEffect, useState, type ReactNode } from 'react';
-import { mdiArrowUp, mdiArrowDown, mdiClose, mdiPlus, mdiOpenInNew } from '@mdi/js';
+import { mdiPlus, mdiOpenInNew } from '@mdi/js';
 import type { AuthStatus, Result, Settings as SettingsData } from '../lib/types';
-import { moveGame, request, safeUrl } from '../lib/api';
+import { request, safeUrl } from '../lib/api';
 import { useMiner } from '../lib/state';
+import { GamePriorities } from '../components/GamePriorities';
 import { plainText, useT } from '../lib/i18n';
 import {
   ActionResult,
@@ -38,7 +39,10 @@ function Section({
 }
 const editable = (settings: SettingsData): SettingsData => ({
   ...settings,
-  telegram_bot_token: '',
+  games_to_watch: [...settings.games_to_watch, ...(settings.games_available ?? [])].filter(
+    (game, index, all) =>
+      all.findIndex((other) => other.toLowerCase() === game.toLowerCase()) === index,
+  ),
 });
 function Access({ initial, disabled }: { initial: AuthStatus; disabled: boolean }) {
   const t = useT();
@@ -142,72 +146,37 @@ function Access({ initial, disabled }: { initial: AuthStatus; disabled: boolean 
   );
 }
 function SettingsContent({ settings, auth }: { settings: SettingsData; auth: AuthStatus }) {
-  const { data, connected } = useMiner();
+  const { data, connected, autosave } = useMiner();
   const t = useT();
-  const [base, setBase] = useState(() => editable(settings));
-  const [draft, setDraft] = useState(() => editable(settings));
+  const draft = editable(autosave.draft ?? settings);
+  const [ignoredText, setIgnoredText] = useState(draft.drop_name_blacklist.join('\n'));
+  const [editingIgnored, setEditingIgnored] = useState(false);
+  useEffect(() => {
+    if (!editingIgnored) setIgnoredText(draft.drop_name_blacklist.join('\n'));
+  }, [draft.drop_name_blacklist, editingIgnored]);
   const [search, setSearch] = useState('');
   const [gameError, setGameError] = useState('');
-  const [languages, setLanguages] = useState<{ available: Record<string, string> | string[] }>({
-    available: [],
-  });
   const [confirmation, setConfirmation] = useState<{
     title: string;
     text: string;
     action: () => Promise<unknown>;
   } | null>(null);
   const [version, setVersion] = useState('');
-  const saveAction = useAction();
   const command = useAction();
-  const telegramAction = useAction();
   const proxyAction = useAction();
   const oauthAction = useAction();
-  const dirty = JSON.stringify(draft) !== JSON.stringify(base);
+  const logoutAction = useAction();
+  const dirty = autosave.pending || autosave.busy;
   useEffect(() => {
-    if (!dirty) {
-      const next = editable(settings);
-      setBase(next);
-      setDraft(next);
-    }
-  }, [settings, dirty]);
-  useEffect(() => {
-    void request<typeof languages>('/api/languages')
-      .then(setLanguages)
-      .catch(() => {});
     void request<{ current_version: string }>('/api/version')
       .then((result) => setVersion(result.current_version))
       .catch(() => {});
   }, []);
-  useEffect(() => {
-    const warn = (event: BeforeUnloadEvent) => {
-      if (dirty) event.preventDefault();
-    };
-    window.addEventListener('beforeunload', warn);
-    return () => window.removeEventListener('beforeunload', warn);
-  }, [dirty]);
-  function change<K extends keyof SettingsData>(key: K, value: SettingsData[K]) {
-    setDraft((current) => ({ ...current, [key]: value }));
-    saveAction.clear();
-  }
-  async function save() {
-    await saveAction.run(async () => {
-      const { games_available: _games, telegram_configured: _configured, ...payload } = draft;
-      const result = await request<{ settings: SettingsData }>('/api/settings', payload);
-      const next = editable(result.settings);
-      setDraft(next);
-      setBase(next);
-    }, t('saved'));
-  }
+  const change = autosave.change;
   function addGame(name: string) {
-    setDraft((current) => ({
-      ...current,
-      games_to_watch: current.games_to_watch.some(
-        (game) => game.toLocaleLowerCase() === name.toLocaleLowerCase(),
-      )
-        ? current.games_to_watch
-        : [...current.games_to_watch, name],
-    }));
-    saveAction.clear();
+    change('games_to_watch', (games) =>
+      games.some((game) => game.toLowerCase() === name.toLowerCase()) ? games : [...games, name],
+    );
     setSearch('');
     setGameError('');
   }
@@ -241,9 +210,6 @@ function SettingsContent({ settings, auth }: { settings: SettingsData; auth: Aut
       !draft.games_to_watch.includes(game) &&
       game.toLocaleLowerCase().includes(search.toLocaleLowerCase()),
   );
-  const languageOptions = Array.isArray(languages.available)
-    ? languages.available.map((name) => [name, name])
-    : Object.entries(languages.available);
   const oauth = data?.login.oauth_pending;
   async function test(path: string, payload: unknown) {
     const result = await request<Result>(path, payload);
@@ -253,21 +219,30 @@ function SettingsContent({ settings, auth }: { settings: SettingsData; auth: Aut
     <div className="max-w-4xl space-y-8">
       <div>
         <h1 className="text-[22px] font-semibold">{t('gui.tabs.settings')}</h1>
-        <p className="mt-1 text-muted">{t('settings_description')}</p>
       </div>
       <nav
         aria-label={t('settings_sections')}
         className="flex flex-wrap gap-x-5 gap-y-2 text-[13px] text-muted"
       >
-        {['account', 'mining', 'connection', 'notifications', 'access', 'maintenance'].map((id) => (
+        {['account', 'mining', 'connection', 'access', 'maintenance'].map((id) => (
           <a className="hover:text-text" key={id} href={`#${id}`}>
             {t(id)}
           </a>
         ))}
       </nav>
       <Section id="account" title={t('account')}>
+        <p className="muted">{t(connected ? 'connected' : 'connecting')}</p>
         <p>{plainText(data?.login.status ?? '')}</p>
         {data?.login.user_id && <p className="muted">Twitch ID: {data.login.user_id}</p>}
+        {data?.login.user_id && (
+          <Button
+            disabled={!connected || logoutAction.busy}
+            onClick={() => void logoutAction.run(() => request('/api/twitch/logout', {}))}
+          >
+            {t('twitch_logout')}
+          </Button>
+        )}
+        <ActionResult action={logoutAction} />
         {oauth ? (
           <div className="panel max-w-lg space-y-4 p-5">
             <p className="text-[13px] text-muted">{t('gui.login.oauth_prompt')}</p>
@@ -301,11 +276,10 @@ function SettingsContent({ settings, auth }: { settings: SettingsData; auth: Aut
       <form
         onSubmit={(event) => {
           event.preventDefault();
-          void save();
         }}
       >
-        <fieldset disabled={saveAction.busy} className="min-w-0 space-y-8">
-          <Section id="mining" title={t('mining')} help={t('priority_help')}>
+        <fieldset disabled={!connected} className="min-w-0 space-y-8">
+          <Section id="mining" title={t('mining')}>
             <div className="flex gap-2">
               <div
                 className="flex-1"
@@ -345,114 +319,13 @@ function SettingsContent({ settings, auth }: { settings: SettingsData; auth: Aut
                 ))}
               </div>
             )}
-            <div className="flex gap-2">
-              <Button
-                onClick={() =>
-                  change('games_to_watch', [
-                    ...draft.games_to_watch,
-                    ...(settings.games_available ?? []).filter(
-                      (game) =>
-                        !draft.games_to_watch.some(
-                          (existing) => existing.toLocaleLowerCase() === game.toLocaleLowerCase(),
-                        ),
-                    ),
-                  ])
-                }
-              >
-                {t('gui.settings.select_all')}
-              </Button>
-              <Button
-                disabled={!draft.games_to_watch.length}
-                onClick={() =>
-                  setConfirmation({
-                    title: t('gui.settings.deselect_all'),
-                    text: t('gui.settings.deselect_all_warning'),
-                    action: async () => change('games_to_watch', []),
-                  })
-                }
-              >
-                {t('gui.settings.deselect_all')}
-              </Button>
-            </div>
-            <div className="panel">
-              {draft.games_to_watch.map((game, index) => (
-                <div className="row" key={game}>
-                  <Input
-                    key={`${game}:${index}`}
-                    className="w-14 shrink-0 text-center tabular-nums"
-                    type="number"
-                    min={1}
-                    step={1}
-                    aria-label={t('gui.settings.game_priority', { game })}
-                    defaultValue={index + 1}
-                    onBlur={(event) => {
-                      const value = event.target.value.trim();
-                      if (!value || !Number.isInteger(Number(value)))
-                        event.target.value = String(index + 1);
-                      else {
-                        const rank = Math.min(
-                          draft.games_to_watch.length,
-                          Math.max(1, Number(value)),
-                        );
-                        event.target.value = String(rank);
-                        change('games_to_watch', moveGame(draft.games_to_watch, index, rank - 1));
-                      }
-                    }}
-                    onKeyDown={(event) => {
-                      if (event.key === 'Enter') {
-                        event.preventDefault();
-                        event.currentTarget.blur();
-                      }
-                      if (event.key === 'Escape') {
-                        event.currentTarget.value = String(index + 1);
-                        event.currentTarget.blur();
-                      }
-                    }}
-                  />
-                  <span className="min-w-0 flex-1 break-words text-[13px]">{game}</span>
-                  <div className="flex gap-1">
-                    <Button
-                      className="px-2"
-                      disabled={index === 0}
-                      aria-label={t('move_up', { game })}
-                      title={t('move_up', { game })}
-                      onClick={() =>
-                        change('games_to_watch', moveGame(draft.games_to_watch, index, index - 1))
-                      }
-                    >
-                      <Icon path={mdiArrowUp} />
-                    </Button>
-                    <Button
-                      className="px-2"
-                      disabled={index === draft.games_to_watch.length - 1}
-                      aria-label={t('move_down', { game })}
-                      title={t('move_down', { game })}
-                      onClick={() =>
-                        change('games_to_watch', moveGame(draft.games_to_watch, index, index + 1))
-                      }
-                    >
-                      <Icon path={mdiArrowDown} />
-                    </Button>
-                    <Button
-                      className="px-2"
-                      aria-label={t('gui.settings.remove_game', { game })}
-                      title={t('gui.settings.remove_game', { game })}
-                      onClick={() =>
-                        change(
-                          'games_to_watch',
-                          draft.games_to_watch.filter((item) => item !== game),
-                        )
-                      }
-                    >
-                      <Icon path={mdiClose} />
-                    </Button>
-                  </div>
-                </div>
-              ))}
-              {!draft.games_to_watch.length && (
-                <Empty title={t('gui.settings.no_games_selected')} />
-              )}
-            </div>
+            <p className="muted">{t('all_games_automatic')}</p>
+            <GamePriorities
+              games={draft.games_to_watch}
+              available={settings.games_available ?? []}
+              campaigns={data?.campaigns ?? []}
+              onChange={(games) => change('games_to_watch', games)}
+            />
             <div>
               <p className="mb-2 text-[13px] font-medium">{t('gui.settings.mining_benefits')}</p>
               <div className="flex flex-wrap gap-x-6">
@@ -482,8 +355,13 @@ function SettingsContent({ settings, auth }: { settings: SettingsData; auth: Aut
             >
               <textarea
                 className="field"
-                value={draft.drop_name_blacklist.join('\n')}
-                onChange={(event) => change('drop_name_blacklist', event.target.value.split('\n'))}
+                value={ignoredText}
+                onFocus={() => setEditingIgnored(true)}
+                onBlur={() => setEditingIgnored(false)}
+                onChange={(event) => {
+                  setIgnoredText(event.target.value);
+                  change('drop_name_blacklist', event.target.value.split('\n'));
+                }}
               />
             </Field>
             <Field label={t('gui.settings.minimum_refresh')}>
@@ -542,109 +420,30 @@ function SettingsContent({ settings, auth }: { settings: SettingsData; auth: Aut
             </Button>
             <ActionResult action={proxyAction} />
           </Section>
-          <Section
-            id="notifications"
-            title={t('gui.settings.telegram.name')}
-            help={t('gui.settings.telegram.credentials_help')}
-          >
-            <div className="grid gap-4 sm:grid-cols-2">
-              <Field
-                label={t('gui.settings.telegram.bot_token')}
-                help={
-                  settings.telegram_configured ? t('token_configured') : t('token_not_configured')
-                }
-              >
-                <Input
-                  type="password"
-                  autoComplete="new-password"
-                  value={draft.telegram_bot_token}
-                  onChange={(event) => change('telegram_bot_token', event.target.value)}
-                />
-              </Field>
-              <Field label={t('gui.settings.telegram.chat_id')}>
-                <Input
-                  autoComplete="off"
-                  value={draft.telegram_chat_id}
-                  onChange={(event) => change('telegram_chat_id', event.target.value)}
-                />
-              </Field>
-            </div>
-            <Button
-              disabled={
-                !connected ||
-                dirty ||
-                telegramAction.busy ||
-                !settings.telegram_chat_id ||
-                !settings.telegram_configured
-              }
-              onClick={() =>
-                void telegramAction.run(
-                  () =>
-                    test('/api/settings/test-telegram', {
-                      telegram_bot_token: '',
-                      telegram_chat_id: settings.telegram_chat_id,
-                    }),
-                  t('test_sent'),
-                )
-              }
-            >
-              {t('send_test')}
-            </Button>
-            <ActionResult action={telegramAction} />
-            {dirty && <p className="muted">{t('save_first')}</p>}
-            <p className="muted">
-              <a
-                className="text-link"
-                href="https://t.me/BotFather"
-                target="_blank"
-                rel="noreferrer"
-              >
-                @BotFather
-              </a>{' '}
-              · {t('telegram_setup')}
-            </p>
-          </Section>
-          <Section id="interface" title={t('interface')}>
-            <Field label={t('gui.header.language')}>
-              <select
-                className="field max-w-sm"
-                value={draft.language}
-                onChange={(event) => change('language', event.target.value)}
-              >
-                {languageOptions.map(([key, label]) => (
-                  <option key={key} value={key}>
-                    {label}
-                  </option>
-                ))}
-              </select>
-            </Field>
-            <p className="muted">{t('dark_appearance')}</p>
-          </Section>
-          {(dirty || saveAction.error || saveAction.success) && (
-            <div className="sticky bottom-0 z-10 space-y-3 border-t border-divider bg-canvas/95 py-4">
-              <ActionResult action={saveAction} />
-              {dirty && base.revision !== settings.revision && (
-                <Notice error>{t('settings_conflict')}</Notice>
+          <div className="space-y-2" aria-live="polite">
+            <p className="muted" role="status">
+              {t(
+                autosave.error
+                  ? 'unsaved'
+                  : autosave.busy || autosave.pending
+                    ? 'saving'
+                    : autosave.success
+                      ? 'saved'
+                      : 'autosave_help',
               )}
-              <div className="flex items-center gap-2">
-                <Button type="submit" primary disabled={!dirty || !connected || saveAction.busy}>
-                  {t(saveAction.busy ? 'saving' : 'save_changes')}
-                </Button>
+            </p>
+            {autosave.error && (
+              <Notice error>
+                {t(autosave.error)}{' '}
                 <Button
-                  disabled={!dirty || saveAction.busy}
-                  onClick={() => {
-                    const next = editable(settings);
-                    setBase(next);
-                    setDraft(next);
-                    saveAction.clear();
-                  }}
+                  disabled={!connected || autosave.busy}
+                  onClick={() => void autosave.retry()}
                 >
-                  {t('cancel')}
+                  {t('retry')}
                 </Button>
-                {dirty && <span className="ms-2 text-[13px] text-muted">{t('unsaved')}</span>}
-              </div>
-            </div>
-          )}
+              </Notice>
+            )}
+          </div>
         </fieldset>
       </form>
       <Access initial={auth} disabled={dirty || !connected} />
@@ -702,7 +501,6 @@ function SettingsContent({ settings, auth }: { settings: SettingsData; auth: Aut
               Twitch
             </a>
           </p>
-          <p>{t('help_priorities')}</p>
           <a
             className="text-link inline-block"
             href="https://github.com/ohne-b/twitch-miner"

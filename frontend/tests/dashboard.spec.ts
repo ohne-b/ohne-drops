@@ -30,6 +30,11 @@ test('confirmed progress and compact desktop design', async ({ page }) => {
   ).toBe('3px');
 });
 test('every route loads directly and stays usable on a phone', async ({ page }) => {
+  await page.goto('/settings');
+  const proxy = await page.getByLabel('Proxy URL', { exact: true }).boundingBox();
+  const quality = await page.getByLabel('Connection Quality:', { exact: true }).boundingBox();
+  expect(proxy!.y).toBeCloseTo(quality!.y, 0);
+  await page.screenshot({ path: '../artifacts/settings-desktop.png', fullPage: true });
   await page.setViewportSize({ width: 390, height: 844 });
   for (const [route, title] of [
     ['/campaigns', 'Campaigns'],
@@ -44,6 +49,34 @@ test('every route loads directly and stays usable on a phone', async ({ page }) 
     ).toBe(true);
   }
   await page.screenshot({ path: '../artifacts/redesign-settings-mobile.png', fullPage: true });
+});
+
+test('keyboard focus remains visible without outlines across controls', async ({ page }) => {
+  await page.goto('/settings');
+  await page.keyboard.press('Tab');
+  const field = page.getByLabel('Proxy URL', { exact: true });
+  const before = await field.evaluate((element) => getComputedStyle(element).borderColor);
+  await field.focus();
+  expect(await field.evaluate((element) => getComputedStyle(element).borderColor)).not.toBe(before);
+  expect(await field.evaluate((element) => getComputedStyle(element).outlineStyle)).toBe('none');
+  for (const name of ['Log out of Twitch', 'Enable password protection']) {
+    const button = page.getByRole('button', { name, exact: true });
+    await button.focus();
+    await expect
+      .poll(() => button.evaluate((element) => getComputedStyle(element).backgroundColor))
+      .toBe('rgb(51, 51, 51)');
+  }
+  const checkbox = page.getByRole('checkbox', { name: 'Badge', exact: true });
+  await checkbox.focus();
+  expect(
+    await checkbox.evaluate(
+      (element) => getComputedStyle(element.closest('label')!).backgroundColor,
+    ),
+  ).toBe('rgb(51, 51, 51)');
+  await page.emulateMedia({ forcedColors: 'active' });
+  expect(await checkbox.evaluate((element) => getComputedStyle(element).outlineStyle)).toBe(
+    'solid',
+  );
 });
 test('channel search, clear, selection and automatic mode', async ({ page }) => {
   await page.getByRole('searchbox', { name: 'Search channels' }).fill('HARBOR');
@@ -65,22 +98,32 @@ test('campaign filtering and truthful expanded progress', async ({ page }) => {
   await page.getByLabel('Not Linked', { exact: true }).uncheck();
   await expect(page.getByText('Autumn expedition', { exact: true })).toBeVisible();
 });
-test('priorities add, reorder, validate rank and persist', async ({ page }) => {
+test('game priorities show icons instead of editable numbers', async ({ page, request }) => {
   await page.goto('/settings');
-  await page.getByRole('searchbox', { name: 'Search games...' }).fill('elder');
-  await page.getByRole('button', { name: 'Add Game', exact: true }).click();
-  await page.getByRole('button', { name: 'Move The Elder Scrolls Online up', exact: true }).click();
-  const rank = page.getByRole('spinbutton', { name: 'Priority for Rust', exact: true });
-  await rank.fill('');
-  await rank.blur();
-  await expect(rank).toHaveValue('1');
-  await page.getByRole('button', { name: 'Save changes', exact: true }).click();
-  await expect(page.getByText('Changes saved.', { exact: true })).toBeVisible();
+  await expect(page.getByRole('spinbutton', { name: /Priority for/ })).toHaveCount(0);
+  await page
+    .getByRole('button', { name: 'Reorder The Elder Scrolls Online', exact: true })
+    .press('ArrowUp');
+  await expect
+    .poll(async () => (await (await request.get('/api/settings')).json()).games_to_watch)
+    .toEqual(['Rust', 'The Elder Scrolls Online', 'Sea of Thieves']);
   await page.reload();
-  await expect(
-    page.getByRole('spinbutton', { name: 'Priority for The Elder Scrolls Online', exact: true }),
-  ).toHaveValue('2');
+  await expect(page.locator('#mining [data-game]').nth(1)).toHaveAttribute(
+    'data-game',
+    'The Elder Scrolls Online',
+  );
 });
+
+test('Twitch logout leaves the dashboard available and shows the next login', async ({ page }) => {
+  await page.goto('/settings');
+  await page.getByRole('button', { name: 'Log out of Twitch', exact: true }).click();
+  await expect(page.getByText('NEWCODE', { exact: true })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Log out of Twitch', exact: true })).toHaveCount(0);
+  await expect(page.getByRole('heading', { name: 'Settings', exact: true })).toBeVisible();
+  await page.reload();
+  await expect(page.getByText('NEWCODE', { exact: true })).toBeVisible();
+});
+
 test('manual game confirmation supports Escape and safe literal names', async ({ page }) => {
   await page.goto('/settings');
   await page.getByRole('searchbox', { name: 'Search games...' }).fill('<script>new game</script>');
@@ -92,42 +135,68 @@ test('manual game confirmation supports Escape and safe literal names', async ({
   await page.getByRole('button', { name: 'Confirm', exact: true }).click();
   await expect(page.getByText('<script>new game</script>', { exact: true })).toBeVisible();
 });
-test('server rejects stale settings and keeps the dirty draft', async ({ page, request }) => {
-  await page.goto('/settings');
-  const interval = page.getByLabel('Minimum Refresh Interval (minutes):', { exact: true });
-  await interval.fill('45');
-  const settings = await (await request.get('/api/settings')).json();
-  await request.post('/api/settings', {
-    headers,
-    data: { revision: settings.revision, minimum_refresh_interval_minutes: 90 },
-  });
-  await expect(page.getByText(/Settings changed in another view/).first()).toBeVisible();
-  await expect(interval).toHaveValue('45');
-  await page.getByRole('button', { name: 'Save changes', exact: true }).click();
-  await expect(interval).toHaveValue('45');
-  await expect(page.getByRole('alert').last()).toBeVisible();
-  expect((await (await request.get('/api/settings')).json()).minimum_refresh_interval_minutes).toBe(
-    90,
-  );
-  await page.getByRole('button', { name: 'Cancel', exact: true }).first().click();
-  await expect(interval).toHaveValue('90');
-});
-test('Telegram never echoes a saved token and requires saving before test', async ({
+test('autosave retains conflicting edits and retries only edited fields', async ({
   page,
   request,
 }) => {
   await page.goto('/settings');
-  await page.getByLabel('Telegram Bot Token', { exact: true }).fill('fixture-token-not-real');
-  await page.getByLabel('Telegram Chat ID', { exact: true }).fill('123');
-  await expect(page.getByRole('button', { name: 'Send test message' })).toBeDisabled();
-  await page.getByRole('button', { name: 'Save changes', exact: true }).click();
-  await expect(page.getByLabel('Telegram Bot Token', { exact: true })).toHaveValue('');
-  expect(JSON.stringify(await (await request.get('/api/settings')).json())).not.toContain(
-    'fixture-token-not-real',
+  let release!: () => void;
+  const gate = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  await page.route(
+    '**/api/settings',
+    async (route) => {
+      await gate;
+      await route.continue();
+    },
+    { times: 1 },
   );
-  await page.getByRole('button', { name: 'Send test message' }).click();
-  await expect(page.getByText('Test message sent.', { exact: true })).toBeVisible();
+  const sent = page.waitForRequest('**/api/settings');
+  const interval = page.getByLabel('Minimum Refresh Interval (minutes):', { exact: true });
+  await interval.fill('45');
+  await sent;
+  const current = await (await request.get('/api/settings')).json();
+  await request.post('/api/settings', {
+    headers,
+    data: {
+      revision: current.revision,
+      minimum_refresh_interval_minutes: 90,
+      connection_quality: 3,
+    },
+  });
+  release();
+  await expect(page.getByRole('alert')).toContainText('Settings changed on another device');
+  await expect(interval).toHaveValue('45');
+  expect((await (await request.get('/api/settings')).json()).minimum_refresh_interval_minutes).toBe(
+    90,
+  );
+  await page.getByRole('button', { name: 'Try again', exact: true }).click();
+  await expect
+    .poll(
+      async () =>
+        (await (await request.get('/api/settings')).json()).minimum_refresh_interval_minutes,
+    )
+    .toBe(45);
+  expect((await (await request.get('/api/settings')).json()).connection_quality).toBe(3);
 });
+
+test('removed notifications have no controls, API or saved credentials', async ({
+  page,
+  request,
+}) => {
+  await page.goto('/settings');
+  await expect(page.getByText('Telegram', { exact: false })).toHaveCount(0);
+  const result = await request.post('/api/settings', {
+    headers,
+    data: { telegram_bot_token: 'discard-me', telegram_chat_id: '123' },
+  });
+  expect(JSON.stringify(await result.json())).not.toContain('discard-me');
+  expect((await request.post('/api/settings/test-telegram', { headers, data: {} })).status()).toBe(
+    404,
+  );
+});
+
 test('history filters, export and confirmed clearing', async ({ page }) => {
   await page.goto('/history');
   await expect(page.getByText('Canvas pack', { exact: true }).first()).toBeVisible();
@@ -156,7 +225,9 @@ test('catalog restrictions and hostile strings remain explicit and inert', async
     headers,
     data: { event: 'inventory_status', data: { available: false, checked_at: null } },
   });
-  await expect(page.getByRole('alert')).toContainText('Twitch did not return the campaign catalog');
+  await expect(page.getByRole('alert')).toContainText(
+    'Twitch did not provide the complete campaign catalog',
+  );
   await request.post('/__test/event', {
     headers,
     data: { event: 'console_output', data: { message: '<img src=x onerror="alert(1)">' } },
@@ -245,25 +316,21 @@ test('a failed initial auth status remains recoverable without a page reload', a
   await expect(page.getByRole('heading', { name: 'Overview', exact: true })).toBeVisible();
 });
 
-test('failed settings save retains input and keeps Telegram test disabled', async ({ page }) => {
+test('failed settings save retains input', async ({ page }) => {
   await page.goto('/settings');
-  await page.getByLabel('Telegram Chat ID', { exact: true }).fill('987');
+  await page.getByLabel('Proxy URL', { exact: true }).fill('http://127.0.0.1:9999');
   await page.route(
     '**/api/settings',
     (route) => route.fulfill({ status: 500, json: { detail: 'save_failed' } }),
     { times: 1 },
   );
-  await page.getByRole('button', { name: 'Save changes', exact: true }).click();
   await expect(page.getByRole('alert')).toBeVisible();
-  await expect(page.getByLabel('Telegram Chat ID', { exact: true })).toHaveValue('987');
-  await expect(page.getByRole('button', { name: 'Send test message' })).toBeDisabled();
+  await expect(page.getByLabel('Proxy URL', { exact: true })).toHaveValue('http://127.0.0.1:9999');
   await expect(page.getByText('gui.auth.save_failed')).toHaveCount(0);
 });
 
-test('pending saves lock fields until the persisted response arrives', async ({ page }) => {
+test('autosave queues newer input while an older request is pending', async ({ page, request }) => {
   await page.goto('/settings');
-  const interval = page.getByLabel('Minimum Refresh Interval (minutes):', { exact: true });
-  await interval.fill('45');
   let release!: () => void;
   const gate = new Promise<void>((resolve) => {
     release = resolve;
@@ -276,11 +343,20 @@ test('pending saves lock fields until the persisted response arrives', async ({ 
     },
     { times: 1 },
   );
-  await page.getByRole('button', { name: 'Save changes', exact: true }).click();
-  await expect(interval).toBeDisabled();
-  release();
+  const sent = page.waitForRequest('**/api/settings');
+  const interval = page.getByLabel('Minimum Refresh Interval (minutes):', { exact: true });
+  await interval.fill('45');
+  await sent;
   await expect(interval).toBeEnabled();
-  await expect(interval).toHaveValue('45');
+  await interval.fill('60');
+  release();
+  await expect
+    .poll(
+      async () =>
+        (await (await request.get('/api/settings')).json()).minimum_refresh_interval_minutes,
+    )
+    .toBe(60);
+  await expect(interval).toHaveValue('60');
 });
 
 test('manual game confirmation appends to the latest settings from another device', async ({
@@ -295,11 +371,8 @@ test('manual game confirmation appends to the latest settings from another devic
     headers,
     data: { revision: settings.revision, games_to_watch: ['Another device'] },
   });
-  await expect(
-    page.getByRole('spinbutton', { name: 'Priority for Another device', exact: true }),
-  ).toHaveCount(1);
+  await expect(page.locator('[data-game="Another device"]')).toHaveCount(1);
   await page.getByRole('button', { name: 'Confirm', exact: true }).click();
-  await page.getByRole('button', { name: 'Save changes', exact: true }).click();
   await expect(page.getByText('Changes saved.', { exact: true })).toBeVisible();
   expect((await (await request.get('/api/settings')).json()).games_to_watch).toEqual([
     'Another device',
@@ -307,31 +380,22 @@ test('manual game confirmation appends to the latest settings from another devic
   ]);
 });
 
-test('unchanged boundary ranks still normalize their visible input', async ({ page }) => {
+test('autosave survives reconnect and navigation', async ({ page, request }) => {
   await page.goto('/settings');
-  const first = page.getByRole('spinbutton', { name: 'Priority for Rust', exact: true });
-  await first.fill('0');
-  await first.blur();
-  await expect(first).toHaveValue('1');
-  const last = page.getByRole('spinbutton', { name: 'Priority for Sea of Thieves', exact: true });
-  await last.fill('999');
-  await last.blur();
-  await expect(last).toHaveValue('2');
-});
-
-test('server disconnect hydrates a fresh snapshot and preserves an unsaved draft', async ({
-  page,
-  request,
-}) => {
-  await page.goto('/settings');
-  const interval = page.getByLabel('Minimum Refresh Interval (minutes):', { exact: true });
-  await interval.fill('45');
+  await page.getByLabel('Minimum Refresh Interval (minutes):', { exact: true }).fill('45');
   await request.post('/__test/reconnect', { headers, data: {} });
-  await expect(page.getByRole('button', { name: 'Save changes', exact: true })).toBeEnabled();
-  await expect(interval).toHaveValue('45');
-  await page.getByRole('button', { name: 'Cancel', exact: true }).first().click();
   await page.getByRole('link', { name: 'Overview', exact: true }).click();
-  await expect(page.getByRole('link', { name: 'northwind', exact: true })).toHaveCount(0);
+  await expect
+    .poll(
+      async () =>
+        (await (await request.get('/api/settings')).json()).minimum_refresh_interval_minutes,
+    )
+    .toBe(45);
+  await page.goto('/settings');
+  await expect(page.getByLabel('Minimum Refresh Interval (minutes):', { exact: true })).toHaveValue(
+    '45',
+  );
+  await expect(page.getByRole('button', { name: 'Save changes', exact: true })).toHaveCount(0);
 });
 
 test('activity follows through bounded-buffer rollover and pauses for reading', async ({
@@ -446,7 +510,7 @@ test('password errors stay in Settings and protection changes reach a second bro
   await context.close();
 });
 
-test('Select All preserves manual spelling, order and case-insensitive uniqueness', async ({
+test('automatic game priorities preserve manual spelling and case-insensitive uniqueness', async ({
   page,
   request,
 }) => {
@@ -455,14 +519,16 @@ test('Select All preserves manual spelling, order and case-insensitive uniquenes
     data: { games_to_watch: ['Custom game', 'rust'] },
   });
   await page.goto('/settings');
-  await expect(
-    page.getByRole('spinbutton', { name: 'Priority for rust', exact: true }),
-  ).toBeVisible();
-  await page.getByRole('button', { name: 'Select All', exact: true }).click();
-  await page.getByRole('button', { name: 'Save changes', exact: true }).click();
+  const rows = page.locator('#mining [data-game]');
+  await expect(rows).toHaveCount(4);
+  expect(
+    await rows.evaluateAll((items) => items.map((item) => item.getAttribute('data-game'))),
+  ).toEqual(['Custom game', 'rust', 'Sea of Thieves', 'The Elder Scrolls Online']);
+  await expect(page.getByRole('button', { name: 'Select All', exact: true })).toHaveCount(0);
+  await page.getByRole('button', { name: 'Reorder rust', exact: true }).press('ArrowUp');
   await expect(page.getByText('Changes saved.', { exact: true })).toBeVisible();
   const games = (await (await request.get('/api/settings')).json()).games_to_watch;
-  expect(games.slice(0, 2)).toEqual(['Custom game', 'rust']);
+  expect(games).toEqual(['rust', 'Custom game', 'Sea of Thieves', 'The Elder Scrolls Online']);
   expect(games.filter((name: string) => name.toLowerCase() === 'rust')).toHaveLength(1);
 });
 
@@ -508,15 +574,29 @@ test('history refreshes after claims and reports clear failure inside its dialog
   expect((await (await request.get('/api/history')).json()).entries).toHaveLength(1);
 });
 
-test('channels retain the watched stream while applying case-insensitive game selection', async ({
-  page,
-  request,
-}) => {
+test('all channels remain available when priorities change', async ({ page, request }) => {
   await request.post('/api/settings', { headers, data: { games_to_watch: ['rUsT'] } });
   await expect(page.getByRole('link', { name: 'harbor', exact: true })).toBeVisible();
   await request.post('/api/settings', { headers, data: { games_to_watch: ['Other game'] } });
-  await expect(page.getByRole('link', { name: 'harbor', exact: true })).toHaveCount(0);
+  await expect(page.getByRole('link', { name: 'harbor', exact: true })).toBeVisible();
   await expect(page.getByRole('link', { name: 'northwind', exact: true })).toBeVisible();
+});
+
+test('empty priorities still explain automatic mining', async ({ page, request }) => {
+  await request.post('/__test/event', {
+    headers,
+    data: {
+      event: 'settings_updated',
+      data: { ...snapshot.settings, games_to_watch: [] },
+    },
+  });
+  await request.post('/__test/event', { headers, data: { event: 'drop_progress_stop', data: {} } });
+  await expect(
+    page.getByText(
+      'Waiting for an eligible reward and live channel. The miner checks automatically.',
+    ),
+  ).toBeVisible();
+  await expect(page.getByText('Choose the games you want to mine.')).toHaveCount(0);
 });
 
 test('phone campaign rows retain status and claimed counts', async ({ page }) => {
@@ -538,7 +618,7 @@ test('long international labels remain usable at phone, tablet and zoom-equivale
     },
   });
   await page.goto('/settings');
-  await expect(page.locator('html')).toHaveAttribute('lang', 'de');
+  await expect(page.locator('html')).toHaveAttribute('lang', 'en');
   for (const width of [360, 640, 820]) {
     await page.setViewportSize({ width, height: 844 });
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(
@@ -546,6 +626,92 @@ test('long international labels remain usable at phone, tablet and zoom-equivale
     );
   }
   await request.post('/api/settings', { headers, data: { language: 'العربية' } });
-  await expect(page.locator('html')).toHaveAttribute('dir', 'rtl');
+  await expect(page.locator('html')).not.toHaveAttribute('dir', 'rtl');
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+});
+
+test('autosave keeps text editing stable and blocks invalid values', async ({ page, request }) => {
+  await page.goto('/settings');
+  const ignored = page.getByLabel('Ignored Drop Keywords', { exact: true });
+  await ignored.fill('Mask\n');
+  await expect
+    .poll(async () => (await (await request.get('/api/settings')).json()).drop_name_blacklist)
+    .toEqual(['Mask']);
+  await expect(ignored).toHaveValue('Mask\n');
+  const interval = page.getByLabel('Minimum Refresh Interval (minutes):', { exact: true });
+  await interval.fill('');
+  await expect(page.getByRole('alert')).toContainText('whole refresh interval');
+  expect((await (await request.get('/api/settings')).json()).minimum_refresh_interval_minutes).toBe(
+    30,
+  );
+  await interval.fill('20');
+  await expect
+    .poll(
+      async () =>
+        (await (await request.get('/api/settings')).json()).minimum_refresh_interval_minutes,
+    )
+    .toBe(20);
+});
+
+test('pointer dragging saves on drop and Escape cancels a second drag', async ({
+  page,
+  request,
+}) => {
+  await page.goto('/settings');
+  const handle = page.getByRole('button', { name: 'Reorder Rust', exact: true });
+  await handle.scrollIntoViewIfNeeded();
+  const from = (await handle.boundingBox())!;
+  const last = (await page.locator('[data-game="The Elder Scrolls Online"]').boundingBox())!;
+  await page.mouse.move(from.x + 10, from.y + 10);
+  await page.mouse.down();
+  await page.mouse.move(last.x + 70, last.y + last.height - 3, { steps: 8 });
+  expect((await (await request.get('/api/settings')).json()).games_to_watch).toEqual([
+    'Rust',
+    'Sea of Thieves',
+  ]);
+  await page.mouse.up();
+  await expect
+    .poll(async () => (await (await request.get('/api/settings')).json()).games_to_watch)
+    .toEqual(['Sea of Thieves', 'The Elder Scrolls Online', 'Rust']);
+  const moved = (await handle.boundingBox())!;
+  const first = (await page.locator('[data-game="Sea of Thieves"]').boundingBox())!;
+  await page.mouse.move(moved.x + 10, moved.y + 10);
+  await page.mouse.down();
+  await page.mouse.move(first.x + 70, first.y + 10, { steps: 8 });
+  await page.keyboard.press('Escape');
+  await page.mouse.up();
+  await expect(page.locator('#mining [data-game]').last()).toHaveAttribute('data-game', 'Rust');
+  expect((await (await request.get('/api/settings')).json()).games_to_watch).toEqual([
+    'Sea of Thieves',
+    'The Elder Scrolls Online',
+    'Rust',
+  ]);
+});
+
+test('touch dragging reorders game priorities', async ({ browser, request }) => {
+  const context = await browser.newContext({
+    hasTouch: true,
+    isMobile: true,
+    viewport: { width: 390, height: 844 },
+  });
+  const page = await context.newPage();
+  await page.goto('http://127.0.0.1:8765/settings');
+  const handle = page.getByRole('button', { name: 'Reorder Sea of Thieves', exact: true });
+  await handle.scrollIntoViewIfNeeded();
+  const from = (await handle.boundingBox())!;
+  const first = (await page.locator('[data-game="Rust"]').boundingBox())!;
+  const session = await context.newCDPSession(page);
+  await session.send('Input.dispatchTouchEvent', {
+    type: 'touchStart',
+    touchPoints: [{ x: from.x + 10, y: from.y + 10 }],
+  });
+  await session.send('Input.dispatchTouchEvent', {
+    type: 'touchMove',
+    touchPoints: [{ x: first.x + 70, y: first.y + 10 }],
+  });
+  await session.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] });
+  await expect
+    .poll(async () => (await (await request.get('/api/settings')).json()).games_to_watch)
+    .toEqual(['Sea of Thieves', 'Rust', 'The Elder Scrolls Online']);
+  await context.close();
 });

@@ -53,7 +53,7 @@ export function Field({
 }) {
   const id = useId();
   return (
-    <div className="grid gap-2 text-soft">
+    <div className="grid content-start gap-2 text-soft">
       <label htmlFor={id} className="text-[13px] font-medium">
         {label}
       </label>

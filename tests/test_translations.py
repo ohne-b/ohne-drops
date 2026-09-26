@@ -65,11 +65,8 @@ def test_all_translations_match_english_schema_and_placeholders():
         _assert_translation_shape(english, translation, f"{filepath.name}:root")
 
 
-def test_hungarian_translation_metadata():
-    hungarian = json.loads((LANG_PATH / "Magyar.json").read_text(encoding="utf-8"))
-
-    assert hungarian["language_name"] == "Magyar"
-    assert hungarian["english_name"] == "Hungarian"
+def test_english_is_the_only_catalog():
+    assert [path.name for path in LANG_PATH.glob("*.json")] == ["English.json"]
 
 
 def test_all_languages_include_drop_ignore_text_with_matching_placeholders():

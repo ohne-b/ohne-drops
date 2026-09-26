@@ -85,7 +85,7 @@ Five routes: **Overview**, **Campaigns**, **History**, **Activity**, **Settings*
 
 Desktop, starting at 1024px:
 
-- A 192px left sidebar with the app name, five navigation links, and account identity at the bottom.
+- A 192px left sidebar with the app name, five navigation links, and a GitHub icon at the bottom. Connection/account status belongs in Settings.
 - A 56px page header with title on the left and the relevant page actions on the right.
 - Content padding 24px, increasing to 32px on wide screens; inner content maximum 1440px.
 - Selected navigation has a flat neutral background and medium-weight text. No pill shape.
@@ -187,21 +187,17 @@ One route with anchored groups and a compact section index on desktop; the same 
 
 | Group | Contents |
 | --- | --- |
-| Account | Twitch identity, connection state and actual pending device-code authorization; dashboard logout is separate |
-| Mining | Game selection and ordered priorities, benefit types, ignored drop names, refresh interval |
+| Account | Twitch identity, connection state, logout and actual pending device-code authorization; dashboard logout is separate |
+| Mining | All discovered games with ordered priorities, benefit types, ignored drop names, refresh interval |
 | Connection | Connection quality, proxy field and verification result |
-| Notifications | Telegram bot-token replacement, chat ID, save then test behavior |
 | Dashboard access | Enable/disable password, change password, remember-me explanation, session consequences |
-| Interface | Language and retained campaign display preference; fixed dark appearance |
 | Maintenance and About | Refresh inventory, clear derived cache, advanced shutdown, version, help, source/license links |
 
-Mining, connection, notification and interface groups share one draft and one sticky **Save changes / Cancel** bar, visible when needed. Dashboard password controls use their separate existing API. Show dirty/saving/saved/failed states beside the relevant action. Do not save on every keystroke. Disable draft fields during saves; failed saves retain input and secrets remain blank after successful persistence. The original server revision detects concurrent edits before overwriting changes.
+Mining and connection changes autosave after a short debounce. Serialize writes while leaving fields editable, retain pending edits across routes, and show saving/saved/failed status with Retry. The original revision detects concurrent edits; retries apply only edited fields. Dashboard password controls keep their explicit separate actions. English is the only interface language.
 
-Game priorities use a search field with a plainly labeled list of matching choices and an Add action. Exact/unique partial matches may resolve; ambiguous input must ask for a concrete selection. Preserve manual names with explicit confirmation. Order via rank inputs and Move up/Move down buttons; optional drag handles supplement these, never replace them. Reject blank/fractional ranks and clamp valid integers to bounds. "Select all" must preserve existing ordering/manual entries.
+All discovered games are included automatically; saved games set priority. Show game artwork and a subtle six-dot drag handle. Support mouse, touch, arrow-key reordering and Escape cancellation, and save only when dropped. Do not show numbers or arrow buttons. Search and Add preserve manual names with explicit confirmation; exact or unique partial matches may resolve automatically.
 
 Ignored drop names use one shared multiline field with one literal substring per line. Explain case-insensitive matching, prerequisite effects, and that Twitch may still incidentally credit excluded rewards. Do not turn this into an unexplained regex editor.
-
-Telegram: show "Token configured" without exposing its value. Blank replacement retains the token; removing the chat ID disables delivery. "Send test message" is disabled until valid changes are saved. Display the test result in place.
 
 Maintenance: refreshing inventory is routine. Clearing cache describes that settings, authentication, and claimed history survive. Shutdown is an advanced action with a concrete confirmation explaining loss of dashboard availability and deployment-specific restart behavior. It is not labeled "Pause".
 
@@ -216,7 +212,7 @@ Keep shared controls in `frontend/src/components/ui.tsx`: Button, Icon, Field, I
 - Help and errors appear below the field and are connected with `aria-describedby`; invalid fields set `aria-invalid`.
 - Search has a 16px MDI magnifier at the leading edge and an accessible trailing Clear control only when nonempty. Escape clears search without losing focus.
 - Consistent normal, hover, focus, disabled, invalid, readonly, autofill, dirty, and saving states. Readonly values remain selectable.
-- Keyboard focus uses a visible 2px neutral outline with offset. Never remove the native outline without a replacement.
+- Keyboard focus uses subtle backgrounds and borders without a surrounding ring. Preserve system focus outlines in forced-colors mode.
 - Textarea shares the same padding/corners/type and can be resized vertically. Use enough initial rows for rules rather than a tiny message box.
 - Numeric fields use native number behavior plus schema validation; Enter commits, Escape restores the last saved value where inline editing is used. Hiding decorative spinners must not remove keyboard support.
 - Native selects for short choices, native dates for history, and native form/checkbox semantics. Avoid custom dropdown/listbox libraries for these controls.
@@ -235,12 +231,12 @@ Keep shared controls in `frontend/src/components/ui.tsx`: Button, Icon, Field, I
 
 1. Every path works using the keyboard, with a visible focus indicator and correct reading order. No hover-only action, drag-only ordering, or icon-only navigation.
 2. Main text meets 4.5:1 contrast; necessary control boundaries/focus indicators meet applicable 3:1 requirements. Decorative dividers can remain subtle.
-3. All visible strings use the existing localization system with English fallback. Preserve all 20 locales; verify key/placeholder consistency and avoid concatenated translated sentences.
-4. Use logical CSS spacing for Arabic/RTL. Stress-test long German strings, CJK text, 200% zoom, and a 360px viewport.
+3. All interface and miner messages use one English catalog; verify key/placeholder consistency.
+4. Stress-test long international game/channel names, 200% zoom, and a 360px viewport.
 5. Errors, pending states, and operation results are announced appropriately. Frequent progress/log changes must not flood a screen reader's live region.
 6. No unsafe HTML from translations, Twitch, or logs. External URLs are validated and rendered with normal safe link behavior.
 7. Browser/server reconnect cannot erase unsaved fields, duplicate toasts, lose priority edits, or report success for a command that never reached the server.
-8. Changing language does not interrupt mining. Multiple browsers see authoritative changes without overwriting a dirty local form silently.
+8. Multiple browsers see authoritative changes without overwriting pending local edits silently.
 
 ## Visual review before feature migration
 

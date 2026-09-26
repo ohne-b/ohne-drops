@@ -111,12 +111,16 @@ class InventoryService:
             response_list_raw if isinstance(response_list_raw, list) else [response_list_raw]
         )
 
-        fetched_data: dict[str, JsonType] = {
-            (campaign_data := response_json["data"]["user"]["dropCampaign"])["id"]: campaign_data
-            for response_json in response_list
-        }
-
-        return GQLClient.merge_data(campaign_ids, fetched_data)
+        fetched_data: dict[str, JsonType] = {}
+        for response_json in response_list:
+            user = response_json["data"].get("user")
+            campaign_data = user and user.get("dropCampaign")
+            if campaign_data:
+                fetched_data[campaign_data["id"]] = campaign_data
+        # A summary alone lacks drops/account data. Keep independent Inventory data
+        # for inaccessible campaigns, but do not construct one from a partial summary.
+        summaries = {cid: summary for cid, summary in campaign_ids.items() if cid in fetched_data}
+        return GQLClient.merge_data(summaries, fetched_data)
 
     async def fetch_inventory(self) -> None:
         """
@@ -148,7 +152,6 @@ class InventoryService:
         # fetch general available campaigns data (campaigns)
         response = await self._twitch.gql_request(GQL_OPERATIONS["Campaigns"])
         catalog = response["data"]["currentUser"]["dropCampaigns"]
-        self._twitch.gui.inv.set_availability(catalog is not None)
         available_list: list[JsonType] = catalog or []
         applicable_statuses = ("ACTIVE", "UPCOMING")
         available_campaigns: dict[str, JsonType] = {
@@ -164,16 +167,23 @@ class InventoryService:
             for campaigns_chunk in chunk(available_campaigns.items(), 20)
         ]
 
+        fetched_ids: set[str] = set()
         try:
             for coro in asyncio.as_completed(fetch_campaigns_tasks):
                 chunk_campaigns_data = await coro
+                fetched_ids.update(chunk_campaigns_data)
                 # merge the inventory and campaigns datas together
                 inventory_data = GQLClient.merge_data(inventory_data, chunk_campaigns_data)
-        except Exception:
+        except BaseException:
             # asyncio.as_completed doesn't cancel tasks on errors
             for task in fetch_campaigns_tasks:
                 task.cancel()
+            await asyncio.gather(*fetch_campaigns_tasks, return_exceptions=True)
             raise
+
+        self._twitch.gui.inv.set_availability(
+            catalog is not None and available_campaigns.keys() <= fetched_ids
+        )
 
         # filter out invalid campaigns
         for campaign_id in list(inventory_data.keys()):
@@ -187,7 +197,6 @@ class InventoryService:
         ]
         campaigns.sort(key=lambda c: c.active, reverse=True)
         campaigns.sort(key=lambda c: c.upcoming and c.starts_at or c.ends_at)
-        campaigns.sort(key=lambda c: c.eligible, reverse=True)
 
         self._clear_inventory_state()
         switch_triggers: set[datetime] = set()
@@ -224,10 +233,11 @@ class InventoryService:
 
                 if self._twitch._state == State.EXIT:
                     raise ExitRequest()
-        except Exception:
+        except BaseException:
             # asyncio.as_completed doesn't cancel tasks on errors
             for task in add_campaign_tasks:
                 task.cancel()
+            await asyncio.gather(*add_campaign_tasks, return_exceptions=True)
             raise
 
         self._twitch._mnt_triggers.extend(sorted(switch_triggers))

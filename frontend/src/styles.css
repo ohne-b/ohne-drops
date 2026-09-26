@@ -9,7 +9,6 @@
   --color-hover: #333333;
   --color-divider: #363636;
   --color-control: #717171;
-  --color-focus: #c8c8c8;
   --color-text: #f4f4f5;
   --color-soft: #e4e4e7;
   --color-muted: #a1a1aa;
@@ -41,10 +40,6 @@
   button:not(:disabled),
   summary {
     cursor: pointer;
-  }
-  :focus-visible {
-    outline: 2px solid var(--color-focus);
-    outline-offset: 3px;
   }
   :disabled {
     cursor: not-allowed;
@@ -94,6 +89,33 @@
     -webkit-appearance: none;
   }
 }
+
+/* Unlayered so component and utility colors cannot hide keyboard focus. */
+:focus-visible {
+  outline: none;
+}
+:is(button, a, summary):focus-visible {
+  background-color: var(--color-hover);
+  color: var(--color-text);
+  border-color: var(--color-text);
+}
+:is(a, summary):focus-visible {
+  text-decoration: underline;
+  text-underline-offset: 4px;
+}
+:is(input, select, textarea):focus-visible {
+  border-color: var(--color-text);
+}
+label:has(> input[type='checkbox']:focus-visible) {
+  background-color: var(--color-hover);
+  text-decoration: underline;
+  text-underline-offset: 4px;
+}
+@media (forced-colors: active) {
+  :focus-visible {
+    outline: 1px solid Highlight;
+  }
+}
 @layer components {
   .button {
     @apply inline-flex min-h-9 shrink-0 items-center justify-center gap-2 rounded border border-divider bg-transparent px-3 py-1.5 text-[13px] font-medium text-soft transition-colors hover:bg-hover disabled:pointer-events-none;
@@ -121,6 +143,24 @@
   }
   .row {
     @apply flex items-center gap-3 border-b border-divider px-4 py-3 last:border-0;
+  }
+  .drag-handle {
+    @apply grid h-9 w-7 shrink-0 touch-none select-none place-items-center border-0 bg-transparent text-muted opacity-0 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100;
+    cursor: grab;
+  }
+  .drag-handle:active {
+    cursor: grabbing;
+    opacity: 1;
+  }
+  .drag-handle > span {
+    width: 12px;
+    height: 18px;
+    background: radial-gradient(circle, currentColor 1.2px, transparent 1.4px) 0 0 / 6px 6px;
+  }
+  @media (pointer: coarse) {
+    .drag-handle {
+      opacity: 1;
+    }
   }
   .text-link {
     @apply text-soft underline decoration-control underline-offset-4 hover:decoration-soft;

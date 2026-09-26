@@ -1,10 +1,9 @@
 from __future__ import annotations
 
 import json
-import logging
-from typing import TypedDict, cast
+from typing import TypedDict
 
-from src.config import DEFAULT_LANG, LANG_PATH
+from src.config import LANG_PATH
 
 
 class StatusMessages(TypedDict):
@@ -15,6 +14,7 @@ class StatusMessages(TypedDict):
     claimed_drop: str
     no_channel: str
     no_campaign: str
+    catalog_unavailable: str
 
 
 class LoginStatus(TypedDict):
@@ -176,28 +176,8 @@ class GUISettingsGeneral(TypedDict):
     dark_mode: str
 
 
-class GUITelegramSettings(TypedDict):
-    name: str
-    description: str
-    bot_token: str
-    chat_id: str
-    save_settings: str
-    test_connection: str
-    how_to_setup: str
-    setup_steps: list[str]
-    success: str
-    saved: str
-    error: str
-    save_error: str
-    credentials_help: str
-    missing_credentials: str
-    get_from_botfather: str
-    your_user_id: str
-
-
 class GUISettings(TypedDict):
     general: GUISettingsGeneral
-    telegram: GUITelegramSettings
     mining_benefits: str
     mining_benefits_help: str
     reload: str
@@ -212,18 +192,11 @@ class GUISettings(TypedDict):
     search_games: str
     add_game: str
     add_game_hint: str
-    select_all: str
-    deselect_all: str
-    deselect_all_warning: str
     confirm_btn: str
     cancel_btn: str
-    selected_games: str
-    game_priority: str
     remove_game: str
     available_games: str
-    no_games_selected: str
     no_games_match: str
-    all_games_selected: str
     multiple_games_found: str
     manual_game_warning: str
     actions: str
@@ -245,7 +218,6 @@ class GUIHelp(TypedDict):
 
 class GUIHeader(TypedDict):
     title: str
-    language: str
     initializing: str
     auto_mode: str
     manual_mode: str
@@ -331,8 +303,6 @@ class GUIMessages(TypedDict):
 
 
 class Translation(TypedDict):
-    language_name: str
-    english_name: str
     status: StatusMessages
     login: LoginMessages
     error: ErrorMessages
@@ -340,33 +310,10 @@ class Translation(TypedDict):
 
 
 class Translator:
+    """The application has one English message catalog."""
+
     def __init__(self) -> None:
-        self.logger: logging.Logger = logging.getLogger("TwitchDropsMiner.i18n.Translator")
-        self._langs: dict[str, Translation] = {}
-        self.current_language: str
-        self.t: Translation
-        # load available languages from JSON files by reading language_name field
-        for filepath in LANG_PATH.glob("*.json"):
-            with filepath.open("r", encoding="utf-8") as json_file:
-                try:
-                    loaded_translation: Translation = json.load(json_file)
-                    self._langs[loaded_translation["language_name"]] = loaded_translation
-                except Exception as e:
-                    # if we can't read the file, skip it
-                    self.logger.warning(f"Failed to load language file {filepath}: {e}")
-                    continue
-        self._langs = dict(sorted(self._langs.items()))
-        self.set_language(DEFAULT_LANG)
-
-    def get_languages(self) -> list[str]:
-        return list(self._langs.keys())
-
-    def set_language(self, language: str):
-        if language not in self._langs:
-            raise ValueError(f"Unrecognized language {language}")
-
-        self.current_language = language
-        self.t = cast(Translation, self._langs.get(language))
+        self.t: Translation = json.loads((LANG_PATH / "English.json").read_text(encoding="utf-8"))
 
 
 _ = Translator()

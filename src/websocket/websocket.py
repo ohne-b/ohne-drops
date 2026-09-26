@@ -71,6 +71,7 @@ class Websocket:
         self._max_pong: float = self._next_ping + PING_TIMEOUT.total_seconds()
         # main task, responsible for receiving messages, sending them, and websocket ping
         self._handle_task: asyncio.Task[None] | None = None
+        self._message_tasks: set[asyncio.Task[None]] = set()
         # topics stuff
         self.topics: dict[str, WebsocketTopic] = {}
         self._submitted: set[WebsocketTopic] = set()
@@ -134,6 +135,10 @@ class Websocket:
                 with suppress(asyncio.TimeoutError, asyncio.CancelledError):
                     await asyncio.wait_for(self._handle_task, timeout=2)
                 self._handle_task = None
+            tasks = list(self._message_tasks)
+            for task in tasks:
+                task.cancel()
+            await asyncio.gather(*tasks, return_exceptions=True)
             if remove:
                 self.topics.clear()
                 self._topics_changed.set()
@@ -339,7 +344,9 @@ class Websocket:
         topic = self.topics.get(message["data"]["topic"])
         if topic is not None:
             # use a task to not block the websocket
-            asyncio.create_task(topic(json.loads(message["data"]["message"])))
+            task = asyncio.create_task(topic(json.loads(message["data"]["message"])))
+            self._message_tasks.add(task)
+            task.add_done_callback(self._message_tasks.discard)
 
     async def _handle_recv(self):
         """Handle receiving and processing messages from the websocket."""

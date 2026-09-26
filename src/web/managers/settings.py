@@ -10,17 +10,11 @@ from collections.abc import Callable
 from typing import TYPE_CHECKING, Any
 
 from src.config.settings import default_settings
-from src.i18n.translator import _
 from src.models.game import Game
 from src.utils import DropIgnorePolicy, merge_json
 
 
 logger = logging.getLogger("TwitchDrops")
-
-# Value returned to web clients in place of the stored Telegram bot token.
-# Never echo the real credential through the unauthenticated web API/socket.
-TELEGRAM_TOKEN_MASK = "••••••••"
-
 
 if TYPE_CHECKING:
     from src.config.settings import Settings
@@ -64,11 +58,6 @@ class SettingsManager:
         settings = vars(self._settings).copy()
         settings["games_available"] = self._available_games
         settings["revision"] = self.revision
-        # Never expose the real Telegram bot token to web clients. The token
-        # stays server-side; clients only see a configured flag and a mask.
-        configured_token = bool(settings.get("telegram_bot_token"))
-        settings["telegram_configured"] = configured_token
-        settings["telegram_bot_token"] = TELEGRAM_TOKEN_MASK if configured_token else ""
         # TODO(remove in 1.3.x): Retain this POST-only echo long enough for stale
         # pre-versioned frontends to age out; it never survives a page reload.
         if legacy_show_not_linked is not None:
@@ -76,17 +65,6 @@ class SettingsManager:
             inventory_filters["show_not_linked"] = legacy_show_not_linked
             settings["inventory_filters"] = inventory_filters
         return settings
-
-    def get_languages(self) -> dict[str, Any]:
-        """Get available languages and current selection.
-
-        Returns:
-            Dictionary with available languages and current language
-        """
-        return {
-            "available": _.get_languages(),
-            "current": _.current_language,
-        }
 
     def _log_change(self, message: str):
         """Log setting change to both console and system logger."""
@@ -98,6 +76,8 @@ class SettingsManager:
         Args:
             settings_data: Dictionary of settings to update
         """
+        previous = {key: copy.deepcopy(getattr(self._settings, key))
+                    for key in default_settings if hasattr(self._settings, key)}
         should_trigger_update = False
         should_trigger_update |= self.check_and_update_setting(
             "games_to_watch", settings_data.get("games_to_watch"), True
@@ -114,9 +94,6 @@ class SettingsManager:
             "dark_mode", settings_data.get("dark_mode")
         )
         should_trigger_update |= self.check_and_update_setting(
-            "language", settings_data.get("language"), False, self._set_language
-        )
-        should_trigger_update |= self.check_and_update_setting(
             "connection_quality", settings_data.get("connection_quality")
         )
         if "proxy" in settings_data:
@@ -131,16 +108,6 @@ class SettingsManager:
             "minimum_refresh_interval_minutes",
             settings_data.get("minimum_refresh_interval_minutes"),
         )
-        if "telegram_bot_token" in settings_data:
-            new_token = str(settings_data.get("telegram_bot_token") or "").strip()
-            if new_token and new_token != TELEGRAM_TOKEN_MASK:
-                self.check_and_update_setting(
-                    "telegram_bot_token", new_token
-                )
-        if "telegram_chat_id" in settings_data:
-            self.check_and_update_setting(
-                "telegram_chat_id", settings_data.get("telegram_chat_id") or ""
-            )
         inventory_filters = settings_data.get("inventory_filters")
         legacy_show_not_linked = None
         if inventory_filters is not None:
@@ -156,7 +123,12 @@ class SettingsManager:
             "mining_benefits", settings_data.get("mining_benefits"), True
         )
 
-        self._settings.save()
+        try:
+            self._settings.save()
+        except Exception:
+            for key, value in previous.items():
+                setattr(self._settings, key, value)
+            raise
         self.revision = secrets.token_hex(16)
         response_settings = self.get_settings(legacy_show_not_linked)
         asyncio.create_task(self._broadcaster.emit("settings_updated", response_settings))
@@ -187,15 +159,10 @@ class SettingsManager:
         if new_value is None or getattr(self._settings, key, None) == new_value:
             return False
         setattr(self._settings, key, new_value)
-        log_value = TELEGRAM_TOKEN_MASK if key in {"telegram_bot_token", "proxy"} else new_value
+        log_value = "••••••••" if key == "proxy" else new_value
         self._log_change(f"Setting changed: {key} = {log_value}")
         action(new_value)
         return should_trigger_update
-
-    def _set_language(self, language: str):
-        _.set_language(language)
-        # Notify clients that translations need to be reloaded
-        asyncio.create_task(self._broadcaster.emit("language_changed", {"language": language}))
 
     def set_games(self, games: set[Game]):
         """Update the list of available games for settings panel.

@@ -5,7 +5,7 @@ from typing import TypedDict
 
 from yarl import URL
 
-from src.config import DEFAULT_LANG, SETTINGS_PATH
+from src.config import SETTINGS_PATH
 from src.utils import DropIgnorePolicy, json_load, json_save
 
 
@@ -27,7 +27,6 @@ default_settings = {
     "dark_mode": False,
     "drop_name_blacklist": [],
     "games_to_watch": [],
-    "language": DEFAULT_LANG,
     "inventory_filters": {
         "game_name_search": [],
         "show_active": False,
@@ -49,8 +48,6 @@ default_settings = {
         "UNKNOWN": True,
     },
     "proxy": "",
-    "telegram_bot_token": "",
-    "telegram_chat_id": "",
 }
 
 
@@ -60,14 +57,11 @@ class Settings:
     dark_mode: bool
     drop_name_blacklist: list[str]
     games_to_watch: list[str]
-    language: str
     inventory_filters: InventoryFilters
     inventory_list_view: bool
     minimum_refresh_interval_minutes: int
     mining_benefits: dict[str, bool]
     proxy: str
-    telegram_bot_token: str
-    telegram_chat_id: str
 
     def __init__(self):
         self.load()
