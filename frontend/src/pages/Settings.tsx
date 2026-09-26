@@ -1,12 +1,12 @@
 import { useEffect, useState, type ReactNode } from 'react';
-import { mdiArrowUp, mdiArrowDown, mdiClose, mdiPlus, mdiOpenInNew } from '@mdi/js';
+import { mdiPlus, mdiOpenInNew } from '@mdi/js';
 import type { AuthStatus, Result, Settings as SettingsData } from '../lib/types';
-import { moveGame, request, safeUrl } from '../lib/api';
+import { request, safeUrl } from '../lib/api';
 import { useMiner } from '../lib/state';
+import { GamePriorities } from '../components/GamePriorities';
 import { plainText, useT } from '../lib/i18n';
 import {
   ActionResult,
-  Art,
   Button,
   Check,
   Dialog,
@@ -310,64 +310,12 @@ function SettingsContent({ settings, auth }: { settings: SettingsData; auth: Aut
               </div>
             )}
             <p className="muted">{t('all_games_automatic')}</p>
-            <div className="panel">
-              {draft.games_to_watch.map((game, index) => (
-                <div className="row" data-game={game} key={game}>
-                  <Art
-                    url={
-                      data?.campaigns.find(
-                        (campaign) => campaign.game_name.toLowerCase() === game.toLowerCase(),
-                      )?.game_box_art_url
-                    }
-                    className="size-9"
-                  />
-                  <span className="min-w-0 flex-1 break-words text-[13px]">{game}</span>
-                  <div className="flex gap-1">
-                    <Button
-                      className="px-2"
-                      disabled={index === 0}
-                      aria-label={t('move_up', { game })}
-                      title={t('move_up', { game })}
-                      onClick={() =>
-                        change('games_to_watch', moveGame(draft.games_to_watch, index, index - 1))
-                      }
-                    >
-                      <Icon path={mdiArrowUp} />
-                    </Button>
-                    <Button
-                      className="px-2"
-                      disabled={index === draft.games_to_watch.length - 1}
-                      aria-label={t('move_down', { game })}
-                      title={t('move_down', { game })}
-                      onClick={() =>
-                        change('games_to_watch', moveGame(draft.games_to_watch, index, index + 1))
-                      }
-                    >
-                      <Icon path={mdiArrowDown} />
-                    </Button>
-                    <Button
-                      className="px-2"
-                      disabled={settings.games_available?.some(
-                        (available) => available.toLowerCase() === game.toLowerCase(),
-                      )}
-                      aria-label={t('gui.settings.remove_game', { game })}
-                      title={t('gui.settings.remove_game', { game })}
-                      onClick={() =>
-                        change(
-                          'games_to_watch',
-                          draft.games_to_watch.filter((item) => item !== game),
-                        )
-                      }
-                    >
-                      <Icon path={mdiClose} />
-                    </Button>
-                  </div>
-                </div>
-              ))}
-              {!draft.games_to_watch.length && (
-                <Empty title={t('gui.settings.no_games_selected')} />
-              )}
-            </div>
+            <GamePriorities
+              games={draft.games_to_watch}
+              available={settings.games_available ?? []}
+              campaigns={data?.campaigns ?? []}
+              onChange={(games) => change('games_to_watch', games)}
+            />
             <div>
               <p className="mb-2 text-[13px] font-medium">{t('gui.settings.mining_benefits')}</p>
               <div className="flex flex-wrap gap-x-6">

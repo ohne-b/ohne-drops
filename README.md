@@ -99,8 +99,8 @@ client. After upgrading from 1.3.0 or earlier, you may need to authorize the min
 once more at `twitch.tv/activate`; the new session is saved for later runs. Channel
 pages still use the public Twitch website to discover the watch-event endpoint.
 
-In **Settings → Mining**, game artwork replaces numeric priority fields. The first game
-has the highest priority; changes save automatically.
+In **Settings → Mining**, game artwork replaces numeric priority fields. Drag the subtle six-dot handle to reorder. Keyboard users can focus the handle and
+press the up/down arrow keys. The first game has the highest priority; changes save automatically.
 
 **Special Events** and **IRL** campaigns can be mined on their listed participating
 channels even when those channels stream another category or lack a drops-enabled flag.

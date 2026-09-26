@@ -593,3 +593,5 @@ StreamSelector includes every discovered game after saved priorities, case-insen
 Keep page introductions compact: no redundant subtitles for Settings, Campaigns, History or Activity, no fixed-dark appearance description, and no generic mining instructions.
 
 Settings autosave lives in MinerProvider so route changes cannot discard pending writes. Debounce and serialize PATCH-like setting updates with revision checks. Retain newer edits during in-flight requests and failed/conflicting input until Retry; never restore whole stale snapshots over other devices.
+
+Game priorities use pointer dragging with the OhneGuessr six-dot handle, pointer capture for touch, Escape/pointer-cancel rollback, and keyboard arrow keys with live announcements. Persist only on drop; cancel if external game priorities change during a drag. No visible arrow buttons or numeric ranks.

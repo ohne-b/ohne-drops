@@ -366,7 +366,12 @@
             "all_games_automatic": "All games are included automatically. This order sets their priority.",
             "autosave_help": "Changes save automatically.",
             "settings_invalid": "Enter a valid proxy URL and a whole refresh interval from 1 to 1440 minutes.",
-            "settings_save_failed": "Changes could not be saved. Your edits are kept here."
+            "settings_save_failed": "Changes could not be saved. Your edits are kept here.",
+            "reorder_help": "Drag a game by its handle. With the handle focused, use the up and down arrow keys to reorder. Escape cancels dragging.",
+            "reorder_game": "Reorder {game}",
+            "reordered_game": "{game}, position {position} of {total}.",
+            "game_priorities": "Game priorities",
+            "no_game_priorities": "Games appear here when campaigns are discovered."
         }
     }
 }
