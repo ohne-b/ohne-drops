@@ -435,7 +435,7 @@ Finished also groups older recorded rewards when campaign metadata is gone, clea
 
 Overview Channels and Up next share the remaining viewport height on desktop, with
 independently scrolling lists below their headers. Short windows retain page scrolling
-so content remains accessible. Stacked layouts cap each list at 440px.
+so content remains accessible and the sidebar stays in view. Stacked layouts cap each list at 440px.
 Each queue reward includes item artwork; missing, unsafe, or failed images use the shared Art fallback.
 
 Mine controls remain outside expandable campaign summaries for keyboard/screen-reader access.
