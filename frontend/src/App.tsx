@@ -94,7 +94,9 @@ function Shell({ auth, onLogout }: { auth: AuthStatus; onLogout: () => Promise<v
         </div>
       </aside>
       <main id="main" tabIndex={-1} className="min-w-0 p-4 outline-none md:p-6 xl:p-8">
-        <div className="mx-auto max-w-[1440px]">
+        <div
+          className={`mx-auto max-w-[1440px] ${location.pathname === '/' ? 'xl:flex xl:h-[calc(100dvh-4rem)] xl:flex-col' : ''}`}
+        >
           {!connected && (
             <div className="mb-5">
               <Notice>{t(data ? 'disconnected_help' : 'connecting')}</Notice>

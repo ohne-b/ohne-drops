@@ -35,8 +35,8 @@ export default function Overview() {
       (a, b) => Number(b.watching) - Number(a.watching) || (b.viewers ?? -1) - (a.viewers ?? -1),
     );
   return (
-    <div className="space-y-6">
-      <div className="flex flex-wrap items-start justify-between gap-3">
+    <div className="flex flex-col gap-6 xl:min-h-0 xl:flex-1">
+      <div className="flex shrink-0 flex-wrap items-start justify-between gap-3">
         <h1 className="text-[22px] font-semibold">{t('overview')}</h1>
         <Button
           disabled={!connected || action.busy}
@@ -50,7 +50,7 @@ export default function Overview() {
       {data.inventory_status?.available === false && !data.inventory_status.recovered && (
         <Notice error>{t('campaigns_unavailable')}</Notice>
       )}
-      <section className="panel p-5 md:p-6" aria-labelledby="mining-heading">
+      <section className="panel shrink-0 p-5 md:p-6" aria-labelledby="mining-heading">
         <div className="mb-5 flex items-center justify-between gap-3">
           <h2 id="mining-heading" className="section-title">
             {t('mining')}
@@ -124,7 +124,7 @@ export default function Overview() {
           </Button>
         )}
       </section>
-      <div className="grid gap-6 xl:h-[552px] xl:grid-cols-2">
+      <div className="grid gap-6 xl:min-h-[240px] xl:flex-1 xl:grid-cols-2">
         <section className="panel order-2 flex min-h-0 flex-col overflow-hidden xl:order-1">
           <div className="shrink-0 space-y-4 border-b border-divider p-4">
             <div className="flex items-center justify-between">
