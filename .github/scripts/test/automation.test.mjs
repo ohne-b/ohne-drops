@@ -5,7 +5,6 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { execFileSync } from 'node:child_process';
 import { bumpVersion, readVersion, validateVersion, isPrerelease, releaseImages, releaseManifest, releaseNotes, writeReleaseArtifacts } from '../release.mjs';
-import { updateContributors } from '../update-contributors.mjs';
 
 test('release versions use SemVer precedence and reject shell syntax and noncanonical input', () => {
   assert.equal(validateVersion('2.0.0-rc.10', '2.0.0-rc.2'), '2.0.0-rc.10');
@@ -65,30 +64,6 @@ test('every release has matching metadata and concise reviewed notes, never an i
   assert.equal(notes.match(/a reviewed change/g).length, 1);
   for (const changelog of ['', releaseEntry('0.1.0').repeat(2), releaseEntry('0.1.0').replace('- a reviewed change', ''), releaseEntry('0.1.0') + releaseEntry('1.0.0')]) {
     assert.throws(() => releaseNotes('0.1.0', changelog));
-  }
-});
-
-const table = 'Before\n<!-- contributors:start -->\n| Contributor | Merged pull requests |\n| --- | --- |\n<!-- contributors:end -->\nAfter\n';
-const credit = { login: 'Ben', profile: 'https://github.com/Ben', number: 12, url: 'https://github.com/ohne-b/twitch-miner/pull/12' };
-test('contributor updates are sorted, case-insensitive, idempotent, and retain newlines', () => {
-  for (const input of [table, table.replaceAll('\n', '\r\n')]) {
-    const first = updateContributors(input, credit);
-    assert.equal(updateContributors(first, credit), first);
-    const second = updateContributors(first, { ...credit, login: 'ben', profile: 'https://github.com/ben', number: 13, url: credit.url.replace('/12', '/13') });
-    assert.equal(second.match(/\[@/g).length, 1);
-    assert.match(second, /#12.* · .*#13/);
-    const sorted = updateContributors(second, { ...credit, login: 'Alice', profile: 'https://github.com/Alice', number: 14, url: credit.url.replace('/12', '/14') });
-    assert.ok(sorted.indexOf('[@Alice]') < sorted.indexOf('[@Ben]'));
-    assert.equal(sorted.includes('\r\n'), input.includes('\r\n'));
-    assert.ok(sorted.endsWith('After' + (input.includes('\r\n') ? '\r\n' : '\n')));
-  }
-});
-test('contributor metadata and malformed managed sections fail closed', () => {
-  for (const input of [table.replace('contributors:start', 'absent'), table + '<!-- contributors:end -->', table.replace('| --- | --- |', '| bad |'), table.replace('<!-- contributors:end -->', 'bad row\n<!-- contributors:end -->')]) {
-    assert.throws(() => updateContributors(input, credit));
-  }
-  for (const changes of [{ login: 'x\nmalicious' }, { profile: 'https://evil.test/Ben' }, { number: 0 }, { url: credit.url + '?x=1' }]) {
-    assert.throws(() => updateContributors(table, { ...credit, ...changes }));
   }
 });
 

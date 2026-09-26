@@ -45,7 +45,7 @@ must use mocked transports and temporary storage. Never reuse a live miner for t
 | `src/web/`, `src/dto.rs` | Axum/Socket.IO dashboard boundary |
 | `src/fixture.rs`, `src/bin/dashboard-fixture.rs` | Offline browser fixture |
 | `frontend/`, `lang/English.json` | Dashboard and English messages |
-| `.github/` | Validation, release and contributor automation |
+| `.github/` | Validation and release automation |
 
 Use concrete Rust structs with methods/composition and shared policies; keep business
 logic out of route handlers. Preserve async cancellation, bounded work, validation,
@@ -173,8 +173,8 @@ with the reviewed changelog notes, comparison link and issue link. It attaches a
 to stable releases and prereleases. Stable releases update `latest`; prereleases do not.
 The first GHCR package may
 need public visibility configured for anonymous pulls. Ordinary merges publish nothing.
-Contributor credit commits made with the workflow token do not trigger push workflows;
-run **validation** manually on main before publishing when its latest commit is such a credit.
+Commits made with a workflow token do not trigger push workflows; run **validation**
+manually on main before publishing when its latest commit has no matching push validation.
 SemVer build metadata uses `_` in place of `+` in the Docker tag.
 To publish the same multi-architecture build to Docker Hub, create a public repository
 and set Actions repository variables `DOCKERHUB_IMAGE` (`namespace/repository`) and
@@ -203,11 +203,10 @@ offers release notes and manual checks; installing updates remains a terminal op
 Do not rewrite published tags or bypass checks. Revert source through a normal PR; an
 installation rollback redeploys a previously validated image with its backed-up data.
 
-Contributor credit is the narrow existing automation exception for README-only commits.
-Its `pull_request_target` write token executes trusted default-branch code only, never
-PR-head code. Preserve exactly one contributor marker pair and its table header in README;
-malformed sections fail closed. Keep Buildx/Build Push action pins consistent between
-validation and release workflows. Do not alter trust boundaries in ordinary contributions.
+Keep upstream attribution and license links in README; contributor/PR tables are not
+maintained. README changes follow the same PR workflow as other documentation.
+Keep Buildx/Build Push action pins consistent between validation and release workflows.
+Do not alter trust boundaries in ordinary contributions.
 
 Agents must pass this policy to reviewers, preserve existing user changes, and distinguish
 editing authorization from PR/merge/release/deployment authorization. Final handoffs report
