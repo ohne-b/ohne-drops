@@ -137,7 +137,7 @@ mod protocol_regressions {
 
 use crate::config::Settings;
 
-pub(super) fn http(server: &MockServer) -> TwitchHttp {
+pub(crate) fn http(server: &MockServer) -> TwitchHttp {
     TwitchHttp::build(
         &Settings::default(),
         Some("testdevice"),
@@ -146,10 +146,10 @@ pub(super) fn http(server: &MockServer) -> TwitchHttp {
     )
     .unwrap()
 }
-pub(super) fn session() -> Session {
+pub(crate) fn session() -> Session {
     serde_json::from_value(json!({"version":1,"client_id":CLIENT_ID,"user_id":42,"device_id":"testdevice","access_token":"testtoken","refresh_token":"testrefresh"})).unwrap()
 }
-pub(super) fn validation() -> serde_json::Value {
+pub(crate) fn validation() -> serde_json::Value {
     json!({"client_id":CLIENT_ID,"user_id":"42","login":"miner","scopes":[],"expires_in":3600})
 }
 
@@ -163,7 +163,7 @@ pub(crate) fn campaign_json(id: &str) -> serde_json::Value {
             "self":{"isClaimed":false,"currentMinutesWatched":12,"dropInstanceID":null}}]})
 }
 
-pub(super) async fn gql_mock(
+pub(crate) async fn gql_mock(
     server: &MockServer,
     handler: impl Fn(&serde_json::Value) -> serde_json::Value + Send + Sync + 'static,
 ) {

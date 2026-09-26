@@ -203,6 +203,9 @@ upstream bodies that may contain credentials.
 - Claim on account-provided claim IDs, deduplicate concurrent requests, persist successful
   history before publishing success, update dependents/queue immediately, and continue the
   next eligible reward after Twitch's propagation delay. No external notification hooks.
+- Journal an intended claim before its remote request. If the response or History write is
+  interrupted, reconcile the journal with account-confirmed claims after restart. Pending
+  attempts are account-scoped and never appear as successful History entries without evidence.
 - Claim already-earned rewards independently of selected games, ignored names and campaign
   active status. Preserve the strict 24-hour grace after campaign end; skip upcoming campaigns
   and never infer claim eligibility from local estimates alone.

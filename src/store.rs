@@ -248,6 +248,71 @@ struct ArchiveFile {
     campaigns: Vec<CampaignView>,
 }
 
+#[derive(Clone, Serialize, Deserialize)]
+pub struct PendingClaim {
+    pub user_id: u64,
+    pub entry: HistoryEntry,
+}
+
+pub struct ClaimJournal {
+    path: PathBuf,
+    entries: Vec<PendingClaim>,
+}
+
+impl ClaimJournal {
+    pub fn load(directory: &Path) -> Result<Self> {
+        let path = directory.join("pending_claims.json");
+        let entries = read_json::<Vec<PendingClaim>>(&path)?.unwrap_or_default();
+        let mut ids = std::collections::HashSet::new();
+        if entries.iter().any(|claim| {
+            claim.user_id == 0
+                || claim.entry.id.is_empty()
+                || !ids.insert((claim.user_id, &claim.entry.id))
+        }) {
+            bail!("pending claims are unreadable; original file preserved");
+        }
+        Ok(Self { path, entries })
+    }
+    pub fn pending(&self, user_id: u64) -> Vec<HistoryEntry> {
+        self.entries
+            .iter()
+            .filter(|e| e.user_id == user_id)
+            .map(|e| e.entry.clone())
+            .collect()
+    }
+    pub fn prepare(&mut self, user_id: u64, entry: HistoryEntry) -> Result<HistoryEntry> {
+        if let Some(existing) = self
+            .entries
+            .iter()
+            .find(|e| e.user_id == user_id && e.entry.id == entry.id)
+        {
+            return Ok(existing.entry.clone());
+        }
+        let mut entries = self.entries.clone();
+        entries.push(PendingClaim {
+            user_id,
+            entry: entry.clone(),
+        });
+        atomic_json(&self.path, &entries)?;
+        self.entries = entries;
+        Ok(entry)
+    }
+    pub fn finish(&mut self, user_id: u64, id: &str) -> Result<()> {
+        let entries: Vec<_> = self
+            .entries
+            .iter()
+            .filter(|e| e.user_id != user_id || e.entry.id != id)
+            .cloned()
+            .collect();
+        if entries.len() == self.entries.len() {
+            return Ok(());
+        }
+        atomic_json(&self.path, &entries)?;
+        self.entries = entries;
+        Ok(())
+    }
+}
+
 pub struct CampaignArchive {
     path: PathBuf,
     campaigns: BTreeMap<String, CampaignView>,
