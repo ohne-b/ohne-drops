@@ -69,7 +69,6 @@ export interface Filters {
 }
 export interface Settings {
   revision?: string;
-  language: string;
   dark_mode: boolean;
   games_to_watch: string[];
   games_available: string[];
@@ -187,7 +186,6 @@ export interface ServerEvents {
   settings_updated: (data: Settings) => void;
   games_available: (data: { games: string[] }) => void;
   manual_mode_update: (data: ManualMode) => void;
-  language_changed: (data: { language: string }) => void;
   wanted_items_update: (data: WantedGame[]) => void;
   notification: (data: { title: string; message: string }) => void;
   attention_required: (data: { sound: boolean }) => void;

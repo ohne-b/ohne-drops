@@ -8,7 +8,6 @@ from pathlib import Path
 from types import SimpleNamespace
 
 from src.drop_history import DropHistory
-from src.i18n import _
 from src.web import app as web
 from src.web.managers.settings import SettingsManager
 
@@ -153,7 +152,6 @@ async def reconnect():
 @web.app.post("/__test/reset")
 async def reset():
     global state
-    _.set_language("English")
     state = copy.deepcopy(fixture)
     web.web_auth.save("", {})
     web.web_auth.attempts.clear()

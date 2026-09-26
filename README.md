@@ -104,7 +104,7 @@ In **Settings → Mining**, use the up/down buttons or type a priority number to
 game directly. Save changes explicitly; Cancel restores the latest server settings.
 Priority 1 is highest; out-of-range numbers are clamped to the list ends.
 Blank or fractional values leave the order unchanged. Priority controls and remove buttons
-use translated labels for screen readers.
+use English labels for screen readers.
 
 **Special Events** and **IRL** campaigns can be mined on their listed participating
 channels even when those channels stream another category or lack a drops-enabled flag.
@@ -204,7 +204,7 @@ turning off protection. **Clear All Cache** preserves dashboard authentication.
 The **History** tab logs every successfully claimed drop to `data/drop_history.json`.
 Filter the table by game name or "claimed on or after" date, view per-game and per-month
 stats, or download the current view as a CSV file (UTF-8 BOM so Excel opens it cleanly).
-Existing translations are retained; new labels have English fallback. The date filter starts at
+The interface uses English. The date filter starts at
 midnight UTC on the selected date; displayed claim times use your browser’s local timezone.
 CSV downloads support Unicode game names. Existing Twitch claims are not backfilled.
 **Clear local history** requires confirmation and deletes local history; this does not affect your
@@ -336,19 +336,19 @@ update the shared guidance.
 This fork is maintained with AI-assisted development tools. Changes are validated through
 automated tests and code-quality checks, but users should still review updates before
 deploying them. The validation suite includes GraphQL watch events and batched channel
-discovery, alongside settings, full-locale translation schema and placeholder checks,
+discovery, alongside settings, English message schema and placeholder checks,
 and frontend safety checks. Use the software
 responsibly. Release automation verifies that the runtime, package, and lockfile versions
 match before publishing tags and Docker images. Docker validation and release jobs use
 the same pinned, Node-24-native Buildx and image-build action releases.
 The suite also covers ignored-keyword normalization, dependency branches, the combined
-expiry/ignore Wanted Queue guard, watch selection, API persistence, translated placeholder
+expiry/ignore Wanted Queue guard, watch selection, API persistence, English placeholder
 parity, frontend rendering, and the claimed-drop history store with CSV export and API
 endpoints. Vite generates content-hashed assets with immutable caching; HTML is revalidated.
 Source changes no longer need a manual browser cache-key bump. The existing release workflow
 still controls application versioning and image publication.
 
-Telegram regression coverage includes translated controls, saved-token reuse,
+Telegram regression coverage includes English controls, saved-token reuse,
 disabling notifications, failed saves, claim deduplication, and mocked Telegram transport
 errors. From the activated environment, run:
 
@@ -376,8 +376,7 @@ stale browser cannot overwrite a newer save. Proxy credentials are masked in log
 History shows 25 records per page while preserving full filtered exports. Activity retains
 at most 1,000 lines and follows new messages only while the view is at the bottom. Dirty
 settings survive reconnects; saving locks their fields until the response arrives. A stale
-save keeps the draft and offers Cancel to load current settings. New UI copy has English
-fallback; German includes translated labels, alongside all existing locales.
+save keeps the draft and offers Cancel to load current settings. All UI copy is English.
 
 Install development dependencies with `uv sync --active --extra dev --locked --python 3.12`
 in the activated environment. Then:
@@ -400,3 +399,5 @@ on port 8765, temporary storage, and mocked services. They refuse to reuse an ex
 server and do not contact Twitch or send Telegram messages. CI also runs accessibility
 checks, release-script tests, and Docker builds for amd64 and arm64. See
 [CONTRIBUTING.md](./CONTRIBUTING.md) for the full workflow.
+
+The interface and miner messages use English only. Older saved language preferences are ignored.

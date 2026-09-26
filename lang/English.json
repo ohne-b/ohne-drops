@@ -1,6 +1,4 @@
 {
-    "language_name": "English",
-    "english_name": "English",
     "status": {
         "terminated": "\nApplication Terminated.\nClose the window to exit the application.",
         "watching": "Watching: {channel}",
@@ -216,7 +214,6 @@
         },
         "header": {
             "title": "Twitch Drops Miner",
-            "language": "Language:",
             "initializing": "Initializing...",
             "auto_mode": "AUTO",
             "manual_mode": "MANUAL",
