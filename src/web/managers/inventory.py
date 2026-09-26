@@ -10,6 +10,7 @@ from typing import TYPE_CHECKING, Any
 
 
 if TYPE_CHECKING:
+    from src.campaign_history import CampaignHistory
     from src.models import DropsCampaign, TimedDrop
     from src.web.managers.broadcaster import WebSocketBroadcaster
     from src.web.managers.cache import ImageCache
@@ -25,9 +26,11 @@ class InventoryManager:
     broadcasting real-time updates as those drops are mined and claimed.
     """
 
-    def __init__(self, broadcaster: WebSocketBroadcaster, cache: ImageCache):
+    def __init__(self, broadcaster: WebSocketBroadcaster, cache: ImageCache,
+                 history: CampaignHistory | None = None):
         self._broadcaster = broadcaster
         self._cache = cache
+        self._history = history
         self._campaigns: dict[str, dict[str, Any]] = {}
         self._batch_mode: bool = False
         self.availability: dict[str, Any] = {"available": True, "checked_at": None}
@@ -103,13 +106,13 @@ class InventoryManager:
         if not watch_drops:
             return None
         drops_data = [self._serialize_drop(drop) for drop in watch_drops]
-        return {
+        data = {
             "id": campaign.id,
             "name": campaign.name,
             "game_name": campaign.game.name,
-            "game_box_art_url": campaign.game.box_art_url,
+            "game_box_art_url": campaign.game.box_art_url or "",
             "campaign_url": campaign.campaign_url,
-            "link_url": campaign.link_url,
+            "link_url": campaign.link_url or "",
             "starts_at": campaign.starts_at.isoformat(),
             "ends_at": campaign.ends_at.isoformat(),
             "linked": campaign.linked,
@@ -119,11 +122,16 @@ class InventoryManager:
             **self._campaign_progress(drops_data),
             "drops": drops_data,
         }
+        if self._history is not None:
+            self._history.record(data)
+        return data
 
     def clear(self):
         """Clear all campaigns from inventory."""
         self._campaigns.clear()
-        asyncio.create_task(self._broadcaster.emit("inventory_clear", {}))
+        asyncio.create_task(self._broadcaster.emit(
+            "inventory_batch_update", {"campaigns": self.get_campaigns()}
+        ))
 
     async def add_campaign(self, campaign: DropsCampaign):
         """Add a campaign to the inventory display.
@@ -165,7 +173,7 @@ class InventoryManager:
                 asyncio.create_task(
                     self._broadcaster.emit(
                         "inventory_batch_update",
-                        {"campaigns": list(self._campaigns.values())},
+                        {"campaigns": self.get_campaigns()},
                     )
                 )
                 return
@@ -191,7 +199,7 @@ class InventoryManager:
         self._campaigns = refreshed
         asyncio.create_task(
             self._broadcaster.emit(
-                "inventory_batch_update", {"campaigns": list(refreshed.values())}
+                "inventory_batch_update", {"campaigns": self.get_campaigns()}
             )
         )
 
@@ -211,7 +219,7 @@ class InventoryManager:
         preventing UI flicker from individual adds.
         """
         self._batch_mode = False
-        campaigns_data = list(self._campaigns.values())
+        campaigns_data = self.get_campaigns()
         await self._broadcaster.emit("inventory_batch_update", {"campaigns": campaigns_data})
 
     def get_campaigns(self) -> list[dict[str, Any]]:
@@ -220,4 +228,5 @@ class InventoryManager:
         Returns:
             List of campaign data dictionaries
         """
-        return list(self._campaigns.values())
+        archived = self._history.get_campaigns() if self._history is not None else {}
+        return list((archived | self._campaigns).values())

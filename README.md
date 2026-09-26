@@ -145,8 +145,8 @@ When the watched channel goes offline or becomes ineligible, another eligible pa
 can replace it even at that same fallback priority.
 
 Inventory filters combine **Active**, **Upcoming**, and **Expired** as alternatives.
-**Not Linked** narrows that status result, while fully claimed campaigns stay hidden
-until **Finished** is selected. Zero-minute subscription rewards are omitted from the
+**Not Linked** narrows that status result. **Finished** is a separate Campaigns tab for
+campaigns whose watch rewards are all claimed; expiry alone is not completion. Zero-minute subscription rewards are omitted from the
 Inventory and Wanted Drops Queue because they cannot be earned by watching. Individually
 expired and non-mineable rewards are also omitted from the queue, while upcoming and
 sequential rewards remain visible; successful claims refresh the queue immediately. The
@@ -423,3 +423,9 @@ Campaigns shows active and upcoming rewards by default, with active confirmed pr
 Only the legacy upcoming-only default preset is migrated; custom filters are preserved.
 The visible count and Clear filters control expose hidden results. Ignored/skipped rewards
 are not completed campaigns, and missing artwork must not remove benefit metadata.
+
+Completed campaign snapshots are saved atomically in `data/completed_campaigns.json`.
+They survive restarts, catalog refreshes, and Clear All Cache, and are display history only.
+Finished also groups older recorded rewards when campaign metadata is gone, clearly marked
+**Completion unverified**: legacy drop history has no total reward count. Existing
+`drop_history.json`, credentials, settings, and server-confirmed progress are preserved.

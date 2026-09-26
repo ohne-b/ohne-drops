@@ -64,6 +64,17 @@ describe('boundary behavior', () => {
       ),
     ).toBe(false);
     expect(matchesCampaign({ ...campaign, finished: true }, filters, '')).toBe(false);
+    expect(
+      matchesCampaign(
+        { ...campaign, finished: true, active: false, expired: true },
+        filters,
+        '',
+        true,
+      ),
+    ).toBe(true);
+    expect(matchesCampaign({ ...campaign, active: false, expired: true }, filters, '', true)).toBe(
+      false,
+    );
     expect(matchesCampaign({ ...campaign, mining_finished: true }, filters, '')).toBe(true);
     expect(matchesCampaign({ ...campaign, drops: [] }, filters, '')).toBe(true);
     expect(matchesCampaign(campaign, { ...filters, game_name_search: ['RUST'] }, '')).toBe(true);

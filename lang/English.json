@@ -370,7 +370,15 @@
             "mine_game": "Mine {game}",
             "stop_mining_game": "Stop mining {game}",
             "mine_game_help": "Select this game for mining across its eligible campaigns.",
-            "select_games_help": "Choose Mine on a campaign to select its game."
+            "select_games_help": "Choose Mine on a campaign to select its game.",
+            "campaign_views": "Campaign views",
+            "available_campaigns": "Available",
+            "finished_campaigns": "Finished",
+            "completed": "Completed",
+            "historical_claims": "Older recorded rewards",
+            "historical_claims_help": "These campaigns are no longer in the catalog. Their recorded claims are preserved, but older history does not contain the total reward count needed to verify full completion.",
+            "completion_unknown": "Completion unverified",
+            "view_claim_history": "View claim history"
         }
     }
 }
