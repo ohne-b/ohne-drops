@@ -4,6 +4,7 @@ import type { AuthStatus, Result, Settings as SettingsData } from '../lib/types'
 import { request, safeUrl } from '../lib/api';
 import { useMiner } from '../lib/state';
 import { GamePriorities } from '../components/GamePriorities';
+import { BrowserLogin } from '../components/BrowserLogin';
 import { plainText, useT } from '../lib/i18n';
 import {
   ActionResult,
@@ -272,6 +273,7 @@ function SettingsContent({ settings, auth }: { settings: SettingsData; auth: Aut
         ) : (
           !data?.login.user_id && <Notice>{t('authorization_pending')}</Notice>
         )}
+        <BrowserLogin />
       </Section>
       <form
         onSubmit={(event) => {
