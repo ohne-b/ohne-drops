@@ -65,21 +65,20 @@ test('campaign filtering and truthful expanded progress', async ({ page }) => {
   await page.getByLabel('Not Linked', { exact: true }).uncheck();
   await expect(page.getByText('Autumn expedition', { exact: true })).toBeVisible();
 });
-test('priorities add, reorder, validate rank and persist', async ({ page }) => {
+test('game priorities show icons instead of editable numbers', async ({ page, request }) => {
   await page.goto('/settings');
-  await page.getByRole('searchbox', { name: 'Search games...' }).fill('elder');
-  await page.getByRole('button', { name: 'Add Game', exact: true }).click();
+  await expect(page.getByRole('spinbutton', { name: /Priority for/ })).toHaveCount(0);
   await page.getByRole('button', { name: 'Move The Elder Scrolls Online up', exact: true }).click();
-  const rank = page.getByRole('spinbutton', { name: 'Priority for Rust', exact: true });
-  await rank.fill('');
-  await rank.blur();
-  await expect(rank).toHaveValue('1');
-  await expect(page.getByText('Changes saved.', { exact: true })).toBeVisible();
+  await expect
+    .poll(async () => (await (await request.get('/api/settings')).json()).games_to_watch)
+    .toEqual(['Rust', 'The Elder Scrolls Online', 'Sea of Thieves']);
   await page.reload();
-  await expect(
-    page.getByRole('spinbutton', { name: 'Priority for The Elder Scrolls Online', exact: true }),
-  ).toHaveValue('2');
+  await expect(page.locator('#mining [data-game]').nth(1)).toHaveAttribute(
+    'data-game',
+    'The Elder Scrolls Online',
+  );
 });
+
 test('manual game confirmation supports Escape and safe literal names', async ({ page }) => {
   await page.goto('/settings');
   await page.getByRole('searchbox', { name: 'Search games...' }).fill('<script>new game</script>');
@@ -325,27 +324,13 @@ test('manual game confirmation appends to the latest settings from another devic
     headers,
     data: { revision: settings.revision, games_to_watch: ['Another device'] },
   });
-  await expect(
-    page.getByRole('spinbutton', { name: 'Priority for Another device', exact: true }),
-  ).toHaveCount(1);
+  await expect(page.locator('[data-game="Another device"]')).toHaveCount(1);
   await page.getByRole('button', { name: 'Confirm', exact: true }).click();
   await expect(page.getByText('Changes saved.', { exact: true })).toBeVisible();
   expect((await (await request.get('/api/settings')).json()).games_to_watch).toEqual([
     'Another device',
     'Manual name',
   ]);
-});
-
-test('unchanged boundary ranks still normalize their visible input', async ({ page }) => {
-  await page.goto('/settings');
-  const first = page.getByRole('spinbutton', { name: 'Priority for Rust', exact: true });
-  await first.fill('0');
-  await first.blur();
-  await expect(first).toHaveValue('1');
-  const last = page.getByRole('spinbutton', { name: 'Priority for Sea of Thieves', exact: true });
-  await last.fill('999');
-  await last.blur();
-  await expect(last).toHaveValue('2');
 });
 
 test('autosave survives reconnect and navigation', async ({ page, request }) => {

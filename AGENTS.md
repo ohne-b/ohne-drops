@@ -213,10 +213,7 @@ lang/                # English message catalog
 - Games can also be added manually from the web settings search box. Exact and
   unique partial matches resolve to available game names; ambiguous matches do not
   add a game. Confirmations support keyboard focus and Escape; manual confirmation uses current settings.
-- Games to Watch supports up/down buttons and editable integer priority numbers. Clamp valid
-  ranks to the list bounds; reject blank/fractional values without changing settings.
-  Keep priority and remove-control labels translated and accessible. Regression tests in
-  `frontend/tests/` cover order, bounds, invalid inputs, and persistence calls.
+- Game priorities show Twitch box artwork with an icon fallback. Do not show numeric rank fields.
 - Connection quality multiplier
 - Proxy support (including verification)
 - Logging and dump flags from command-line arguments
