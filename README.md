@@ -89,7 +89,7 @@ Use the compiled build for deployment.
 
 1. Log in with your Twitch account through the OAuth device flow.
 2. Wait for the miner to discover available campaigns.
-3. Choose the games you want to prioritize. You can also search for a game, select
+3. All discovered games are included automatically; choose their priority. You can also search for a game, select
    **Add Game**, and then **Save changes**. The miner applies the new priorities.
 4. Leave the miner running while it selects eligible channels and tracks drop progress.
 
@@ -332,7 +332,7 @@ endpoints. Vite generates content-hashed assets with immutable caching; HTML is 
 Source changes no longer need a manual browser cache-key bump. The existing release workflow
 still controls application versioning and image publication.
 
-Games to Watch supports Enter to add an exact or unique partial match. Ambiguous
+Game priorities support Enter to add an exact or unique partial match. Ambiguous
 searches ask for a more specific name. Manual names and Deselect All require a
 confirmation; Escape cancels and keyboard focus stays in the dialog. Select All
 retains the existing priority order and manual entries, adding missing games only.
@@ -375,3 +375,5 @@ checks, release-script tests, and Docker builds for amd64 and arm64. See
 The interface and miner messages use English only. Older saved language preferences are ignored.
 
 Notification integration has been removed. Obsolete notification credentials are discarded when settings are loaded and saved.
+
+All eligible discovered games are mined, including games absent from the saved priority list. New games follow saved priorities; Select all and Deselect all are unnecessary.

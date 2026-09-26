@@ -507,14 +507,11 @@ test('history refreshes after claims and reports clear failure inside its dialog
   expect((await (await request.get('/api/history')).json()).entries).toHaveLength(1);
 });
 
-test('channels retain the watched stream while applying case-insensitive game selection', async ({
-  page,
-  request,
-}) => {
+test('all channels remain available when priorities change', async ({ page, request }) => {
   await request.post('/api/settings', { headers, data: { games_to_watch: ['rUsT'] } });
   await expect(page.getByRole('link', { name: 'harbor', exact: true })).toBeVisible();
   await request.post('/api/settings', { headers, data: { games_to_watch: ['Other game'] } });
-  await expect(page.getByRole('link', { name: 'harbor', exact: true })).toHaveCount(0);
+  await expect(page.getByRole('link', { name: 'harbor', exact: true })).toBeVisible();
   await expect(page.getByRole('link', { name: 'northwind', exact: true })).toBeVisible();
 });
 

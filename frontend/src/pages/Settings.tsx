@@ -38,6 +38,10 @@ function Section({
 }
 const editable = (settings: SettingsData): SettingsData => ({
   ...settings,
+  games_to_watch: [...settings.games_to_watch, ...(settings.games_available ?? [])].filter(
+    (game, index, all) =>
+      all.findIndex((other) => other.toLowerCase() === game.toLowerCase()) === index,
+  ),
 });
 function Access({ initial, disabled }: { initial: AuthStatus; disabled: boolean }) {
   const t = useT();
@@ -334,35 +338,7 @@ function SettingsContent({ settings, auth }: { settings: SettingsData; auth: Aut
                 ))}
               </div>
             )}
-            <div className="flex gap-2">
-              <Button
-                onClick={() =>
-                  change('games_to_watch', [
-                    ...draft.games_to_watch,
-                    ...(settings.games_available ?? []).filter(
-                      (game) =>
-                        !draft.games_to_watch.some(
-                          (existing) => existing.toLocaleLowerCase() === game.toLocaleLowerCase(),
-                        ),
-                    ),
-                  ])
-                }
-              >
-                {t('gui.settings.select_all')}
-              </Button>
-              <Button
-                disabled={!draft.games_to_watch.length}
-                onClick={() =>
-                  setConfirmation({
-                    title: t('gui.settings.deselect_all'),
-                    text: t('gui.settings.deselect_all_warning'),
-                    action: async () => change('games_to_watch', []),
-                  })
-                }
-              >
-                {t('gui.settings.deselect_all')}
-              </Button>
-            </div>
+            <p className="muted">{t('all_games_automatic')}</p>
             <div className="panel">
               {draft.games_to_watch.map((game, index) => (
                 <div className="row" key={game}>
@@ -424,6 +400,9 @@ function SettingsContent({ settings, auth }: { settings: SettingsData; auth: Aut
                     </Button>
                     <Button
                       className="px-2"
+                      disabled={settings.games_available?.some(
+                        (available) => available.toLowerCase() === game.toLowerCase(),
+                      )}
                       aria-label={t('gui.settings.remove_game', { game })}
                       title={t('gui.settings.remove_game', { game })}
                       onClick={() =>
