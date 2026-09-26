@@ -25,6 +25,7 @@ It is the repository's contribution policy, not optional background reading.
 ## Development Guidelines
 
 Shared Field controls use content-start so helper text does not stretch adjacent label rows.
+Avoid focus rings; retain a visible keyboard-focus background/border change and system focus in forced-colors mode.
 
 Use descriptive `feat/` or `fix/` branch names. Keep branch names, documentation, commits,
 and PR descriptions free of assistant branding. Changes to main go through a pull request.

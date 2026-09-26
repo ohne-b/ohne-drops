@@ -9,7 +9,6 @@
   --color-hover: #333333;
   --color-divider: #363636;
   --color-control: #717171;
-  --color-focus: #c8c8c8;
   --color-text: #f4f4f5;
   --color-soft: #e4e4e7;
   --color-muted: #a1a1aa;
@@ -43,8 +42,14 @@
     cursor: pointer;
   }
   :focus-visible {
-    outline: 2px solid var(--color-focus);
-    outline-offset: 3px;
+    outline: none;
+  }
+  :is(button, a, summary):focus-visible {
+    background-color: var(--color-hover);
+    color: var(--color-text);
+  }
+  :is(input, select, textarea):focus-visible {
+    border-color: var(--color-text);
   }
   :disabled {
     cursor: not-allowed;
@@ -88,6 +93,9 @@
   @media (forced-colors: active) {
     * {
       scrollbar-color: auto;
+    }
+    :focus-visible {
+      outline: 1px solid Highlight;
     }
   }
   input[type='search']::-webkit-search-cancel-button {
