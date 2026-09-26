@@ -21,6 +21,153 @@ const TOPICS_PER_SOCKET: usize = 50;
 const PING_INTERVAL: Duration = Duration::from_secs(180);
 const REPLY_TIMEOUT: Duration = Duration::from_secs(10);
 
+#[cfg(test)]
+mod lifecycle_tests {
+    use super::*;
+    use crate::config::Settings;
+    use crate::twitch::{Endpoints, TwitchHttp, tests::session};
+    use axum::{
+        Router,
+        extract::ws::{Message as AxumMessage, WebSocketUpgrade},
+        routing::get,
+    };
+    use std::sync::{
+        Arc,
+        atomic::{AtomicUsize, Ordering},
+    };
+
+    async fn check(mode: &'static str) {
+        let connections = Arc::new(AtomicUsize::new(0));
+        let connected = connections.clone();
+        let router=Router::new().route("/pubsub",get(move |upgrade:WebSocketUpgrade| {
+            let connected=connected.clone();
+            async move {upgrade.on_upgrade(move |mut socket|async move {
+                let generation=connected.fetch_add(1,Ordering::SeqCst);
+                while let Some(Ok(AxumMessage::Text(text)))=socket.recv().await {
+                    let value:Value=serde_json::from_str(&text).unwrap();
+                    if value["type"]=="PING" {
+                        if mode!="no_pong" && socket.send(AxumMessage::Text(json!({"type":"PONG"}).to_string().into())).await.is_err(){break;}
+                        continue;
+                    }
+                    if mode!="no_ack" {
+                        let error=if mode=="bad_auth" {"ERR_BADAUTH"}else{""};
+                        if socket.send(AxumMessage::Text(json!({"type":"RESPONSE","nonce":value["nonce"],"error":error}).to_string().into())).await.is_err(){break;}
+                    }
+                    if mode=="reconnect" && generation==0 {
+                        let _=socket.send(AxumMessage::Text(json!({"type":"RECONNECT"}).to_string().into())).await;
+                    }
+                    if mode=="proxy" || mode=="full_queue" || mode=="reconnect" && generation>0 {
+                        for minutes in 1..=3 {
+                            let payload=json!({"type":"drop-progress","data":{"drop_id":"reward","current_progress_min":minutes}}).to_string();
+                            let message=json!({"type":"MESSAGE","data":{"topic":"user-drop-events.42","message":payload}});
+                            if socket.send(AxumMessage::Text(message.to_string().into())).await.is_err(){break;}
+                        }
+                    }
+                }
+            })}
+        }));
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let base = format!("http://{}", listener.local_addr().unwrap());
+        let shutdown = CancellationToken::new();
+        let stopped = shutdown.clone();
+        let server = tokio::spawn(async move {
+            axum::serve(listener, router)
+                .with_graceful_shutdown(stopped.cancelled_owned())
+                .await
+                .unwrap();
+        });
+        let mut settings = Settings::default();
+        if mode == "proxy" {
+            settings.proxy = base.clone();
+        }
+        let endpoints = if mode == "proxy" {
+            Endpoints::mock("http://upstream.invalid")
+        } else {
+            Endpoints::mock(&base)
+        };
+        let http = TwitchHttp::build(
+            &settings,
+            Some("testdevice"),
+            CancellationToken::new(),
+            endpoints,
+        )
+        .unwrap();
+        let client = TwitchClient::new(Arc::new(http), &session());
+        let (events, mut received) = mpsc::channel(1);
+        let mut pool = PubSub::start(client, events);
+        match mode {
+            "bad_auth" => {
+                let event = tokio::time::timeout(Duration::from_secs(5), received.recv())
+                    .await
+                    .unwrap()
+                    .unwrap();
+                assert!(matches!(event, Event::Unauthorized));
+            }
+            "proxy" | "reconnect" => {
+                let event = tokio::time::timeout(Duration::from_secs(5), received.recv())
+                    .await
+                    .unwrap()
+                    .unwrap();
+                assert!(matches!(event, Event::Progress { minutes: 1, .. }));
+                assert!(connections.load(Ordering::SeqCst) >= if mode == "proxy" { 1 } else { 2 });
+            }
+            "no_pong" | "no_ack" => {
+                tokio::time::timeout(Duration::from_secs(14), async {
+                    while connections.load(Ordering::SeqCst) < 2 {
+                        tokio::time::sleep(Duration::from_millis(20)).await;
+                    }
+                })
+                .await
+                .unwrap();
+            }
+            "full_queue" => {
+                tokio::time::timeout(Duration::from_secs(5), async {
+                    while received.len() == 0 {
+                        tokio::task::yield_now().await;
+                    }
+                })
+                .await
+                .unwrap();
+                tokio::time::sleep(Duration::from_millis(50)).await;
+            }
+            _ => unreachable!(),
+        }
+        tokio::time::timeout(Duration::from_secs(1), pool.close())
+            .await
+            .unwrap();
+        assert!(pool.tasks.is_empty());
+        shutdown.cancel();
+        tokio::time::timeout(Duration::from_secs(3), server)
+            .await
+            .unwrap()
+            .unwrap();
+    }
+    #[tokio::test]
+    async fn pubsub_uses_configured_http_proxy() {
+        check("proxy").await;
+    }
+    #[tokio::test]
+    async fn pubsub_reconnect_resubscribes() {
+        check("reconnect").await;
+    }
+    #[tokio::test]
+    async fn pubsub_bad_auth_reaches_owner() {
+        check("bad_auth").await;
+    }
+    #[tokio::test]
+    async fn pubsub_missing_ack_reconnects() {
+        check("no_ack").await;
+    }
+    #[tokio::test]
+    async fn pubsub_missing_pong_reconnects() {
+        check("no_pong").await;
+    }
+    #[tokio::test]
+    async fn pubsub_full_event_queue_does_not_prevent_close() {
+        check("full_queue").await;
+    }
+}
+
 pub enum Event {
     Progress { id: String, minutes: u32 },
     Claim { id: String, instance: String },

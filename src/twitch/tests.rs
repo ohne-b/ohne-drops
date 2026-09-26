@@ -12,6 +12,129 @@ use super::{
     CLIENT_ID, CLIENT_ORIGIN, Endpoints, TwitchClient, TwitchError, TwitchHttp, gql_errors,
     oauth::Session,
 };
+
+mod protocol_regressions {
+    use super::super::operations::Operation;
+    use super::*;
+
+    #[tokio::test]
+    async fn persisted_operation_variables_match_legacy_contract() {
+        let server = MockServer::start().await;
+        gql_mock(&server, |q| match q["operationName"].as_str().unwrap() {
+            "Inventory" => json!({"data":{"currentUser":{"inventory":{"dropCampaignsInProgress":[],"gameEventDrops":[]}}}}),
+            "ViewerDropsDashboard" => json!({"data":{"currentUser":{"dropCampaigns":[]}}}),
+            "DropCurrentSessionContext" => json!({"data":{"currentUser":{"dropCurrentSession":null}}}),
+            _ => unreachable!(),
+        }).await;
+        let client = TwitchClient::new(Arc::new(http(&server)), &session());
+        client.inventory(&Settings::default()).await.unwrap();
+        client.current_drop(10).await.unwrap();
+        let bodies: Vec<serde_json::Value> = server
+            .received_requests()
+            .await
+            .unwrap()
+            .iter()
+            .map(|r| r.body_json().unwrap())
+            .collect();
+        assert_eq!(
+            bodies[0]["variables"]["fetchRewardCampaigns"], false,
+            "Inventory request: {}",
+            bodies[0]
+        );
+        assert_eq!(bodies[1]["variables"]["fetchRewardCampaigns"], false);
+        assert_eq!(bodies[2]["variables"]["channelLogin"], "");
+    }
+
+    #[tokio::test]
+    async fn null_ancestor_keeps_independent_batch_neighbor() {
+        let server = MockServer::start().await;
+        Mock::given(method("POST")).and(path("/gql"))
+          .respond_with(ResponseTemplate::new(200).set_body_json(json!([
+            {"data":{"user":null},"errors":[{"message":"server error","path":["user","dropCampaign"]}]},
+            {"data":{"user":{"dropCampaign":{"id":"valid-neighbor"}}}}
+          ]))).mount(&server).await;
+        let client = TwitchClient::new(Arc::new(http(&server)), &session());
+        let response = client
+            .batch(vec![
+                Operation::CampaignDetails.request(json!({})),
+                Operation::CampaignDetails.request(json!({})),
+            ])
+            .await;
+        assert!(
+            response.is_ok(),
+            "valid neighboring detail was discarded: {response:?}"
+        );
+        assert_eq!(
+            response.unwrap()[1]["data"]["user"]["dropCampaign"]["id"],
+            "valid-neighbor"
+        );
+    }
+
+    #[tokio::test]
+    async fn gql_does_not_exceed_five_inflight_requests() {
+        let server = MockServer::start().await;
+        Mock::given(method("POST"))
+            .and(path("/gql"))
+            .respond_with(
+                ResponseTemplate::new(200)
+                    .set_delay(Duration::from_secs(10))
+                    .set_body_json(json!({"data":{}})),
+            )
+            .mount(&server)
+            .await;
+        let http = Arc::new(http(&server));
+        let client = TwitchClient::new(http.clone(), &session());
+        let mut tasks = tokio::task::JoinSet::new();
+        for _ in 0..6 {
+            let client = client.clone();
+            tasks.spawn(async move { client.gql(json!({"query":"slow"})).await });
+        }
+        tokio::time::timeout(Duration::from_secs(3), async {
+            while server.received_requests().await.unwrap().len() < 5 {
+                tokio::task::yield_now().await;
+            }
+        })
+        .await
+        .unwrap();
+        tokio::time::sleep(Duration::from_millis(1200)).await;
+        let inflight = server.received_requests().await.unwrap().len();
+        http.cancel.cancel();
+        while tasks.join_next().await.is_some() {}
+        assert!(
+            inflight <= 5,
+            "{inflight} simultaneous requests reached the server before any completed"
+        );
+    }
+
+    #[tokio::test]
+    async fn incomplete_recovery_does_not_poison_later_complete_record() {
+        let server = MockServer::start().await;
+        gql_mock(&server, |q| match q["operationName"].as_str().unwrap() {
+            "Inventory" => json!({"data":{"currentUser":{"inventory":{"dropCampaignsInProgress":[],"gameEventDrops":[]}}}}),
+            "ViewerDropsDashboard" => json!({"data":{"currentUser":{"dropCampaigns":null}}}),
+            "DropsDiscoveryGames" => json!({"data":{"games":{"edges":[{"cursor":"end","node":{"streams":{"edges":[
+                {"node":{"broadcaster":{"id":"10","login":"first","displayName":"First"}}},
+                {"node":{"broadcaster":{"id":"11","login":"second","displayName":"Second"}}}
+            ]}}}],"pageInfo":{"hasNextPage":false}}}}),
+            "ChannelDropsRecovery" => {
+                let mut campaign=campaign_json("shared");
+                campaign.as_object_mut().unwrap().remove("self");
+                campaign["timeBasedDrops"][0].as_object_mut().unwrap().remove("self");
+                let id=q["variables"]["channelID"].as_str().unwrap();
+                if id=="10" {campaign.as_object_mut().unwrap().remove("timeBasedDrops");}
+                json!({"data":{"channel":{"id":id,"viewerDropCampaigns":[campaign]}}})
+            },
+            _ => unreachable!(),
+        }).await;
+        let client = TwitchClient::new(Arc::new(http(&server)), &session());
+        let inventory = client.inventory(&Settings::default()).await.unwrap();
+        assert_eq!(
+            inventory.status.recovered, 1,
+            "the second source supplied the complete campaign"
+        );
+    }
+}
+
 use crate::config::Settings;
 
 pub(super) fn http(server: &MockServer) -> TwitchHttp {
@@ -98,7 +221,7 @@ fn gql_retries_only_recognized_failures_and_never_logs_upstream_secrets() {
         "Twitch GraphQL request failed"
     );
     let mut invalid_path =
-        json!({"data":null,"errors":[{"message":"server error","path":["missing"]}]});
+        json!({"data":{},"errors":[{"message":"server error","path":["missing"]}]});
     assert_eq!(gql_errors(&mut invalid_path, 0), Err(TwitchError::GraphQl));
 }
 

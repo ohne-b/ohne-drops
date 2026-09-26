@@ -14,7 +14,12 @@ pub enum Operation {
 }
 
 impl Operation {
-    pub fn request(self, variables: Value) -> Value {
+    pub fn request(self, mut variables: Value) -> Value {
+        match self {
+            Self::Inventory | Self::Campaigns => variables["fetchRewardCampaigns"] = false.into(),
+            Self::CurrentDrop => variables["channelLogin"] = "".into(),
+            _ => {}
+        }
         let (name, hash) = match self {
             Self::Inventory => (
                 "Inventory",
@@ -61,4 +66,81 @@ pub fn directory(slug: &str, limit: usize) -> Value {
     Operation::GameDirectory.request(json!({"limit":limit,"slug":slug,"imageWidth":50,"includeCostreaming":false,
         "options":{"broadcasterLanguages":[],"freeformTags":null,"includeRestricted":["SUB_ONLY_LIVE"],"recommendationsContext":{"platform":"web"},
             "sort":"RELEVANCE","systemFilters":["DROPS_ENABLED"],"tags":[],"requestID":"JIRA-VXP-2397"},"sortTypeIsRecency":false}))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    #[test]
+    fn persisted_operation_contracts_include_all_required_variables() {
+        for (operation, input, name, expected) in [
+            (
+                Operation::Inventory,
+                json!({}),
+                "Inventory",
+                json!({"fetchRewardCampaigns":false}),
+            ),
+            (
+                Operation::Campaigns,
+                json!({}),
+                "ViewerDropsDashboard",
+                json!({"fetchRewardCampaigns":false}),
+            ),
+            (
+                Operation::CurrentDrop,
+                json!({"channelID":"10"}),
+                "DropCurrentSessionContext",
+                json!({"channelID":"10","channelLogin":""}),
+            ),
+            (
+                Operation::CampaignDetails,
+                json!({"channelLogin":"42","dropID":"campaign"}),
+                "DropCampaignDetails",
+                json!({"channelLogin":"42","dropID":"campaign"}),
+            ),
+            (
+                Operation::StreamInfo,
+                json!({"channel":"streamer"}),
+                "VideoPlayerStreamInfoOverlayChannel",
+                json!({"channel":"streamer"}),
+            ),
+            (
+                Operation::ClaimDrop,
+                json!({"input":{"dropInstanceID":"earned"}}),
+                "DropsPage_ClaimDropRewards",
+                json!({"input":{"dropInstanceID":"earned"}}),
+            ),
+            (
+                Operation::AvailableDrops,
+                json!({"channelID":"10"}),
+                "DropsHighlightService_AvailableDrops",
+                json!({"channelID":"10"}),
+            ),
+            (
+                Operation::DeleteNotification,
+                json!({"input":{"id":"notification"}}),
+                "OnsiteNotifications_DeleteNotification",
+                json!({"input":{"id":"notification"}}),
+            ),
+        ] {
+            let request = operation.request(input);
+            assert_eq!(request["operationName"], name);
+            assert_eq!(request["variables"], expected);
+            assert_eq!(request["extensions"]["persistedQuery"]["version"], 1);
+            assert_eq!(
+                request["extensions"]["persistedQuery"]["sha256Hash"]
+                    .as_str()
+                    .unwrap()
+                    .len(),
+                64
+            );
+        }
+        let request = directory("rust", 20);
+        assert_eq!(request["operationName"], "DirectoryPage_Game");
+        assert_eq!(
+            request["variables"],
+            json!({"limit":20,"slug":"rust","imageWidth":50,"includeCostreaming":false,
+            "options":{"broadcasterLanguages":[],"freeformTags":null,"includeRestricted":["SUB_ONLY_LIVE"],"recommendationsContext":{"platform":"web"},"sort":"RELEVANCE","systemFilters":["DROPS_ENABLED"],"tags":[],"requestID":"JIRA-VXP-2397"},"sortTypeIsRecency":false})
+        );
+    }
 }
