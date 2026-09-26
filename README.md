@@ -3,6 +3,8 @@
 The desktop sidebar shows your signed-in Twitch account ID and a 24px GitHub link.
 Overview gives Channels and Up next equal width on desktop, stacking them on smaller screens.
 Mining progress keeps the latest confirmed minutes and timestamp without an extra confirmation label.
+History saves reward thumbnails with new claims. Older entries use available campaign
+artwork, or a placeholder when the original image is unavailable.
 
 Settings → Twitch account provides **Log out of Twitch**. It stops account work and
 forgets the server's saved Twitch login, then offers a fresh authorization code.
