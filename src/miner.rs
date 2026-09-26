@@ -429,6 +429,7 @@ struct Mining {
     next_retry: Instant,
     refresh_channels: HashMap<u64, Instant>,
     channel_events: HashMap<u64, Instant>,
+    viewer_events: HashMap<u64, Instant>,
     notifications: HashSet<String>,
     claim_retry: HashMap<String, Instant>,
     claim_wait: Option<(String, Instant, u8)>,
@@ -472,6 +473,7 @@ impl Mining {
             next_retry: now,
             refresh_channels: HashMap::new(),
             channel_events: HashMap::new(),
+            viewer_events: HashMap::new(),
             notifications: HashSet::new(),
             claim_retry: HashMap::new(),
             claim_wait: None,
@@ -554,6 +556,7 @@ impl Mining {
             self.claim_wait = None;
             self.refresh_channels.clear();
             self.channel_events.clear();
+            self.viewer_events.clear();
             self.status = InventoryStatus::default();
             pool.set_channels(&[]);
             self.publish = true;
@@ -647,7 +650,7 @@ impl Mining {
                 }
             }
             Event::Viewers { id, count } => {
-                self.channel_events.insert(id, Instant::now());
+                self.viewer_events.insert(id, Instant::now());
                 if let Some(channel) = self.channels.iter_mut().find(|c| c.identity.id == id) {
                     if channel.online() {
                         channel.viewers = Some(count);
@@ -676,6 +679,26 @@ impl Mining {
         } else {
             false
         }
+    }
+    fn progress_eligible(&self, id: &str, channel: u64, settings: &Settings) -> bool {
+        let now = Utc::now();
+        self.channels
+            .iter()
+            .find(|c| c.identity.id == channel)
+            .is_some_and(|channel| {
+                self.campaigns.iter().any(|c| {
+                    c.can_watch(channel, settings, now)
+                        && c.drops.iter().any(|d| {
+                            d.id == id
+                                && c.drop_eligible(
+                                    d,
+                                    &c.policy(settings),
+                                    now,
+                                    now + chrono::Duration::nanoseconds(1),
+                                )
+                        })
+                })
+            })
     }
 
     async fn reselect(&mut self, settings: &Settings) {
@@ -774,16 +797,7 @@ impl Mining {
                     if self.claim_wait.is_some()
                         || self.last_progress.as_ref().is_none_or(|(id, at)| {
                             now.duration_since(*at) >= WATCH_INTERVAL
-                                || !self
-                                    .channels
-                                    .iter()
-                                    .find(|c| c.identity.id == channel)
-                                    .is_some_and(|channel| {
-                                        self.campaigns.iter().any(|c| {
-                                            c.can_watch(channel, settings, wall)
-                                                && c.drops.iter().any(|d| &d.id == id)
-                                        })
-                                    })
+                                || !self.progress_eligible(id, channel, settings)
                         })
                     {
                         let client = self.client.clone();
@@ -970,6 +984,8 @@ impl Mining {
                 }
                 self.channel_events
                     .retain(|id, _| self.channels.iter().any(|c| c.identity.id == *id));
+                self.viewer_events
+                    .retain(|id, _| self.channels.iter().any(|c| c.identity.id == *id));
                 self.refresh_channels
                     .retain(|id, _| self.channels.iter().any(|c| c.identity.id == *id));
                 pool.set_channels(
@@ -1019,12 +1035,14 @@ impl Mining {
             } => {
                 if self.watching == Some(channel) {
                     let current = result.as_ref().ok().and_then(|v| v.as_ref());
-                    let newer_progress = self
-                        .last_progress
-                        .as_ref()
-                        .is_some_and(|(_, at)| *at > requested_at);
+                    let newer_progress = self.last_progress.as_ref().is_some_and(|(id, at)| {
+                        *at > requested_at && self.progress_eligible(id, channel, &settings)
+                    });
                     let confirmed = newer_progress
-                        || current.is_some_and(|(id, minutes)| self.confirm(id, *minutes));
+                        || current.is_some_and(|(id, minutes)| {
+                            let eligible = self.progress_eligible(id, channel, &settings);
+                            self.confirm(id, *minutes) && eligible
+                        });
                     if let Some((claimed, _, attempts)) = self.claim_wait.take() {
                         if current.is_some_and(|(id, _)| id == &claimed) && attempts < 7 {
                             self.claim_wait =
@@ -1065,7 +1083,7 @@ impl Mining {
                     self.app.sockets.emit("notification",&json!({"title":message("gui.backend.drop_claimed",&[]),"message":drop.name})).await;
                 }
                 self.claim_retry.remove(&id);
-                self.pending_claims.retain(|p| p.entry.id != id);
+                self.recover_claims(&HashMap::new()).await?;
                 self.claim_wait = Some((id, now + Duration::from_secs(4), 0));
                 self.publish = true;
                 None
@@ -1130,6 +1148,18 @@ impl Mining {
     }
     fn preserve_channel_events(&self, channels: &mut [Channel], requested_at: Instant) {
         for channel in channels {
+            if channel.online()
+                && self
+                    .viewer_events
+                    .get(&channel.identity.id)
+                    .is_some_and(|at| *at > requested_at)
+                && let Some(current) = self
+                    .channels
+                    .iter()
+                    .find(|c| c.identity.id == channel.identity.id)
+            {
+                channel.viewers = current.viewers;
+            }
             if self
                 .channel_events
                 .get(&channel.identity.id)
@@ -1283,6 +1313,13 @@ impl Mining {
         &mut self,
         awards: &HashMap<String, chrono::DateTime<Utc>>,
     ) -> Result<(), TwitchError> {
+        let unclaimed: HashSet<_> = self
+            .campaigns
+            .iter()
+            .flat_map(|c| &c.drops)
+            .filter(|d| !d.claimed && d.confirmed_at.is_some())
+            .map(|d| d.id.clone())
+            .collect();
         let confirmed: HashSet<_> = self
             .campaigns
             .iter()
@@ -1294,21 +1331,29 @@ impl Mining {
         let journal = self.journal.clone();
         let user_id = self.client.user_id;
         let awards = awards.clone();
-        self.pending_claims = tokio::task::spawn_blocking(move || {
+        let (pending, recovered) = tokio::task::spawn_blocking(move || {
             let mut journal = journal.blocking_lock();
-            for pending in journal
-                .pending(user_id)
-                .into_iter()
-                .filter(|p| confirmed.contains(&p.entry.id) || p.confirmed_by(&awards))
-            {
+            let mut recovered = HashSet::new();
+            for pending in journal.pending(user_id).into_iter().filter(|p| {
+                p.confirmed
+                    || confirmed.contains(&p.entry.id)
+                    || (!unclaimed.contains(&p.entry.id) && p.confirmed_by(&awards))
+            }) {
                 record_claim(&app, &pending)?;
                 journal.finish(user_id, &pending.entry.id)?;
+                recovered.insert(pending.entry.id.clone());
             }
-            Ok::<_, anyhow::Error>(journal.pending(user_id))
+            Ok::<_, anyhow::Error>((journal.pending(user_id), recovered))
         })
         .await
         .map_err(|_| TwitchError::Storage)?
         .map_err(|_| TwitchError::Storage)?;
+        self.pending_claims = pending;
+        for drop in self.campaigns.iter_mut().flat_map(|c| &mut c.drops) {
+            if recovered.contains(&drop.id) {
+                drop.mark_claimed(Utc::now());
+            }
+        }
         Ok(())
     }
 }
@@ -1329,16 +1374,24 @@ async fn claim(
             .await
             .map_err(|_| TwitchError::Storage)?
             .map_err(|_| TwitchError::Storage)?;
-    let claimed = client.claim(&pending_claim.instance).await?;
+    let claimed = pending_claim.confirmed || client.claim(&pending_claim.instance).await?;
     let app = app.clone();
     let journal = journal.clone();
     tokio::task::spawn_blocking(move || {
         if claimed {
-            record_claim(&app, &pending_claim)?;
+            // Keep the receipt until the owner applies the result or reconciles
+            // it after restart. A preclaim publication cannot destroy its evidence.
+            journal
+                .blocking_lock()
+                .confirm(user_id, &pending_claim.entry.id)?;
+            app.history
+                .blocking_lock()
+                .record(pending_claim.entry.clone())?;
+        } else {
+            journal
+                .blocking_lock()
+                .finish(user_id, &pending_claim.entry.id)?;
         }
-        journal
-            .blocking_lock()
-            .finish(user_id, &pending_claim.entry.id)?;
         Ok::<_, anyhow::Error>(())
     })
     .await

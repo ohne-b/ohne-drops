@@ -165,7 +165,7 @@ async fn claim_journal_recovers_after_history_write_failure_without_fabricating_
     let mut miner = miner;
     miner.journal = Arc::new(Mutex::new(ClaimJournal::load(dir.path()).unwrap()));
     miner.recover_claims(&HashMap::new()).await.unwrap();
-    assert_eq!(miner.app.history.lock().await.total(), 0);
+    assert_eq!(miner.app.history.lock().await.total(), 1);
     miner.campaigns[0].drops[0].mark_claimed(Utc::now());
     miner.recover_claims(&HashMap::new()).await.unwrap();
     miner.recover_claims(&HashMap::new()).await.unwrap();
@@ -964,5 +964,154 @@ async fn pending_claim_replays_its_account_instance_only_within_original_grace_p
     assert_eq!(History::load(dir.path()).total(), 1);
     assert!(CampaignArchive::load(dir.path()).merge(vec![], Utc::now())[0].finished);
     assert!(miner.pending_claims.is_empty());
+    pool.close().await;
+}
+
+#[tokio::test]
+async fn viewer_event_cannot_discard_fresh_category_and_drop_eligibility() {
+    let server = MockServer::start().await;
+    let (_dir, mut miner, _intent, mut pool) = miner(&server).await;
+    let settings = select(&mut miner).await;
+    let mut updated = miner.channels.clone();
+    updated[0].game.as_mut().unwrap().id = 2;
+    updated[0].game.as_mut().unwrap().name = "Different Game".into();
+    updated[0].drops_enabled = false;
+    let requested_at = Instant::now() - Duration::from_secs(1);
+    miner
+        .event(Event::Viewers { id: 10, count: 500 })
+        .await
+        .unwrap();
+    miner
+        .complete(
+            Job::Update {
+                result: Ok(updated),
+                requested_at,
+            },
+            &pool,
+        )
+        .await
+        .unwrap();
+    miner.reselect(&settings).await;
+    let actual_game = miner.channels[0].game.as_ref().unwrap().id;
+    let actual_viewers = miner.channels[0].viewers;
+    let watching = miner.watching;
+    pool.close().await;
+    assert_eq!(actual_viewers, Some(500));
+    assert_eq!(
+        actual_game, 2,
+        "viewer update discarded unrelated fresh stream metadata"
+    );
+    assert!(
+        watching.is_none(),
+        "miner kept watching a channel that switched out of the eligible category"
+    );
+}
+
+#[tokio::test]
+async fn known_claimed_current_drop_does_not_block_stall_detection() {
+    let server = MockServer::start().await;
+    let (_dir, mut miner, _intent, mut pool) = miner(&server).await;
+    let mut next = miner.campaigns[0].drops[0].clone();
+    next.id = "next-reward".into();
+    miner.campaigns[0].drops[0].mark_claimed(Utc::now());
+    miner.campaigns[0].drops.push(next);
+    let settings = select(&mut miner).await;
+    for _ in 0..MAX_ESTIMATED_MINUTES {
+        miner
+            .complete(
+                Job::Poll {
+                    requested_at: Instant::now(),
+                    channel: 10,
+                    result: Ok(Some(("drop-one".into(), 60))),
+                },
+                &pool,
+            )
+            .await
+            .unwrap();
+    }
+    miner.reselect(&settings).await;
+    let estimated = miner.campaigns[0].drops[1].estimated_minutes;
+    let watching = miner.watching;
+    pool.close().await;
+    assert_eq!(
+        estimated, 15,
+        "a stale claimed CurrentDrop suppressed fallback for the eligible next reward"
+    );
+    assert!(watching.is_none());
+}
+
+#[tokio::test]
+async fn pending_award_inference_cannot_override_explicit_unclaimed_account_state() {
+    let server = MockServer::start().await;
+    let (dir, mut miner, _intent, mut pool) = miner(&server).await;
+    miner.campaigns[0].drops[0].claim_id = Some("account-instance".into());
+    let pending = PendingClaim::new(
+        42,
+        &miner.campaigns[0],
+        &miner.campaigns[0].drops[0],
+        &Settings::default(),
+    );
+    miner.journal.lock().await.prepare(pending.clone()).unwrap();
+    assert!(!miner.campaigns[0].drops[0].claimed);
+    assert!(miner.campaigns[0].drops[0].confirmed_at.is_some());
+    let awards = HashMap::from([(
+        pending.benefits[0].clone(),
+        pending.starts_at + chrono::Duration::seconds(1),
+    )]);
+    miner.recover_claims(&awards).await.unwrap();
+    let history_count = History::load(dir.path()).total();
+    let journal_count = ClaimJournal::load(dir.path()).unwrap().pending(42).len();
+    pool.close().await;
+    assert_eq!(
+        history_count, 0,
+        "award inference must not override the explicit account isClaimed:false edge"
+    );
+    assert_eq!(journal_count, 1);
+}
+
+#[tokio::test]
+async fn preclaim_publication_and_shutdown_leave_a_durable_receipt_for_finished_recovery() {
+    let server = MockServer::start().await;
+    gql_mock(
+        &server,
+        |_| json!({"data":{"claimDropRewards":{"status":"ELIGIBLE_FOR_ALL"}}}),
+    )
+    .await;
+    let (dir, mut miner, _intent, mut pool) = miner(&server).await;
+    miner.campaigns[0].drops[0].claim_id = Some("account-instance".into());
+    let settings = Settings::default();
+    let pending = PendingClaim::new(
+        42,
+        &miner.campaigns[0],
+        &miner.campaigns[0].drops[0],
+        &settings,
+    );
+    assert!(
+        claim(&miner.app, &miner.client, &miner.journal, pending)
+            .await
+            .unwrap()
+    );
+    assert!(ClaimJournal::load(dir.path()).unwrap().pending(42)[0].confirmed);
+    miner
+        .event(Event::Viewers { id: 10, count: 500 })
+        .await
+        .unwrap();
+    miner.publish(&settings).await.unwrap();
+    miner.journal = Arc::new(Mutex::new(ClaimJournal::load(dir.path()).unwrap()));
+    miner.campaigns.clear();
+    miner.recover_claims(&HashMap::new()).await.unwrap();
+    assert_eq!(History::load(dir.path()).total(), 1);
+    assert_eq!(
+        CampaignArchive::load(dir.path())
+            .merge(vec![], Utc::now())
+            .len(),
+        1
+    );
+    assert!(
+        ClaimJournal::load(dir.path())
+            .unwrap()
+            .pending(42)
+            .is_empty()
+    );
     pool.close().await;
 }
