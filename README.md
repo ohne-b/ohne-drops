@@ -375,6 +375,7 @@ checks, release-script tests, and Docker builds for amd64 and arm64. See
 The interface and miner messages use English only. Older saved language preferences are ignored.
 
 Field labels and controls stay aligned when only one field has helper text.
+Keyboard focus uses subtle control/background changes without a surrounding ring.
 
 Notification integration has been removed. Obsolete notification credentials are discarded when settings are loaded and saved.
 
