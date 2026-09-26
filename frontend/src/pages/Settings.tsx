@@ -246,7 +246,6 @@ function SettingsContent({ settings, auth }: { settings: SettingsData; auth: Aut
     <div className="max-w-4xl space-y-8">
       <div>
         <h1 className="text-[22px] font-semibold">{t('gui.tabs.settings')}</h1>
-        <p className="mt-1 text-muted">{t('settings_description')}</p>
       </div>
       <nav
         aria-label={t('settings_sections')}
@@ -298,7 +297,7 @@ function SettingsContent({ settings, auth }: { settings: SettingsData; auth: Aut
         }}
       >
         <fieldset disabled={saveAction.busy} className="min-w-0 space-y-8">
-          <Section id="mining" title={t('mining')} help={t('priority_help')}>
+          <Section id="mining" title={t('mining')}>
             <div className="flex gap-2">
               <div
                 className="flex-1"
@@ -509,9 +508,6 @@ function SettingsContent({ settings, auth }: { settings: SettingsData; auth: Aut
               {t('verify_proxy')}
             </Button>
             <ActionResult action={proxyAction} />
-          </Section>
-          <Section id="interface" title={t('interface')}>
-            <p className="muted">{t('dark_appearance')}</p>
           </Section>
           {(dirty || saveAction.error || saveAction.success) && (
             <div className="sticky bottom-0 z-10 space-y-3 border-t border-divider bg-canvas/95 py-4">

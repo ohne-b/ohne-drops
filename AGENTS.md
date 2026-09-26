@@ -590,3 +590,5 @@ No Telegram service, endpoints, credentials, notification hooks or UI remain. Le
 Game-account linking is display metadata, not a local earning gate. Include unlinked item campaigns while retaining timing, channel ACL, prerequisites, benefit types, ignore rules and server-confirmed progress. Twitch still controls reward delivery.
 
 StreamSelector includes every discovered game after saved priorities, case-insensitively deduplicated. Empty priorities still mine all eligible games. Channel display must not hide games absent from the priority list.
+
+Keep page introductions compact: no redundant subtitles for Settings, Campaigns, History or Activity, no fixed-dark appearance description, and no generic mining instructions.

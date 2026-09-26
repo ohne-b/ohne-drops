@@ -89,7 +89,6 @@ export default function History() {
       <div className="flex flex-wrap justify-between gap-3">
         <div>
           <h1 className="text-[22px] font-semibold">{t('gui.tabs.history')}</h1>
-          <p className="mt-1 text-muted">{t('history_description')}</p>
         </div>
         <div className="flex gap-2">
           <a href={`/api/history/export.csv?${queryString}`} className="button">
