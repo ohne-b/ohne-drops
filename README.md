@@ -100,6 +100,8 @@ Use the compiled build for deployment.
 
 ## Using the web app
 
+Offline channels can have an unknown viewer count, displayed as a dash in Overview.
+
 1. Log in with your Twitch account through the OAuth device flow.
 2. Wait for the miner to discover available campaigns.
 3. All discovered games are included automatically; choose their priority. You can also search for a game, select

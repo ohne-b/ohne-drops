@@ -49,7 +49,7 @@ export interface Channel {
   game: string | null;
   game_id: number | null;
   game_icon: string | null;
-  viewers: number;
+  viewers: number | null;
   online: boolean;
   drops_enabled: boolean;
   acl_based: boolean;

@@ -88,6 +88,38 @@ test('channel search, clear, selection and automatic mode', async ({ page }) => 
   await page.getByRole('button', { name: 'Clear search' }).click();
   await expect(page.getByRole('link', { name: 'northwind', exact: true })).toBeVisible();
 });
+
+test('offline channels with unknown viewers do not crash Overview', async ({ page, request }) => {
+  const errors: string[] = [];
+  page.on('pageerror', (error) => errors.push(error.message));
+  await page.goto('/settings');
+  await expect(page.getByRole('button', { name: 'Reorder Rust', exact: true })).toBeEnabled();
+  const offline = {
+    ...snapshot.channels[0]!,
+    name: 'offline-channel',
+    viewers: null,
+    online: false,
+    watching: false,
+    game: null,
+  };
+  await request.post('/__test/event', {
+    headers,
+    data: { event: 'channel_update', data: offline },
+  });
+  await page.getByRole('link', { name: 'Overview', exact: true }).click();
+  const row = page
+    .locator('.row')
+    .filter({ has: page.getByRole('link', { name: 'offline-channel', exact: true }) });
+  await expect(row).toContainText('—');
+  await expect(row.getByRole('button', { name: 'Watch offline-channel' })).toBeDisabled();
+  await request.post('/__test/event', {
+    headers,
+    data: { event: 'channels_batch_update', data: { channels: [offline] } },
+  });
+  await expect(page.locator('.row')).toHaveCount(1);
+  await expect(page.getByRole('heading', { name: 'Overview', exact: true })).toBeVisible();
+  expect(errors).toEqual([]);
+});
 test('campaign filtering and truthful expanded progress', async ({ page }) => {
   await page.goto('/campaigns');
   await page.getByText('Autumn expedition', { exact: true }).click();

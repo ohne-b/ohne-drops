@@ -97,6 +97,9 @@ lang/                # English message catalog
 
 ### React dashboard
 
+- Channel viewer counts are nullable for offline streams. Preserve that API type,
+  render unknown counts as a dash, and sort them after known counts within watching priority.
+
 - `frontend/src` is the browser application source. Use strict TypeScript, React,
   Tailwind theme tokens, individual MDI paths, and shared native controls in
   `components/ui.tsx`. The dark theme, Manrope, compact fields and 3px WebKit
