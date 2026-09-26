@@ -47,12 +47,8 @@ export default function Overview() {
         </Button>
       </div>
       <ActionResult action={action} />
-      {data.inventory_status?.available === false && (
-        <Notice error={!data.inventory_status.recovered}>
-          {data.inventory_status.recovered
-            ? t('campaigns_recovered', { count: data.inventory_status.recovered })
-            : t('campaigns_unavailable')}
-        </Notice>
+      {data.inventory_status?.available === false && !data.inventory_status.recovered && (
+        <Notice error>{t('campaigns_unavailable')}</Notice>
       )}
       <section className="panel p-5 md:p-6" aria-labelledby="mining-heading">
         <div className="mb-5 flex items-center justify-between gap-3">

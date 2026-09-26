@@ -306,7 +306,6 @@
             "up_next": "Up next",
             "edit": "Edit",
             "campaigns_unavailable": "Twitch did not provide the complete campaign catalog, and live-channel discovery found no additional campaigns. Selected games with available inventory can still be mined.",
-            "campaigns_recovered": "Found {count} campaigns through live Twitch channels. Campaigns without a sampled live channel may be missing.",
             "account_link_unknown": "Account link unknown",
             "check_account_link": "Check account link",
             "search_campaigns": "Search campaigns and rewards",

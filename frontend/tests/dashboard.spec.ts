@@ -558,7 +558,7 @@ test('snapshot replaces stale entities and keeps settings draft', async ({ page,
   });
   await expect(interval).toHaveValue('45');
 });
-test('channel discovery reports partial coverage and unknown account linkage', async ({
+test('recovered campaigns keep unknown account linkage without a discovery banner', async ({
   page,
   request,
 }) => {
@@ -568,18 +568,16 @@ test('channel discovery reports partial coverage and unknown account linkage', a
       event: 'initial_state',
       data: {
         ...snapshot,
+        current_drop: { ...snapshot.current_drop!, drop_name: 'Recovered reward fixture' },
         inventory_status: { available: false, recovered: 1, checked_at: null },
         campaigns: snapshot.campaigns.map((campaign) => ({ ...campaign, linked: null })),
       },
     },
   });
-  await expect(
-    page.getByText('Found 1 campaigns through live Twitch channels.', { exact: false }),
-  ).toBeVisible();
+  await expect(page.getByText('Recovered reward fixture', { exact: true })).toBeVisible();
+  await expect(page.getByText(/Found \d+ campaigns through live Twitch channels/)).toHaveCount(0);
   await page.getByRole('link', { name: 'Campaigns', exact: true }).click();
-  await expect(
-    page.getByText('Found 1 campaigns through live Twitch channels.', { exact: false }),
-  ).toBeVisible();
+  await expect(page.getByText(/Found \d+ campaigns through live Twitch channels/)).toHaveCount(0);
   await expect(page.getByText('Account link unknown', { exact: true }).last()).toBeVisible();
   await page.locator('summary').first().click();
   await expect(page.getByRole('link', { name: 'Check account link' }).first()).toBeVisible();
