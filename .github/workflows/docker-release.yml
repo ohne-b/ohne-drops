@@ -42,11 +42,13 @@ jobs:
           DOCKERHUB_IMAGE: ${{ vars.DOCKERHUB_IMAGE }}
         run: |
           node .github/scripts/release.mjs verify "$RELEASE_VERSION"
-          test "$(git ls-remote origin refs/heads/main | cut -f1)" = "$GITHUB_SHA"
+          remote_main=$(git ls-remote origin refs/heads/main)
+          test "$(cut -f1 <<< "$remote_main")" = "$GITHUB_SHA"
           conclusion=$(gh run list --workflow validation.yml --branch main --commit "$GITHUB_SHA" \
             --limit 20 --json event,conclusion --jq '[.[] | select(.event == "push" or .event == "workflow_dispatch")][0].conclusion')
           test "$conclusion" = success
-          test -z "$(git ls-remote origin "refs/tags/v${RELEASE_VERSION}")"
+          remote_tag=$(git ls-remote origin "refs/tags/v${RELEASE_VERSION}")
+          test -z "$remote_tag"
           echo "version=$RELEASE_VERSION" >> "$GITHUB_OUTPUT"
           {
             echo 'tags<<EOF'
