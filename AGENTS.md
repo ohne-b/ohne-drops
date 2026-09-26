@@ -639,3 +639,8 @@ Keep page introductions compact: no redundant subtitles for Settings, Campaigns,
 Settings autosave lives in MinerProvider so route changes cannot discard pending writes. Debounce and serialize PATCH-like setting updates with revision checks. Retain newer edits during in-flight requests and failed/conflicting input until Retry; never restore whole stale snapshots over other devices.
 
 Game priorities use pointer dragging with the OhneGuessr six-dot handle, pointer capture for touch, Escape/pointer-cancel rollback, and keyboard arrow keys with live announcements. Persist only on drop; cancel if external game priorities change during a drag. No visible arrow buttons or numeric ranks.
+
+Campaigns shows active and upcoming rewards by default, with active confirmed progress first.
+Only the legacy upcoming-only default preset is migrated; custom filters are preserved.
+The visible count and Clear filters control expose hidden results. Ignored/skipped rewards
+are not completed campaigns, and missing artwork must not remove benefit metadata.

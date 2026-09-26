@@ -417,3 +417,8 @@ Page headings stand on their own; repeated descriptive and appearance copy has b
 Connection status lives under Settings → Twitch account; the sidebar footer links to GitHub.
 
 Settings save automatically after a short pause. Pending edits survive navigation; failed or conflicting saves retain input and offer Retry. Only changed fields are submitted, so other preferences are preserved.
+
+Campaigns shows active and upcoming rewards by default, with active confirmed progress first.
+Only the legacy upcoming-only default preset is migrated; custom filters are preserved.
+The visible count and Clear filters control expose hidden results. Ignored/skipped rewards
+are not completed campaigns, and missing artwork must not remove benefit metadata.
