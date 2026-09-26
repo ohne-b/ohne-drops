@@ -69,19 +69,19 @@ function Shell({ auth, onLogout }: { auth: AuthStatus; onLogout: () => Promise<v
           ))}
         </nav>
         <div className="mt-auto hidden border-t border-divider p-4 lg:block">
-          {data?.login.user_id != null && (
-            <p className="mb-2 text-xs tabular-nums text-muted">Twitch: {data.login.user_id}</p>
-          )}
           <a
-            className="inline-flex size-9 items-center justify-center rounded text-muted transition-colors hover:text-text"
+            className="inline-flex size-11 items-center justify-center rounded text-muted transition-colors hover:text-text"
             href="https://github.com/ohne-b/twitch-miner"
             target="_blank"
             rel="noreferrer"
             aria-label="GitHub repository"
             title="GitHub"
           >
-            <Icon path={mdiGithub} className="size-6!" />
+            <Icon path={mdiGithub} className="size-8!" />
           </a>
+          {data?.login.user_id != null && (
+            <p className="mt-2 text-xs tabular-nums text-muted">Twitch: {data.login.user_id}</p>
+          )}
           {auth.enabled && (
             <Button
               className="mt-3 w-full"
@@ -94,7 +94,9 @@ function Shell({ auth, onLogout }: { auth: AuthStatus; onLogout: () => Promise<v
         </div>
       </aside>
       <main id="main" tabIndex={-1} className="min-w-0 p-4 outline-none md:p-6 xl:p-8">
-        <div className="mx-auto max-w-[1440px]">
+        <div
+          className={`mx-auto max-w-[1440px] ${location.pathname === '/' ? 'xl:flex xl:h-[calc(100dvh-4rem)] xl:flex-col' : ''}`}
+        >
           {!connected && (
             <div className="mb-5">
               <Notice>{t(data ? 'disconnected_help' : 'connecting')}</Notice>

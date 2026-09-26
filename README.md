@@ -1,6 +1,6 @@
 # Twitch Drops Miner
 
-The desktop sidebar shows your signed-in Twitch account ID and a 24px GitHub link.
+The desktop sidebar shows a 32px GitHub link above your signed-in Twitch account ID.
 Overview gives Channels and Up next equal width and height on desktop, stacking them on smaller screens.
 Watching information appears in the mining card; console messages are available on Activity.
 Mining progress keeps the latest confirmed minutes and timestamp without an extra confirmation label.
@@ -433,8 +433,9 @@ Finished also groups older recorded rewards when campaign metadata is gone, clea
 **Completion unverified**: legacy drop history has no total reward count. Existing
 `drop_history.json`, credentials, settings, and server-confirmed progress are preserved.
 
-Overview Channels and Up next share a 552px outer height on desktop, with independently
-scrolling lists below their headers. Stacked layouts cap each list at 440px.
+Overview Channels and Up next share the remaining viewport height on desktop, with
+independently scrolling lists below their headers. Short windows retain page scrolling
+so content remains accessible. Stacked layouts cap each list at 440px.
 Each queue reward includes item artwork; missing, unsafe, or failed images use the shared Art fallback.
 
 Mine controls remain outside expandable campaign summaries for keyboard/screen-reader access.
