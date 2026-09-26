@@ -152,7 +152,6 @@ class InventoryService:
         # fetch general available campaigns data (campaigns)
         response = await self._twitch.gql_request(GQL_OPERATIONS["Campaigns"])
         catalog = response["data"]["currentUser"]["dropCampaigns"]
-        self._twitch.gui.inv.set_availability(catalog is not None)
         available_list: list[JsonType] = catalog or []
         applicable_statuses = ("ACTIVE", "UPCOMING")
         available_campaigns: dict[str, JsonType] = {
@@ -168,9 +167,11 @@ class InventoryService:
             for campaigns_chunk in chunk(available_campaigns.items(), 20)
         ]
 
+        fetched_ids: set[str] = set()
         try:
             for coro in asyncio.as_completed(fetch_campaigns_tasks):
                 chunk_campaigns_data = await coro
+                fetched_ids.update(chunk_campaigns_data)
                 # merge the inventory and campaigns datas together
                 inventory_data = GQLClient.merge_data(inventory_data, chunk_campaigns_data)
         except BaseException:
@@ -179,6 +180,10 @@ class InventoryService:
                 task.cancel()
             await asyncio.gather(*fetch_campaigns_tasks, return_exceptions=True)
             raise
+
+        self._twitch.gui.inv.set_availability(
+            catalog is not None and available_campaigns.keys() <= fetched_ids
+        )
 
         # filter out invalid campaigns
         for campaign_id in list(inventory_data.keys()):

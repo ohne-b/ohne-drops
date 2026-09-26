@@ -81,9 +81,33 @@ async def test_inaccessible_details_skip_summary_and_preserve_ongoing_inventory(
          {"data": {"user": {"dropCampaign": None}}}, {"data": {"user": None}}],
     ])
     await InventoryService(twitch).fetch_inventory()
+    twitch.gui.inv.set_availability.assert_called_once_with(False)
     assert set(twitch._campaigns) == {"new", "ongoing"}
     assert twitch._drops["ongoing-drop"].current_minutes == 12
     await twitch._mnt_task
+
+
+@pytest.mark.asyncio
+async def test_active_summary_without_details_is_unavailable_until_recovery():
+    twitch = MagicMock()
+    twitch.settings.drop_name_blacklist = []
+    twitch._drops, twitch._campaigns, twitch.inventory = {}, {}, []
+    twitch._mnt_triggers, twitch._mnt_task, twitch._state = deque(), None, State.IDLE
+    twitch.gui.inv.add_campaign = AsyncMock()
+    twitch.get_auth = AsyncMock(return_value=SimpleNamespace(user_id=123))
+    twitch._maintenance_service.run_maintenance_task = AsyncMock()
+    for details in (None, campaign("new")):
+        twitch.gql_request = AsyncMock(side_effect=[
+            {"data": {"currentUser": {"inventory": {
+                "dropCampaignsInProgress": [], "gameEventDrops": [],
+            }}}},
+            {"data": {"currentUser": {"dropCampaigns": [{"id": "new", "status": "ACTIVE"}]}}},
+            [{"data": {"user": {"dropCampaign": details}}}],
+        ])
+        await InventoryService(twitch).fetch_inventory()
+        twitch.gui.inv.set_availability.assert_called_with(details is not None)
+        assert len(twitch.inventory) == int(details is not None)
+        await twitch._mnt_task
 
 
 @pytest.mark.asyncio
