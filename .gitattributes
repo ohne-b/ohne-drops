@@ -1,3 +1,9 @@
 frontend/** text eol=lf
 *.sh text eol=lf
+*.rs text eol=lf
+*.toml text eol=lf
+*.mjs text eol=lf
+*.yml text eol=lf
+*.md text eol=lf
+Cargo.lock text eol=lf
 *.png binary

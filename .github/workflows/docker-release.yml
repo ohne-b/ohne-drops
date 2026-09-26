@@ -1,120 +1,91 @@
-name: Docker Release
+name: Publish release
 
 on:
-  push:
-    branches:
-      - 'release/**'
   workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version already merged and validated on main'
+        required: true
+        type: string
 
 permissions:
-  contents: write
-  packages: write
+  contents: read
 
-env:
-  CURRENT_BRANCH_NAME: ${{ github.head_ref || github.ref_name }}
+concurrency:
+  group: publish-release
+  cancel-in-progress: false
 
 jobs:
-  extract-version:
-    name: Extract Version
-    runs-on: ubuntu-latest
-    outputs:
-      version: ${{ steps.extract.outputs.version }}
-      is_prerelease: ${{ steps.extract.outputs.is_prerelease }}
-
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v5
-        with:
-          token: ${{ secrets.PUBLISHER_TOKEN }}
-
-      - name: Extract version from branch and version.py
-        id: extract
-        run: |
-          # Extract version from branch name and validate against version.py
-          .github/scripts/extract_version.sh "${{ env.CURRENT_BRANCH_NAME }}"
-
-      - name: Validate version format
-        run: |
-          # Validate version is proper SemVer and set prerelease flag
-          .github/scripts/validate_semver.sh "${{ steps.extract.outputs.version }}"
-
-  docker-build:
-    name: Build & Push Docker Images
-    runs-on: ubuntu-latest
-    needs: extract-version
+  publish:
+    if: github.ref == 'refs/heads/main'
     environment: prod
-
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      packages: write
+      actions: read
     steps:
-      - name: Checkout code
-        uses: actions/checkout@v5
-
-      - name: Set up QEMU for arm64 builds
-        uses: docker/setup-qemu-action@99012661954931238ded8c8b007157a8430204e1 # v4.4.0
+      - uses: actions/checkout@v6
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+      - uses: actions/setup-node@v6
+        with:
+          node-version: '24'
+      - run: rustup show
+      - run: npm --prefix frontend ci
+      - name: Verify reviewed version, current main and completed validation
+        id: release
+        env:
+          RELEASE_VERSION: ${{ inputs.version }}
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          node .github/scripts/release.mjs verify "$RELEASE_VERSION"
+          test "$(git ls-remote origin refs/heads/main | cut -f1)" = "$GITHUB_SHA"
+          conclusion=$(gh run list --workflow validation.yml --branch main --commit "$GITHUB_SHA" \
+            --event push --limit 1 --json conclusion --jq '.[0].conclusion')
+          test "$conclusion" = success
+          test -z "$(git ls-remote origin "refs/tags/v${RELEASE_VERSION}")"
+          echo "version=$RELEASE_VERSION" >> "$GITHUB_OUTPUT"
+          echo "image_version=${RELEASE_VERSION//+/_}" >> "$GITHUB_OUTPUT"
+          echo "image=ghcr.io/${GITHUB_REPOSITORY,,}" >> "$GITHUB_OUTPUT"
+          if [[ "$RELEASE_VERSION" == *-* ]]; then
+            echo 'prerelease=true' >> "$GITHUB_OUTPUT"
+          else
+            echo 'prerelease=false' >> "$GITHUB_OUTPUT"
+          fi
+      - uses: docker/setup-qemu-action@99012661954931238ded8c8b007157a8430204e1 # v4.4.0
         with:
           platforms: arm64
-
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@37fe631027851001ddb9b187196cc803df7f5f0e # v4.3.0
-
-      - name: Login to Docker Hub
-        uses: docker/login-action@v3
-        with:
-          username: ${{ secrets.DOCKERHUB_USERNAME }}
-          password: ${{ secrets.DOCKERHUB_TOKEN }}
-
-      - name: Generate Docker tags
-        id: docker-tags
-        run: |
-          VERSION="${{ needs.extract-version.outputs.version }}"
-          IMAGE="rangermix/twitch-drops-miner"
-          IS_PRERELEASE="${{ needs.extract-version.outputs.is_prerelease }}"
-
-          # Always include the full version tag
-          TAGS="$IMAGE:$VERSION"
-
-          # For stable releases, add major.minor, major, and latest tags
-          if [ "$IS_PRERELEASE" = "false" ]; then
-            # Extract major.minor.patch
-            MAJOR=$(echo "$VERSION" | cut -d. -f1)
-            MINOR=$(echo "$VERSION" | cut -d. -f2)
-
-            TAGS="$TAGS,$IMAGE:$MAJOR.$MINOR"
-            TAGS="$TAGS,$IMAGE:$MAJOR"
-            TAGS="$TAGS,$IMAGE:latest"
-          fi
-
-          echo "tags=$TAGS" >> "$GITHUB_OUTPUT"
-          echo "Generated tags: $TAGS"
-
-      - name: Build and push Docker image
-        uses: docker/build-push-action@53b7df96c91f9c12dcc8a07bcb9ccacbed38856a # v7.3.0
+      - uses: docker/setup-buildx-action@37fe631027851001ddb9b187196cc803df7f5f0e # v4.3.0
+      - name: Authenticate to GitHub Container Registry
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: printf '%s' "$GH_TOKEN" | docker login ghcr.io -u "$GITHUB_ACTOR" --password-stdin
+      - uses: docker/build-push-action@53b7df96c91f9c12dcc8a07bcb9ccacbed38856a # v7.3.0
         with:
           context: .
           platforms: linux/amd64,linux/arm64
           push: true
-          tags: ${{ steps.docker-tags.outputs.tags }}
-          labels: |
-            org.opencontainers.image.title=Twitch Drops Miner
-            org.opencontainers.image.description=Automatically mine Twitch drops
-            org.opencontainers.image.version=${{ needs.extract-version.outputs.version }}
-            org.opencontainers.image.revision=${{ github.sha }}
-            org.opencontainers.image.created=${{ github.event.repository.updated_at }}
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
+          tags: ${{ steps.release.outputs.image }}:${{ steps.release.outputs.image_version }}
           build-args: |
-            BUILD_DATE=${{ github.event.repository.updated_at }}
+            VERSION=${{ steps.release.outputs.version }}
             VCS_REF=${{ github.sha }}
-            VERSION=${{ needs.extract-version.outputs.version }}
-
-  trigger-github-release:
-    name: Trigger GitHub Release Workflow
-    runs-on: ubuntu-latest
-    needs: docker-build
-
-    steps:
-      - name: Trigger Version Release Workflow
-        uses: benc-uk/workflow-dispatch@v1
-        with:
-          workflow: github-release.yml
-          token: ${{ secrets.PUBLISHER_TOKEN }}
-          ref: ${{ github.ref }}
+          cache-from: |
+            type=gha,scope=miner-amd64
+            type=gha,scope=miner-arm64
+      - name: Publish immutable tag and generated release notes
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_VERSION: ${{ steps.release.outputs.version }}
+          IMAGE: ${{ steps.release.outputs.image }}
+          IMAGE_VERSION: ${{ steps.release.outputs.image_version }}
+          PRERELEASE: ${{ steps.release.outputs.prerelease }}
+        run: |
+          flags=()
+          if [[ "$PRERELEASE" == true ]]; then flags+=(--prerelease --latest=false); fi
+          gh release create "v${RELEASE_VERSION}" --target "$GITHUB_SHA" --generate-notes \
+            --title "${RELEASE_VERSION}" "${flags[@]}"
+          if [[ "$PRERELEASE" == false ]]; then
+            docker buildx imagetools create --tag "${IMAGE}:latest" "${IMAGE}:${IMAGE_VERSION}"
+          fi
