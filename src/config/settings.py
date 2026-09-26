@@ -48,8 +48,6 @@ default_settings = {
         "UNKNOWN": True,
     },
     "proxy": "",
-    "telegram_bot_token": "",
-    "telegram_chat_id": "",
 }
 
 
@@ -64,8 +62,6 @@ class Settings:
     minimum_refresh_interval_minutes: int
     mining_benefits: dict[str, bool]
     proxy: str
-    telegram_bot_token: str
-    telegram_chat_id: str
 
     def __init__(self):
         self.load()

@@ -72,7 +72,7 @@ what the miner displays from what Twitch's own inventory reports; a local displa
 and missing server-side progress may have different causes.
 
 Never attach `cookies.jar`, `data/web_auth.json`, an entire data directory, OAuth/device
-codes, session cookies, passwords, Telegram bot tokens, or unredacted settings/logs.
+codes, session cookies, passwords, or unredacted settings/logs.
 Verbose output and network captures can contain credentials; inspect them before sharing.
 
 ### Feature requests, questions, and other contributions
@@ -196,7 +196,7 @@ old behavior and passes with the fix whenever practical. Test public behavior an
 meaningful outcomes, not just internal implementation details. New functionality needs
 both normal and failure-path coverage, including relevant boundary cases.
 
-Use mocked Twitch/Telegram/network responses and temporary storage. Tests must not
+Use mocked Twitch/network responses and temporary storage. Tests must not
 need real credentials, claim real drops, or send real notifications. Existing tests
 in `tests/` show the repository's conventions. Frontend logic uses Vitest; Playwright
 uses the real API/socket/auth boundary with synthetic data in `tests/dashboard_server.py`.

@@ -1,4 +1,4 @@
-"""Offline browser-test server. Never starts the miner or contacts Twitch/Telegram."""
+"""Offline browser-test server. Never starts the miner or contacts Twitch."""
 
 import asyncio
 import copy
@@ -47,7 +47,7 @@ class FakeGui:
         values = {
             key: value
             for key, value in state["settings"].items()
-            if key not in {"revision", "games_available", "telegram_configured"}
+            if key not in {"revision", "games_available"}
         }
         self.settings = SettingsManager(Broadcast(), FakeSettings(**values), self.output)
         self.settings._available_games = state["settings"]["games_available"]
@@ -111,7 +111,7 @@ web.app.router.routes = [
     route
     for route in web.app.router.routes
     if getattr(route, "path", "")
-    not in {"/api/version", "/api/settings/test-telegram", "/api/settings/verify-proxy"}
+    not in {"/api/version", "/api/settings/verify-proxy"}
 ]
 
 
@@ -125,7 +125,6 @@ async def version():
     }
 
 
-@web.app.post("/api/settings/test-telegram")
 @web.app.post("/api/settings/verify-proxy")
 async def test_connection():
     return {"success": True}

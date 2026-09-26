@@ -38,7 +38,6 @@ function Section({
 }
 const editable = (settings: SettingsData): SettingsData => ({
   ...settings,
-  telegram_bot_token: '',
 });
 function Access({ initial, disabled }: { initial: AuthStatus; disabled: boolean }) {
   const t = useT();
@@ -156,7 +155,6 @@ function SettingsContent({ settings, auth }: { settings: SettingsData; auth: Aut
   const [version, setVersion] = useState('');
   const saveAction = useAction();
   const command = useAction();
-  const telegramAction = useAction();
   const proxyAction = useAction();
   const oauthAction = useAction();
   const dirty = JSON.stringify(draft) !== JSON.stringify(base);
@@ -185,7 +183,7 @@ function SettingsContent({ settings, auth }: { settings: SettingsData; auth: Aut
   }
   async function save() {
     await saveAction.run(async () => {
-      const { games_available: _games, telegram_configured: _configured, ...payload } = draft;
+      const { games_available: _games, ...payload } = draft;
       const result = await request<{ settings: SettingsData }>('/api/settings', payload);
       const next = editable(result.settings);
       setDraft(next);
@@ -250,7 +248,7 @@ function SettingsContent({ settings, auth }: { settings: SettingsData; auth: Aut
         aria-label={t('settings_sections')}
         className="flex flex-wrap gap-x-5 gap-y-2 text-[13px] text-muted"
       >
-        {['account', 'mining', 'connection', 'notifications', 'access', 'maintenance'].map((id) => (
+        {['account', 'mining', 'connection', 'access', 'maintenance'].map((id) => (
           <a className="hover:text-text" key={id} href={`#${id}`}>
             {t(id)}
           </a>
@@ -532,68 +530,6 @@ function SettingsContent({ settings, auth }: { settings: SettingsData; auth: Aut
               {t('verify_proxy')}
             </Button>
             <ActionResult action={proxyAction} />
-          </Section>
-          <Section
-            id="notifications"
-            title={t('gui.settings.telegram.name')}
-            help={t('gui.settings.telegram.credentials_help')}
-          >
-            <div className="grid gap-4 sm:grid-cols-2">
-              <Field
-                label={t('gui.settings.telegram.bot_token')}
-                help={
-                  settings.telegram_configured ? t('token_configured') : t('token_not_configured')
-                }
-              >
-                <Input
-                  type="password"
-                  autoComplete="new-password"
-                  value={draft.telegram_bot_token}
-                  onChange={(event) => change('telegram_bot_token', event.target.value)}
-                />
-              </Field>
-              <Field label={t('gui.settings.telegram.chat_id')}>
-                <Input
-                  autoComplete="off"
-                  value={draft.telegram_chat_id}
-                  onChange={(event) => change('telegram_chat_id', event.target.value)}
-                />
-              </Field>
-            </div>
-            <Button
-              disabled={
-                !connected ||
-                dirty ||
-                telegramAction.busy ||
-                !settings.telegram_chat_id ||
-                !settings.telegram_configured
-              }
-              onClick={() =>
-                void telegramAction.run(
-                  () =>
-                    test('/api/settings/test-telegram', {
-                      telegram_bot_token: '',
-                      telegram_chat_id: settings.telegram_chat_id,
-                    }),
-                  t('test_sent'),
-                )
-              }
-            >
-              {t('send_test')}
-            </Button>
-            <ActionResult action={telegramAction} />
-            {dirty && <p className="muted">{t('save_first')}</p>}
-            <p className="muted">
-              <a
-                className="text-link"
-                href="https://t.me/BotFather"
-                target="_blank"
-                rel="noreferrer"
-              >
-                @BotFather
-              </a>{' '}
-              · {t('telegram_setup')}
-            </p>
           </Section>
           <Section id="interface" title={t('interface')}>
             <p className="muted">{t('dark_appearance')}</p>

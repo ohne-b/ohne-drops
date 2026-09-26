@@ -25,8 +25,6 @@ CHANNEL_ID = 100
 def twitch():
     client = MagicMock()
     client.settings.drop_name_blacklist = []
-    client.settings.telegram_bot_token = ""
-    client.settings.telegram_chat_id = ""
     client.watching_channel.get_with_default.side_effect = lambda default: default
     return client
 

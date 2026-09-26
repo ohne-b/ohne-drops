@@ -126,10 +126,7 @@
       "show_benefit_item": true,
       "show_benefit_other": true
     },
-    "inventory_list_view": true,
-    "telegram_bot_token": "",
-    "telegram_chat_id": "",
-    "telegram_configured": false
+    "inventory_list_view": true
   },
   "login": {
     "status": "Logged in",
