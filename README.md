@@ -1,6 +1,6 @@
 # Twitch Drops Miner
 
-The desktop sidebar shows your signed-in Twitch account ID.
+The desktop sidebar shows your signed-in Twitch account ID and a 24px GitHub link.
 
 Settings → Twitch account provides **Log out of Twitch**. It stops account work and
 forgets the server's saved Twitch login, then offers a fresh authorization code.
