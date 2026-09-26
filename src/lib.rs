@@ -7,4 +7,5 @@ pub mod fixture;
 pub mod origin;
 pub mod policy;
 pub mod store;
+pub mod twitch;
 pub mod web;
