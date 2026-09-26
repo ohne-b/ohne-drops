@@ -177,9 +177,23 @@ SemVer build metadata uses `_` in place of `+` in the Docker tag.
 To publish the same multi-architecture build to Docker Hub, create a public repository
 and set Actions repository variables `DOCKERHUB_IMAGE` (`namespace/repository`) and
 `DOCKERHUB_USERNAME`, plus secret `DOCKERHUB_TOKEN` (a Read & Write personal access token).
-Leave `DOCKERHUB_IMAGE` unset for GHCR-only publication. An enabled but incomplete or
-unauthorized Docker Hub configuration fails before building/publishing the release.
+Leave `DOCKERHUB_IMAGE` unset for GHCR-only publication. Missing enabled credentials or
+failed login stop before the build; repository write access is checked by the actual push.
 Both registries receive the version tag; only stable releases advance their `latest` tags.
+The release and its verified manifest become public before registry `latest` tags advance.
+Registry writes are not transactional: a failed multi-registry push can leave version tags,
+and a failed promotion can leave one `latest` behind. Inspect the failed run and registry
+digests before retrying. If a run leaves a draft, verify its target commit against the
+validated revision and download/compare `latest.json` with the generated artifact before
+finishing its publication. Do not delete or rewrite published tags, or rerun the full
+workflow over an existing release. If publication succeeded but a `latest` promotion
+failed, verify the public release/tag, manifest and image revision/digest against the
+successful build, authenticate to the affected registry, and finish only that promotion:
+
+```bash
+docker buildx imagetools create --tag REGISTRY/IMAGE:latest REGISTRY/IMAGE:VERSION
+```
+
 Maintenance reads the latest stable release's manifest with bounded requests and a short
 shared cache. Unknown/unreachable metadata must never be reported as up to date. It only
 offers release notes and manual checks; installing updates remains a terminal operation.
