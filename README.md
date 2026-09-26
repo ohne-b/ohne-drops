@@ -51,9 +51,14 @@ It distinguishes an available update from a failed check. Every release includes
 the [changelog](CHANGELOG.md) describes each release. Versioning starts at `0.1.0` for
 this project; installations labeled `1.3.2` need one manual upgrade to this release series.
 
-Release images are published to `ghcr.io/ohne-b/twitch-miner:VERSION` for amd64 and arm64.
-The release workflow can also publish the same images to Docker Hub; the three required
-Actions settings are documented in [CONTRIBUTING.md](CONTRIBUTING.md#release-and-automation).
+Release images for amd64 and arm64 are available on
+[Docker Hub](https://hub.docker.com/r/ohneb/twitch-miner) as `ohneb/twitch-miner:VERSION`
+and GHCR as `ghcr.io/ohne-b/twitch-miner:VERSION`. Both also provide `latest` for stable releases.
+To use a published image with the supplied Compose file, remove `build: .`, change
+`image:` to `ohneb/twitch-miner:latest`, then run `docker compose pull` and
+`docker compose up -d`. Keep your existing mounts, ownership and port mapping.
+Registry publishing setup is covered in
+[CONTRIBUTING.md](CONTRIBUTING.md#release-and-automation).
 
 The Rust version reads existing settings, mining selections, history, completed campaigns
 and dashboard protection. **One new Twitch device-code login is required.** Existing
