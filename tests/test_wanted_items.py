@@ -15,6 +15,7 @@ class TestWantedItems(unittest.TestCase):
         # Mock Twitch Client
         self.twitch = MagicMock(spec=Twitch)
         self.twitch.settings = MagicMock()
+        self.twitch.campaign_history = None
         self.twitch.get_change_state_callable.return_value = lambda: None
 
         # Mock dependencies created in __init__
@@ -78,7 +79,7 @@ class TestWantedItems(unittest.TestCase):
         d2.benefits = [b2]
         c2.drops = [d2]
 
-        # Campaign 3: Game3 has no saved priority but is still wanted.
+        # Campaign 3: Game3 was discovered but was not selected.
         c3 = MagicMock(spec=DropsCampaign)
         c3.id = "c3_id"
         c3.name = "Campaign3"
@@ -128,8 +129,8 @@ class TestWantedItems(unittest.TestCase):
         result = self.gui.get_wanted_game_tree()
 
         # Verify
-        # Saved priority first; newly discovered games follow it.
-        self.assertEqual([game["game_name"] for game in result], ["Game1", "Game3"])
+        # Only explicitly selected games appear.
+        self.assertEqual([game["game_name"] for game in result], ["Game1"])
         self.assertEqual(result[0]["game_name"], "Game1")
         self.assertEqual(result[0]["game_icon"], "http://img1")
 

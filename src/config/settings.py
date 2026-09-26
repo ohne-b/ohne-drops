@@ -6,7 +6,7 @@ from typing import TypedDict
 from yarl import URL
 
 from src.config import SETTINGS_PATH
-from src.utils import DropIgnorePolicy, json_load, json_save
+from src.utils import DropIgnorePolicy, json_load, json_save, merge_json
 
 
 class InventoryFilters(TypedDict):
@@ -27,9 +27,10 @@ default_settings = {
     "dark_mode": False,
     "drop_name_blacklist": [],
     "games_to_watch": [],
+    "inventory_filters_version": 2,
     "inventory_filters": {
         "game_name_search": [],
-        "show_active": False,
+        "show_active": True,
         "show_benefit_badge": True,
         "show_benefit_emote": True,
         "show_benefit_item": True,
@@ -58,6 +59,7 @@ class Settings:
     drop_name_blacklist: list[str]
     games_to_watch: list[str]
     inventory_filters: InventoryFilters
+    inventory_filters_version: int
     inventory_list_view: bool
     minimum_refresh_interval_minutes: int
     mining_benefits: dict[str, bool]
@@ -68,7 +70,14 @@ class Settings:
 
     def load(self):
         # TODO: remvoe customized serde in the future
-        settings = json_load(SETTINGS_PATH, default_settings, merge=True)
+        settings = json_load(SETTINGS_PATH, default_settings, merge=False)
+        # Migrate only the old default preset; keep deliberate custom filters.
+        template = default_settings["inventory_filters"]
+        assert isinstance(template, dict)
+        legacy_filters = {**template, "show_active": False}
+        if "inventory_filters_version" not in settings and settings.get("inventory_filters") == legacy_filters:
+            settings["inventory_filters"] = dict(template)
+        merge_json(settings, default_settings)
         for key, value in settings.items():
             if value is URL:
                 setattr(self, key, str(value))

@@ -309,7 +309,7 @@ class InventoryService:
 
         campaigns: list[DropsCampaign] = []
         for campaign in self._twitch.inventory:
-            if campaign.can_earn(watching_channel):
+            if campaign.game in self._twitch.wanted_games and campaign.can_earn(watching_channel):
                 campaigns.append(campaign)
 
         if campaigns:

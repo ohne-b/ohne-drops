@@ -123,8 +123,8 @@ Offline channels can have an unknown viewer count, displayed as a dash in Overvi
 
 1. Log in with your Twitch account through the OAuth device flow.
 2. Wait for the miner to discover available campaigns.
-3. All discovered games are included automatically; choose their priority. You can also search for a game, select
-   **Add Game**, and the miner saves the priority automatically.
+3. In **Campaigns**, select **Mine** to mine that game across its eligible campaigns.
+   You can also use **Add Game** in Settings. Discovery never selects games for you.
 4. Leave the miner running while it selects eligible channels and tracks drop progress.
 
 Twitch login uses the Smart TV device authorization flow. This fixes the
@@ -138,15 +138,15 @@ press the up/down arrow keys. The first game has the highest priority; changes s
 
 **Special Events** and **IRL** campaigns can be mined on their listed participating
 channels even when those channels stream another category or lack a drops-enabled flag.
-These categories are included automatically. Channels must be live and eligible;
+Select these categories to mine their campaigns. Channels must be live and eligible;
 campaigns without an enabled participating-channel list still require a matching category.
 Channels streaming categories outside Games to Watch retain the lowest automatic priority.
 When the watched channel goes offline or becomes ineligible, another eligible participant
 can replace it even at that same fallback priority.
 
 Inventory filters combine **Active**, **Upcoming**, and **Expired** as alternatives.
-**Not Linked** narrows that status result, while fully claimed campaigns stay hidden
-until **Finished** is selected. Zero-minute subscription rewards are omitted from the
+**Not Linked** narrows that status result. **Finished** is a separate Campaigns tab for
+campaigns whose watch rewards are all claimed; expiry alone is not completion. Zero-minute subscription rewards are omitted from the
 Inventory and Wanted Drops Queue because they cannot be earned by watching. Individually
 expired and non-mineable rewards are also omitted from the queue, while upcoming and
 sequential rewards remain visible; successful claims refresh the queue immediately. The
@@ -410,10 +410,33 @@ Native checkboxes highlight their label, and forced-colors mode retains system f
 
 Notification integration has been removed. Obsolete notification credentials are discarded when settings are loaded and saved.
 
-All eligible discovered games are mined, including games absent from the saved priority list. New games follow saved priorities; Select all and Deselect all are unnecessary.
-An empty priority list also mines automatically; no initial game selection is needed.
+Only games explicitly selected with **Mine** or **Add Game** are mined. An empty list mines nothing.
+**Stop mining** or removing a game in Settings leaves its campaigns visible and preserves progress.
+Existing saved game choices and their order are retained; review them if you previously saved automatic priorities.
 
 Page headings stand on their own; repeated descriptive and appearance copy has been removed.
 Connection status lives under Settings → Twitch account; the sidebar footer links to GitHub.
 
 Settings save automatically after a short pause. Pending edits survive navigation; failed or conflicting saves retain input and offer Retry. Only changed fields are submitted, so other preferences are preserved.
+
+Campaigns shows active and upcoming rewards by default, with active confirmed progress first.
+Only the legacy upcoming-only default preset is migrated; custom filters are preserved.
+The visible count and Clear filters control expose hidden results. Ignored/skipped rewards
+are not completed campaigns, and missing artwork must not remove benefit metadata.
+
+Completed campaign snapshots are saved atomically in `data/completed_campaigns.json`.
+They survive restarts, catalog refreshes, and Clear All Cache, and are display history only.
+Finished also groups older recorded rewards when campaign metadata is gone, clearly marked
+**Completion unverified**: legacy drop history has no total reward count. Existing
+`drop_history.json`, credentials, settings, and server-confirmed progress are preserved.
+
+Overview Up next scrolls inside a 440px maximum-height panel, matching Channels.
+Each queue reward includes item artwork; missing, unsafe, or failed images use the shared Art fallback.
+
+Mine controls remain outside expandable campaign summaries for keyboard/screen-reader access.
+An empty game selection reports that selection is needed, not that Twitch has no campaigns.
+
+New account evidence of unclaimed rewards or a changed reward set invalidates a stale
+completion snapshot durably; metadata-only recovery retains proven completion. Finished
+filters by game/search, including older records. Clearing claim history keeps completed
+campaign snapshots, as its confirmation states. Game matching uses consistent casefolding.

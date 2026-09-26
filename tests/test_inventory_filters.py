@@ -1,11 +1,13 @@
 import asyncio
+import copy
+import json
 import unittest
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock
 
-from src.config.settings import default_settings
+from src.config.settings import Settings, default_settings
 from src.utils import merge_json
 from src.web.managers.inventory import InventoryManager
 
@@ -18,6 +20,8 @@ def test_inventory_filter_defaults_hide_finished_without_restricting_link_state(
     filters = default_settings["inventory_filters"]
 
     assert filters["show_finished"] is False
+    assert filters["show_active"] is True
+    assert filters["show_upcoming"] is True
     assert filters["show_only_not_linked"] is False
     assert "show_not_linked" not in filters
 
@@ -32,6 +36,35 @@ def test_legacy_not_linked_setting_migrates_to_neutral_restriction():
 
     assert "show_not_linked" not in legacy_filters
     assert legacy_filters["show_only_not_linked"] is False
+
+
+def test_only_legacy_default_filters_migrate_once(tmp_path, monkeypatch):
+    path = tmp_path / "settings.json"
+    monkeypatch.setattr("src.config.settings.SETTINGS_PATH", path)
+    old = copy.deepcopy(default_settings)
+    del old["inventory_filters_version"]
+    old["inventory_filters"]["show_active"] = False
+    old["games_to_watch"] = ["Rust"]
+    path.write_text(json.dumps(old))
+    settings = Settings()
+    assert settings.inventory_filters["show_active"]
+    assert settings.games_to_watch == ["Rust"]
+    settings.inventory_filters["show_active"] = False
+    settings.save()
+    assert not Settings().inventory_filters["show_active"]
+    old["inventory_filters"]["game_name_search"] = ["Custom"]
+    path.write_text(json.dumps(old))
+    assert Settings().inventory_filters == old["inventory_filters"]
+
+
+def test_benefits_without_artwork_keep_their_filterable_type():
+    from tests.test_watch_drop_filtering import _campaign, _drop
+    campaign = _campaign("artless", [_drop("drop", "Reward", 10)])
+    drop = next(iter(campaign.drops))
+    drop.benefits[0].image_url = None
+    data = InventoryManager._serialize_drop(drop)
+    assert data["benefits"] == [{"name": drop.benefits[0].name,
+                                "type": "DIRECT_ENTITLEMENT", "image_url": ""}]
 
 
 class TestInventoryDropUpdates(unittest.IsolatedAsyncioTestCase):

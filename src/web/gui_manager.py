@@ -51,9 +51,7 @@ class WebGUIManager:
         self.output = ConsoleOutputManager(self._broadcaster)
         self.progress = CampaignProgressManager(self._broadcaster)
         self.channels = ChannelListManager(self._broadcaster, self)
-        self.inv = InventoryManager(self._broadcaster, ImageCache(self))
-        self.login = LoginFormManager(self._broadcaster, self)
-        self.inv = InventoryManager(self._broadcaster, ImageCache(self))
+        self.inv = InventoryManager(self._broadcaster, ImageCache(self), twitch.campaign_history)
         self.login = LoginFormManager(self._broadcaster, self)
 
         # Callback to trigger game update when relevant settings change
