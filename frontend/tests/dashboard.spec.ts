@@ -68,7 +68,9 @@ test('campaign filtering and truthful expanded progress', async ({ page }) => {
 test('game priorities show icons instead of editable numbers', async ({ page, request }) => {
   await page.goto('/settings');
   await expect(page.getByRole('spinbutton', { name: /Priority for/ })).toHaveCount(0);
-  await page.getByRole('button', { name: 'Move The Elder Scrolls Online up', exact: true }).click();
+  await page
+    .getByRole('button', { name: 'Reorder The Elder Scrolls Online', exact: true })
+    .press('ArrowUp');
   await expect
     .poll(async () => (await (await request.get('/api/settings')).json()).games_to_watch)
     .toEqual(['Rust', 'The Elder Scrolls Online', 'Sea of Thieves']);
@@ -584,4 +586,67 @@ test('autosave keeps text editing stable and blocks invalid values', async ({ pa
         (await (await request.get('/api/settings')).json()).minimum_refresh_interval_minutes,
     )
     .toBe(20);
+});
+
+test('pointer dragging saves on drop and Escape cancels a second drag', async ({
+  page,
+  request,
+}) => {
+  await page.goto('/settings');
+  const handle = page.getByRole('button', { name: 'Reorder Rust', exact: true });
+  await handle.scrollIntoViewIfNeeded();
+  const from = (await handle.boundingBox())!;
+  const last = (await page.locator('[data-game="The Elder Scrolls Online"]').boundingBox())!;
+  await page.mouse.move(from.x + 10, from.y + 10);
+  await page.mouse.down();
+  await page.mouse.move(last.x + 70, last.y + last.height - 3, { steps: 8 });
+  expect((await (await request.get('/api/settings')).json()).games_to_watch).toEqual([
+    'Rust',
+    'Sea of Thieves',
+  ]);
+  await page.mouse.up();
+  await expect
+    .poll(async () => (await (await request.get('/api/settings')).json()).games_to_watch)
+    .toEqual(['Sea of Thieves', 'The Elder Scrolls Online', 'Rust']);
+  const moved = (await handle.boundingBox())!;
+  const first = (await page.locator('[data-game="Sea of Thieves"]').boundingBox())!;
+  await page.mouse.move(moved.x + 10, moved.y + 10);
+  await page.mouse.down();
+  await page.mouse.move(first.x + 70, first.y + 10, { steps: 8 });
+  await page.keyboard.press('Escape');
+  await page.mouse.up();
+  await expect(page.locator('#mining [data-game]').last()).toHaveAttribute('data-game', 'Rust');
+  expect((await (await request.get('/api/settings')).json()).games_to_watch).toEqual([
+    'Sea of Thieves',
+    'The Elder Scrolls Online',
+    'Rust',
+  ]);
+});
+
+test('touch dragging reorders game priorities', async ({ browser, request }) => {
+  const context = await browser.newContext({
+    hasTouch: true,
+    isMobile: true,
+    viewport: { width: 390, height: 844 },
+  });
+  const page = await context.newPage();
+  await page.goto('http://127.0.0.1:8765/settings');
+  const handle = page.getByRole('button', { name: 'Reorder Sea of Thieves', exact: true });
+  await handle.scrollIntoViewIfNeeded();
+  const from = (await handle.boundingBox())!;
+  const first = (await page.locator('[data-game="Rust"]').boundingBox())!;
+  const session = await context.newCDPSession(page);
+  await session.send('Input.dispatchTouchEvent', {
+    type: 'touchStart',
+    touchPoints: [{ x: from.x + 10, y: from.y + 10 }],
+  });
+  await session.send('Input.dispatchTouchEvent', {
+    type: 'touchMove',
+    touchPoints: [{ x: first.x + 70, y: first.y + 10 }],
+  });
+  await session.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] });
+  await expect
+    .poll(async () => (await (await request.get('/api/settings')).json()).games_to_watch)
+    .toEqual(['Sea of Thieves', 'Rust', 'The Elder Scrolls Online']);
+  await context.close();
 });
