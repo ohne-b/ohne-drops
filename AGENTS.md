@@ -153,7 +153,8 @@ Accept exact-commit push or manual
 validation; contributor-token commits do not automatically trigger push workflows.
 Optional Docker Hub publication uses `DOCKERHUB_IMAGE`/`DOCKERHUB_USERNAME` variables and
 the `DOCKERHUB_TOKEN` secret; push one multi-architecture build to both registries and
-advance `latest` only for stable releases. Missing enabled credentials fail before publication.
+advance `latest` only after a stable release and its manifest are public. Missing enabled
+credentials fail before publication; document partial registry-push/promotion recovery.
 Keep Buildx/Build Push action pins identical
 between validation and release. Contributor credit runs on trusted default-branch code only
 under pull_request_target; never execute a PR head with its write token. Preserve exactly one

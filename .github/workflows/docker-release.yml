@@ -97,13 +97,12 @@ jobs:
             dist/release/latest.json
           gh release download "v${RELEASE_VERSION}" --pattern latest.json --dir dist/verify
           cmp dist/release/latest.json dist/verify/latest.json
-          if [[ "$PRERELEASE" == false ]]; then
-            while IFS= read -r image; do
-              docker buildx imagetools create --tag "${image%:*}:latest" "$image"
-            done <<< "$IMAGE_TAGS"
-          fi
           if [[ "$PRERELEASE" == true ]]; then
             gh release edit "v${RELEASE_VERSION}" --draft=false --prerelease --latest=false
           else
             gh release edit "v${RELEASE_VERSION}" --draft=false --latest
+            # Never advertise a stable image before its release and manifest are public.
+            while IFS= read -r image; do
+              docker buildx imagetools create --tag "${image%:*}:latest" "$image"
+            done <<< "$IMAGE_TAGS"
           fi
