@@ -1,0 +1,578 @@
+use std::{net::SocketAddr, sync::Arc, time::Duration};
+
+use axum::{
+    Router,
+    body::{Body, to_bytes},
+    http::{Method, Request, StatusCode, header},
+};
+use futures_util::{SinkExt, StreamExt};
+use reqwest_websocket::{Message, Upgrade};
+use serde_json::{Value, json};
+use tower::ServiceExt;
+
+use super::{App, router};
+
+struct TestApp {
+    app: Arc<App>,
+    router: Router,
+    _directory: tempfile::TempDir,
+    worker: tokio::task::JoinHandle<()>,
+}
+impl TestApp {
+    fn new(public: &str) -> Self {
+        let directory = tempfile::tempdir().unwrap();
+        let (app, mut commands) = App::open(directory.path().to_owned(), public).unwrap();
+        let worker = tokio::spawn(async move {
+            while let Some(request) = commands.recv().await {
+                let _ = request.complete.send(Ok(()));
+            }
+        });
+        Self {
+            router: router(app.clone()),
+            app,
+            _directory: directory,
+            worker,
+        }
+    }
+    async fn call(
+        &self,
+        method: Method,
+        path: &str,
+        data: Value,
+        cookie: &str,
+        headers: &[(&str, &str)],
+    ) -> (StatusCode, http::HeaderMap, Vec<u8>) {
+        let mut builder = Request::builder()
+            .method(method)
+            .uri(path)
+            .header("host", "localhost:8080")
+            .header("content-type", "application/json");
+        if !cookie.is_empty() {
+            builder = builder.header(header::COOKIE, format!("tdm_session={cookie}"));
+        }
+        for (key, value) in headers {
+            builder = builder.header(*key, *value);
+        }
+        let response = self
+            .router
+            .clone()
+            .oneshot(
+                builder
+                    .body(Body::from(serde_json::to_vec(&data).unwrap()))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        let (parts, body) = response.into_parts();
+        (
+            parts.status,
+            parts.headers,
+            to_bytes(body, 4 * 1024 * 1024).await.unwrap().to_vec(),
+        )
+    }
+    async fn enable(&self) -> String {
+        let (status,headers,_) = self.call(Method::POST,"/api/auth/settings",json!({"action":"enable","password":"test password","confirm_password":"test password"}),"",&[("x-tdm-request","1")]).await;
+        assert_eq!(status, StatusCode::OK);
+        cookie::Cookie::parse(headers[header::SET_COOKIE].to_str().unwrap())
+            .unwrap()
+            .value()
+            .to_owned()
+    }
+}
+impl Drop for TestApp {
+    fn drop(&mut self) {
+        self.app.shutdown.cancel();
+        self.worker.abort();
+    }
+}
+
+#[tokio::test]
+async fn public_assets_and_spa_allowlist_preserve_private_api_boundaries() {
+    let test = TestApp::new("");
+    assert_eq!(
+        test.call(Method::GET, "/login", Value::Null, "", &[])
+            .await
+            .0,
+        StatusCode::SEE_OTHER
+    );
+    let token = test.enable().await;
+    for path in ["/", "/campaigns", "/history", "/activity", "/settings"] {
+        let (status, headers, _) = test.call(Method::GET, path, Value::Null, "", &[]).await;
+        assert_eq!(status, StatusCode::SEE_OTHER, "{path}");
+        assert_eq!(headers[header::LOCATION], "/login");
+        assert_eq!(headers[header::CACHE_CONTROL], "no-store");
+        let (status, headers, body) = test.call(Method::GET, path, Value::Null, &token, &[]).await;
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(headers[header::CACHE_CONTROL], "no-cache");
+        assert!(String::from_utf8(body).unwrap().contains("id=\"root\""));
+    }
+    for path in [
+        "/api/status",
+        "/api/channels",
+        "/api/campaigns",
+        "/api/console",
+        "/api/settings",
+        "/api/version",
+        "/api/history",
+        "/api/history/stats",
+        "/api/history/export.csv",
+        "/socket.io/?EIO=4&transport=polling",
+    ] {
+        let (status, headers, _) = test.call(Method::GET, path, Value::Null, "", &[]).await;
+        assert_eq!(status, StatusCode::UNAUTHORIZED, "{path}");
+        assert_eq!(headers[header::CACHE_CONTROL], "no-store");
+    }
+    for path in [
+        "/api/reload",
+        "/api/cache/clear",
+        "/api/close",
+        "/api/channels/select",
+        "/api/mode/exit-manual",
+        "/api/twitch/logout",
+        "/api/oauth/confirm",
+        "/api/settings",
+        "/api/auth/logout",
+        "/api/auth/settings",
+    ] {
+        assert_eq!(
+            test.call(Method::POST, path, json!({}), "", &[("x-tdm-request", "1")])
+                .await
+                .0,
+            StatusCode::UNAUTHORIZED,
+            "{path}"
+        );
+    }
+    for path in [
+        "/api/login",
+        "/api/settings/test-telegram",
+        "/api/missing",
+        "/unknown",
+        "/__test/health",
+        "/__test/reset",
+    ] {
+        assert_eq!(
+            test.call(Method::GET, path, Value::Null, &token, &[])
+                .await
+                .0,
+            StatusCode::NOT_FOUND,
+            "{path}"
+        );
+    }
+    let asset = super::Assets::iter()
+        .find(|name| name.starts_with("assets/") && name.ends_with(".js"))
+        .unwrap();
+    let (_, headers, _) = test
+        .call(Method::GET, &format!("/{asset}"), Value::Null, "", &[])
+        .await;
+    assert_eq!(
+        headers[header::CACHE_CONTROL],
+        "public, max-age=31536000, immutable"
+    );
+    assert_eq!(
+        test.call(Method::GET, "/healthz", Value::Null, "", &[])
+            .await
+            .0,
+        StatusCode::OK
+    );
+}
+
+#[tokio::test]
+async fn csrf_origin_and_secret_safe_validation_apply_before_mutation() {
+    let test = TestApp::new("https://drops.example.com");
+    for path in [
+        "/api/reload",
+        "/api/auth/settings",
+        "/api/auth/login",
+        "/api/oauth/confirm",
+    ] {
+        for headers in [
+            vec![],
+            vec![
+                ("x-tdm-request", "1"),
+                ("origin", "https://foreign.example"),
+            ],
+            vec![("x-tdm-request", "1"), ("sec-fetch-site", "cross-site")],
+        ] {
+            assert_eq!(
+                test.call(Method::POST, path, json!({}), "", &headers)
+                    .await
+                    .0,
+                StatusCode::FORBIDDEN
+            );
+        }
+    }
+    let (_, _, body) = test
+        .call(
+            Method::POST,
+            "/api/auth/login",
+            json!({"password":{"secret":"dont-echo-me"}}),
+            "",
+            &[("x-tdm-request", "1")],
+        )
+        .await;
+    assert!(!String::from_utf8(body).unwrap().contains("dont-echo-me"));
+    let token = test.enable().await;
+    let (status, headers, _) = test
+        .call(
+            Method::POST,
+            "/api/auth/logout",
+            json!({}),
+            &token,
+            &[
+                ("x-tdm-request", "1"),
+                ("origin", "https://drops.example.com"),
+            ],
+        )
+        .await;
+    assert_eq!(status, StatusCode::OK);
+    assert!(
+        headers[header::SET_COOKIE]
+            .to_str()
+            .unwrap()
+            .contains("Secure")
+    );
+    assert!(
+        headers[header::SET_COOKIE]
+            .to_str()
+            .unwrap()
+            .contains("Max-Age=0")
+    );
+    let (status, _, _) = test
+        .call(
+            Method::POST,
+            "/api/auth/login",
+            json!({"password":"x".repeat(17000)}),
+            "",
+            &[("x-tdm-request", "1")],
+        )
+        .await;
+    assert_eq!(status, StatusCode::PAYLOAD_TOO_LARGE);
+}
+
+#[tokio::test]
+async fn concurrent_settings_edits_conflict_and_failed_writes_preserve_revision() {
+    let test = TestApp::new("");
+    let revision = test.app.snapshot.read().await.settings.revision.clone();
+    let headers = [("x-tdm-request", "1")];
+    let (first, second) = tokio::join!(
+        test.call(
+            Method::POST,
+            "/api/settings",
+            json!({"revision":revision,"games_to_watch":["Rust"]}),
+            "",
+            &headers
+        ),
+        test.call(
+            Method::POST,
+            "/api/settings",
+            json!({"revision":revision,"games_to_watch":["Sea of Thieves"]}),
+            "",
+            &headers
+        ),
+    );
+    assert!(matches!(
+        (first.0, second.0),
+        (StatusCode::OK, StatusCode::CONFLICT) | (StatusCode::CONFLICT, StatusCode::OK)
+    ));
+    let state = test.app.snapshot.read().await;
+    let saved = test.app.data.settings().unwrap();
+    assert_eq!(saved.games_to_watch, state.settings.values.games_to_watch);
+    assert_ne!(revision, state.settings.revision);
+    let revision = state.settings.revision.clone();
+    drop(state);
+    std::fs::remove_file(test.app.data.path.join("settings.json")).unwrap();
+    std::fs::create_dir(test.app.data.path.join("settings.json")).unwrap();
+    let (status, _, _) = test
+        .call(
+            Method::POST,
+            "/api/settings",
+            json!({"revision":revision,"connection_quality":4}),
+            "",
+            &headers,
+        )
+        .await;
+    assert_eq!(status, StatusCode::SERVICE_UNAVAILABLE);
+    assert_eq!(test.app.snapshot.read().await.settings.revision, revision);
+    assert_eq!(
+        test.app
+            .snapshot
+            .read()
+            .await
+            .settings
+            .values
+            .connection_quality,
+        1
+    );
+}
+
+#[tokio::test]
+async fn invalid_settings_are_rejected_and_retired_credentials_are_not_exposed() {
+    let test = TestApp::new("");
+    for patch in [
+        json!({"proxy":"http://user:secret@example/path"}),
+        json!({"connection_quality":7}),
+        json!({"inventory_filters":{"show_active":"yes"}}),
+    ] {
+        let (status, _, body) = test
+            .call(
+                Method::POST,
+                "/api/settings",
+                patch,
+                "",
+                &[("x-tdm-request", "1")],
+            )
+            .await;
+        assert_eq!(status, StatusCode::BAD_REQUEST);
+        assert!(!String::from_utf8(body).unwrap().contains("secret"));
+    }
+    let (status, _, body) = test
+        .call(
+            Method::POST,
+            "/api/settings",
+            json!({"telegram_bot_token":"secret","web_auth":false}),
+            "",
+            &[("x-tdm-request", "1")],
+        )
+        .await;
+    assert_eq!(status, StatusCode::OK);
+    assert!(!String::from_utf8(body).unwrap().contains("secret"));
+    assert!(
+        !std::fs::read_to_string(test.app.data.path.join("settings.json"))
+            .unwrap()
+            .contains("telegram")
+    );
+}
+
+#[tokio::test]
+async fn settings_commit_survives_the_request_future_being_dropped() {
+    let test = TestApp::new("");
+    let locked = test.app.snapshot.write().await;
+    let router = test.router.clone();
+    let request = tokio::spawn(async move {
+        router
+            .oneshot(
+                Request::builder()
+                    .method(Method::POST)
+                    .uri("/api/settings")
+                    .header("host", "localhost:8080")
+                    .header("x-tdm-request", "1")
+                    .body(Body::from(r#"{"games_to_watch":["Rust"]}"#))
+                    .unwrap(),
+            )
+            .await
+            .unwrap()
+    });
+    tokio::time::timeout(Duration::from_secs(2), async {
+        while test.app.writes.is_empty() {
+            tokio::task::yield_now().await;
+        }
+    })
+    .await
+    .unwrap();
+    request.abort();
+    let _ = request.await;
+    drop(locked);
+    test.app.drain_writes().await;
+    assert_eq!(
+        test.app
+            .snapshot
+            .read()
+            .await
+            .settings
+            .values
+            .games_to_watch,
+        ["Rust"]
+    );
+    assert_eq!(test.app.data.settings().unwrap().games_to_watch, ["Rust"]);
+}
+
+#[tokio::test]
+async fn history_dates_exports_and_clear_use_real_persistence() {
+    let test = TestApp::new("");
+    test.app.history.lock().await.record(serde_json::from_value(json!({"id":"reward","claimed_at":"2026-01-02T00:15:00Z","game":"Rüst / +","campaign":"Season","drop_name":"Jacket",
+        "benefits":["Jacket"],"required_minutes":30,"campaign_id":"campaign"})).unwrap()).unwrap();
+    for (since, expected) in [
+        ("2026-01-02", 1),
+        ("2026-01-02T00%3A15%3A00Z", 1),
+        ("2026-01-02T02%3A00%3A00%2B01%3A00", 0),
+    ] {
+        let (_, _, body) = test
+            .call(
+                Method::GET,
+                &format!("/api/history?since={since}"),
+                Value::Null,
+                "",
+                &[],
+            )
+            .await;
+        assert_eq!(
+            serde_json::from_slice::<Value>(&body).unwrap()["entries"]
+                .as_array()
+                .unwrap()
+                .len(),
+            expected
+        );
+    }
+    let (_, headers, body) = test
+        .call(
+            Method::GET,
+            "/api/history/export.csv?game=R%C3%BCst%20%2F%20%2B",
+            Value::Null,
+            "",
+            &[],
+        )
+        .await;
+    assert!(body.starts_with(&[0xef, 0xbb, 0xbf]));
+    assert!(
+        headers[header::CONTENT_DISPOSITION]
+            .to_str()
+            .unwrap()
+            .contains("filename*=UTF-8''drop_history_R%C3%BCst%20%2F%20%2B.csv")
+    );
+    assert_eq!(
+        test.call(
+            Method::DELETE,
+            "/api/history",
+            json!({}),
+            "",
+            &[("x-tdm-request", "1")]
+        )
+        .await
+        .0,
+        StatusCode::OK
+    );
+    assert_eq!(crate::store::History::load(&test.app.data.path).total(), 0);
+}
+
+async fn websocket_text(socket: &mut reqwest_websocket::WebSocket) -> String {
+    loop {
+        let message = tokio::time::timeout(Duration::from_secs(3), socket.next())
+            .await
+            .unwrap()
+            .unwrap()
+            .unwrap();
+        if let Message::Text(text) = message {
+            if text == "2" {
+                socket.send(Message::Text("3".into())).await.unwrap();
+                continue;
+            }
+            return text;
+        }
+    }
+}
+
+#[tokio::test]
+async fn both_socket_transports_enforce_origin_and_revocation_before_private_events() {
+    let test = TestApp::new("https://drops.example.com");
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let address = listener.local_addr().unwrap();
+    let router = test.router.clone();
+    let server = tokio::spawn(async move {
+        axum::serve(
+            listener,
+            router.into_make_service_with_connect_info::<SocketAddr>(),
+        )
+        .await
+        .unwrap();
+    });
+    let client = reqwest::Client::builder()
+        .no_proxy()
+        .http1_only()
+        .build()
+        .unwrap();
+    let url = format!("http://{address}/socket.io/?EIO=4&transport=");
+    // An anonymous connection must be evicted when password protection is enabled.
+    let mut anonymous = client
+        .get(format!("{url}websocket"))
+        .header("Origin", "https://drops.example.com")
+        .upgrade()
+        .send()
+        .await
+        .unwrap()
+        .into_websocket()
+        .await
+        .unwrap();
+    assert!(websocket_text(&mut anonymous).await.starts_with('0'));
+    anonymous.send(Message::Text("40".into())).await.unwrap();
+    let handshake = [
+        websocket_text(&mut anonymous).await,
+        websocket_text(&mut anonymous).await,
+    ];
+    assert!(
+        handshake.iter().any(|message| message.starts_with("40")),
+        "{handshake:?}"
+    );
+    assert!(
+        handshake
+            .iter()
+            .any(|message| message.contains("initial_state")),
+        "{handshake:?}"
+    );
+    let token = test.enable().await;
+    assert_eq!(websocket_text(&mut anonymous).await, "41");
+    assert_eq!(
+        client
+            .get(format!("{url}polling"))
+            .send()
+            .await
+            .unwrap()
+            .status(),
+        StatusCode::UNAUTHORIZED
+    );
+    for transport in ["polling", "websocket"] {
+        let response = client
+            .get(format!("{url}{transport}"))
+            .header("Cookie", format!("tdm_session={token}"))
+            .header("Origin", "https://foreign.example")
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::FORBIDDEN);
+    }
+    assert_eq!(
+        client
+            .get(format!("{url}polling"))
+            .header("Cookie", format!("tdm_session={token}"))
+            .header("Origin", "https://drops.example.com")
+            .send()
+            .await
+            .unwrap()
+            .status(),
+        StatusCode::OK
+    );
+    let mut socket = client
+        .get(format!("{url}websocket"))
+        .header("Cookie", format!("tdm_session={token}"))
+        .header("Origin", "https://drops.example.com")
+        .upgrade()
+        .send()
+        .await
+        .unwrap()
+        .into_websocket()
+        .await
+        .unwrap();
+    assert!(websocket_text(&mut socket).await.starts_with('0'));
+    socket.send(Message::Text("40".into())).await.unwrap();
+    let handshake = [
+        websocket_text(&mut socket).await,
+        websocket_text(&mut socket).await,
+    ];
+    assert!(
+        handshake.iter().any(|message| message.starts_with("40")),
+        "{handshake:?}"
+    );
+    assert!(
+        handshake
+            .iter()
+            .any(|message| message.contains("initial_state")),
+        "{handshake:?}"
+    );
+    test.app.auth.logout(&token).await.unwrap();
+    test.app
+        .sockets
+        .emit("console_output", &json!({"message":"private-sentinel"}))
+        .await;
+    assert_eq!(websocket_text(&mut socket).await, "41");
+    test.app.sockets.close().await;
+    server.abort();
+}
