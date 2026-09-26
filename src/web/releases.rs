@@ -117,11 +117,14 @@ mod tests {
 
     #[tokio::test]
     async fn release_checks_compare_precedence_and_only_link_to_this_repository() {
+        let current = Version::parse(env!("CARGO_PKG_VERSION")).unwrap();
+        let stable = Version::new(current.major, current.minor, current.patch);
+        let stable_is_newer = !current.pre.is_empty();
         for (version, available) in [
-            ("99.0.0", true),
-            (env!("CARGO_PKG_VERSION"), false),
-            ("0.0.1", false),
-            (concat!(env!("CARGO_PKG_VERSION"), "+build.99"), false),
+            ("99.0.0".to_owned(), true),
+            (stable.to_string(), stable_is_newer),
+            ("0.0.1".to_owned(), false),
+            (format!("{stable}+build.99"), stable_is_newer),
         ] {
             let server = MockServer::start().await;
             Mock::given(path("/latest.json"))
