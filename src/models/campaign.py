@@ -126,16 +126,6 @@ class DropsCampaign:
         return len(self.watch_drops)
 
     @property
-    def eligible(self) -> bool:
-        return self.linked or self.has_badge_or_emote
-
-    @cached_property
-    def has_badge_or_emote(self) -> bool:
-        return any(
-            benefit.type.is_badge_or_emote() for drop in self.drops for benefit in drop.benefits
-        )
-
-    @property
     def finished(self) -> bool:
         return all(drop.is_claimed for drop in self.watch_drops)
 
@@ -206,8 +196,7 @@ class DropsCampaign:
         self, channel: Channel | None = None, ignore_channel_status: bool = False
     ) -> bool:
         return (
-            self.eligible  # account is eligible
-            and self.active  # campaign is active (and valid)
+            self.active  # campaign is active (and valid)
             and (
                 channel is None
                 or (  # channel isn't specified,
@@ -258,8 +247,7 @@ class DropsCampaign:
         # Same as can_earn, but doesn't check the channel
         # and uses a future timestamp to see if we can earn this campaign later
         return (
-            self.eligible
-            and self._valid
+            self._valid
             and self.ends_at > datetime.now(timezone.utc)
             and self.starts_at < stamp
             and any(drop._can_earn_within(stamp) for drop in self.drops)
