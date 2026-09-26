@@ -7,7 +7,7 @@ import logging
 from typing import TYPE_CHECKING
 
 from src.config import GQL_OPERATIONS, GQLQuery
-from src.exceptions import MinerException
+from src.exceptions import GQLException
 from src.models.game import Game
 from src.utils import chunk
 
@@ -54,11 +54,16 @@ class CampaignDiscovery:
 
     @staticmethod
     def _channels(game: JsonType | None) -> list[JsonType]:
-        streams = (game or {}).get("streams") or {}
+        if not isinstance(game, dict) or not isinstance(game.get("streams"), dict):
+            return []
+        streams = game["streams"]
         return [
             channel
             for edge in streams.get("edges") or []
-            if (channel := (edge.get("node") or {}).get("broadcaster"))
+            if isinstance(edge, dict) and isinstance(node := edge.get("node"), dict)
+            and isinstance(channel := node.get("broadcaster"), dict)
+            and isinstance(channel.get("id"), str) and channel["id"].isdecimal()
+            and isinstance(channel.get("login"), str) and channel["login"]
         ]
 
     async def fetch(self, games: Iterable[Game]) -> dict[str, JsonType]:
@@ -77,7 +82,9 @@ class CampaignDiscovery:
                         for slug in slugs_chunk
                     ])
                     for response in responses if isinstance(responses, list) else [responses]:
-                        for channel in self._channels((response.get("data") or {}).get("game")):
+                        if not isinstance(response, dict) or not isinstance(response.get("data"), dict):
+                            continue
+                        for channel in self._channels(response["data"].get("game")):
                             channels[channel["id"]] = channel
 
                 cursor = None
@@ -86,17 +93,20 @@ class CampaignDiscovery:
                     response = await self._twitch.gql_request(GQLQuery(
                         "DropsDiscoveryGames", self.GAMES_QUERY, variables={"after": cursor},
                     ))
-                    if not isinstance(response, dict):
+                    if not isinstance(response, dict) or not isinstance(response.get("data"), dict):
                         break
-                    directory = (response.get("data") or {}).get("games") or {}
-                    edges = directory.get("edges") or []
+                    directory = response["data"].get("games")
+                    if not isinstance(directory, dict):
+                        break
+                    edges = [edge for edge in directory.get("edges") or [] if isinstance(edge, dict)]
                     for edge in edges:
                         for channel in self._channels(edge.get("node")):
                             channels[channel["id"]] = channel
                     next_cursor = edges[-1].get("cursor") if edges else None
                     if (
-                        not next_cursor or next_cursor == cursor
-                        or not (directory.get("pageInfo") or {}).get("hasNextPage")
+                        not isinstance(next_cursor, str) or not next_cursor or next_cursor == cursor
+                        or not isinstance(directory.get("pageInfo"), dict)
+                        or not directory["pageInfo"].get("hasNextPage")
                     ):
                         break
                     cursor = next_cursor
@@ -108,13 +118,18 @@ class CampaignDiscovery:
                         for channel_id in channel_ids
                     ])
                     for response in responses if isinstance(responses, list) else [responses]:
-                        source = (response.get("data") or {}).get("channel") or {}
+                        if not isinstance(response, dict) or not isinstance(response.get("data"), dict):
+                            continue
+                        source = response["data"].get("channel")
+                        if not isinstance(source, dict) or not isinstance(source.get("id"), str):
+                            continue
                         channel = channels.get(source.get("id", ""))
                         if channel is None:
                             continue
                         for data in source.get("viewerDropCampaigns") or []:
                             if (
-                                not data or not data.get("game")
+                                not isinstance(data, dict) or not isinstance(data.get("game"), dict)
+                                or not isinstance(data.get("id"), str) or not data["id"]
                                 or data.get("status") not in ("ACTIVE", "UPCOMING")
                                 or not data.get("timeBasedDrops")
                             ):
@@ -130,7 +145,7 @@ class CampaignDiscovery:
                                 "id": channel["id"], "name": channel["login"],
                                 "displayName": channel.get("displayName"),
                             })
-        except (MinerException, TimeoutError, KeyError, TypeError, ValueError) as exc:
+        except (GQLException, TimeoutError, KeyError, TypeError, ValueError) as exc:
             logger.warning("Channel campaign discovery incomplete (%s)", type(exc).__name__)
         logger.info("Discovered %d campaign records on %d Twitch channels", len(campaigns), len(channels))
         return campaigns

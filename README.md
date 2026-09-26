@@ -28,6 +28,8 @@ claims still come from Twitch. The dashboard reports channel discovery as partia
 campaigns without a sampled live channel, including upcoming ones, may be missing.
 A valid empty catalog does not trigger fallback. Clearing caches or logging out is
 unnecessary for this recovery.
+Without a drop-specific claim record, previously awarded rewards only count as claimed
+when your account inventory includes every benefit within that drop's active dates.
 
 > Automatically mine timed Twitch Drops without streaming video or audio.
 

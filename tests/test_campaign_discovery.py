@@ -9,7 +9,7 @@ from unittest.mock import AsyncMock, MagicMock
 import pytest
 
 from src.config import State
-from src.exceptions import GQLException
+from src.exceptions import ExitRequest, GQLException, LoginException
 from src.models import DropsCampaign, Game
 from src.models.channel import Channel, Stream
 from src.services.campaign_discovery import CampaignDiscovery
@@ -107,6 +107,53 @@ async def test_discovery_is_bounded_and_cancellation_propagates():
     with pytest.raises(asyncio.CancelledError):
         await task
     assert stopped.is_set()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("error", [ExitRequest(), LoginException("Login required")])
+async def test_discovery_never_swallows_shutdown_or_authentication_errors(error):
+    twitch = client()
+    twitch.gql_request = AsyncMock(side_effect=error)
+    with pytest.raises(type(error)):
+        await CampaignDiscovery(twitch).fetch([])
+
+
+@pytest.mark.asyncio
+async def test_null_edges_and_responses_do_not_discard_valid_neighbors():
+    twitch = client()
+    page = directory("10")
+    edges = page["data"]["games"]["edges"]
+    edges[0]["node"]["streams"]["edges"].extend([
+        None, {"node": None}, {"node": {"broadcaster": None}}, "invalid",
+    ])
+    edges.extend([None, {"node": None}, "invalid"])
+    twitch.gql_request = AsyncMock(side_effect=[
+        page, [None, {"data": None}, available("10", None, "invalid", {}, metadata())],
+    ])
+    assert set(await CampaignDiscovery(twitch).fetch([])) == {"recovered"}
+
+
+@pytest.mark.parametrize("evidence", ["partial", "complete", "outside_window", "empty_benefits"])
+def test_claimed_benefit_inference_requires_complete_account_evidence(evidence):
+    data = metadata()
+    data["self"] = {"isAccountConnected": None}
+    data["discovery_channels"] = [{"id": "10", "name": "source"}]
+    benefits = data["timeBasedDrops"][0]["benefitEdges"]
+    benefits.append({"benefit": {**benefits[0]["benefit"], "id": "second"}})
+    now = datetime.now(timezone.utc)
+    awarded = {"item": now}
+    if evidence in ("complete", "outside_window"):
+        awarded["second"] = now if evidence == "complete" else now - timedelta(days=2)
+    if evidence == "empty_benefits":
+        benefits.clear()
+    recovered = DropsCampaign(client(), data, awarded)
+    drop = next(iter(recovered.drops))
+    assert drop.is_claimed is (evidence == "complete")
+    assert drop.real_current_minutes == (30 if evidence == "complete" else 0)
+    assert drop.is_mineable is (evidence not in ("complete", "empty_benefits"))
+    assert drop.claim_id is None and drop.confirmed_at is None
+    authoritative = next(iter(DropsCampaign(client(), campaign("account"), awarded).drops))
+    assert not authoritative.is_claimed and authoritative.real_current_minutes == 12
 
 
 @pytest.mark.asyncio
