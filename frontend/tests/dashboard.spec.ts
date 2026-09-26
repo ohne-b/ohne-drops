@@ -226,7 +226,7 @@ test('catalog restrictions and hostile strings remain explicit and inert', async
     data: { event: 'inventory_status', data: { available: false, checked_at: null } },
   });
   await expect(page.getByRole('alert')).toContainText(
-    'Twitch did not provide the campaign catalog',
+    'Twitch did not provide the complete campaign catalog',
   );
   await request.post('/__test/event', {
     headers,

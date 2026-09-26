@@ -112,6 +112,7 @@ lang/                # English message catalog
 - Null campaign details must be skipped together with their incomplete summary while
   preserving independent in-progress Inventory entries. Null catalogs must not print
   a definitive no-campaign diagnosis. A later valid catalog clears the warning.
+  Missing details also mean incomplete discovery, even when summaries were returned.
   Smart TV catalog access is an upstream limitation; do not claim cache clearing,
   relogin or client-ID substitution repairs it.
 - Render API/translated strings as React text; validate external links. Expand Twitch
