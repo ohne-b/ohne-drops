@@ -313,7 +313,7 @@
             "search_campaigns": "Search campaigns and rewards",
             "filters": "Filters",
             "toggle_view": "Change campaign layout",
-            "campaign_count": "{count} campaigns",
+            "campaign_count": "{count} of {total} campaigns",
             "campaign_empty_help": "Check the filters and Twitch account status, or refresh the inventory.",
             "link_account": "Link account",
             "details": "Details on Twitch",
@@ -363,7 +363,8 @@
             "reordered_game": "{game}, position {position} of {total}.",
             "game_priorities": "Game priorities",
             "no_game_priorities": "Games appear here when campaigns are discovered.",
-            "twitch_logout": "Log out of Twitch"
+            "twitch_logout": "Log out of Twitch",
+            "clear_filters": "Clear filters"
         }
     }
 }

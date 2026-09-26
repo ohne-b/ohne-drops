@@ -36,7 +36,7 @@ export function matchesCampaign(campaign: CampaignData, filters: Filters, search
     return false;
   if (
     (filters.show_only_not_linked && campaign.linked !== false) ||
-    (!filters.show_finished && (campaign.mining_finished ?? campaign.finished))
+    (!filters.show_finished && campaign.finished)
   )
     return false;
   if (
@@ -65,6 +65,18 @@ export function matchesCampaign(campaign: CampaignData, filters: Filters, search
     ),
   );
 }
+export function campaignOrder(a: CampaignData, b: CampaignData): number {
+  const rank = (campaign: CampaignData) =>
+    campaign.active &&
+    campaign.drops.some((drop) => drop.is_claimed || (drop.confirmed_minutes ?? 0) > 0)
+      ? 0
+      : campaign.active
+        ? 1
+        : campaign.upcoming
+          ? 2
+          : 3;
+  return rank(a) - rank(b) || a.ends_at.localeCompare(b.ends_at) || a.id.localeCompare(b.id);
+}
 export default function Campaigns() {
   const { data, connected } = useMiner();
   const t = useT();
@@ -76,7 +88,9 @@ export default function Campaigns() {
   if (!data) return <Empty title={t('loading')} />;
   const filters = pendingFilters ?? data.settings.inventory_filters;
   const search = params.get('q') ?? '';
-  const campaigns = data.campaigns.filter((campaign) => matchesCampaign(campaign, filters, search));
+  const campaigns = data.campaigns
+    .filter((campaign) => matchesCampaign(campaign, filters, search))
+    .sort(campaignOrder);
   const update = (patch: Partial<Settings>) =>
     action.run(() => request('/api/settings', { ...patch, revision: data.settings.revision }));
   function changeFilters(next: Filters) {
@@ -178,7 +192,34 @@ export default function Campaigns() {
         </div>
       )}
       <ActionResult action={action} />
-      <p className="muted">{t('campaign_count', { count: campaigns.length })}</p>
+      <div className="flex items-center justify-between gap-3">
+        <p className="muted">
+          {t('campaign_count', { count: campaigns.length, total: data.campaigns.length })}
+        </p>
+        {campaigns.length < data.campaigns.length && (
+          <Button
+            disabled={!connected || action.busy}
+            onClick={() => {
+              setParams({}, { replace: true });
+              changeFilters({
+                ...filters,
+                show_active: true,
+                show_upcoming: true,
+                show_expired: true,
+                show_finished: true,
+                show_only_not_linked: false,
+                game_name_search: [],
+                show_benefit_badge: true,
+                show_benefit_emote: true,
+                show_benefit_item: true,
+                show_benefit_other: true,
+              });
+            }}
+          >
+            {t('clear_filters')}
+          </Button>
+        )}
+      </div>
       <div
         className={
           data.settings.inventory_list_view
