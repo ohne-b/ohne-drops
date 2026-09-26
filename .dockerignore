@@ -23,6 +23,10 @@ ENV/
 
 # Git
 .git/
+tdm-session.json
+tdm-connection.json
+server-seed.json
+renewal-state/
 .gitignore
 .gitattributes
 

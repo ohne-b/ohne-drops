@@ -281,6 +281,8 @@ progress to an ignored drop while the miner intentionally targets another reward
 - Use the in-app device-code flow only. Browser session import routes, credentials,
   helper containers and renewal services have been removed. Retain credential-safe
   HTTP/websocket logging and report device authorization failures by status code.
+  Keep retired session-export and renewal-state ignore patterns: upgrades may still
+  have old credential files even though their consuming feature has been removed.
 
 - `/api/twitch/logout` is separate from dashboard logout. The session owner cancels
   and drains inventory/channel batches, watch/maintenance work, delayed channel
