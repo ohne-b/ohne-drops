@@ -116,7 +116,7 @@ press the up/down arrow keys. The first game has the highest priority; changes s
 
 **Special Events** and **IRL** campaigns can be mined on their listed participating
 channels even when those channels stream another category or lack a drops-enabled flag.
-Include the campaign's category in **Games to Watch**. Channels must be live and eligible;
+These categories are included automatically. Channels must be live and eligible;
 campaigns without an enabled participating-channel list still require a matching category.
 Channels streaming categories outside Games to Watch retain the lowest automatic priority.
 When the watched channel goes offline or becomes ineligible, another eligible participant

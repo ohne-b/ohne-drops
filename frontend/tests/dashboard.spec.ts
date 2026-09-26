@@ -30,6 +30,11 @@ test('confirmed progress and compact desktop design', async ({ page }) => {
   ).toBe('3px');
 });
 test('every route loads directly and stays usable on a phone', async ({ page }) => {
+  await page.goto('/settings');
+  const proxy = await page.getByLabel('Proxy URL', { exact: true }).boundingBox();
+  const quality = await page.getByLabel('Connection Quality:', { exact: true }).boundingBox();
+  expect(proxy!.y).toBeCloseTo(quality!.y, 0);
+  await page.screenshot({ path: '../artifacts/settings-desktop.png', fullPage: true });
   await page.setViewportSize({ width: 390, height: 844 });
   for (const [route, title] of [
     ['/campaigns', 'Campaigns'],
@@ -192,7 +197,9 @@ test('catalog restrictions and hostile strings remain explicit and inert', async
     headers,
     data: { event: 'inventory_status', data: { available: false, checked_at: null } },
   });
-  await expect(page.getByRole('alert')).toContainText('Twitch did not provide the campaign catalog');
+  await expect(page.getByRole('alert')).toContainText(
+    'Twitch did not provide the campaign catalog',
+  );
   await request.post('/__test/event', {
     headers,
     data: { event: 'console_output', data: { message: '<img src=x onerror="alert(1)">' } },
@@ -475,7 +482,7 @@ test('password errors stay in Settings and protection changes reach a second bro
   await context.close();
 });
 
-test('Select All preserves manual spelling, order and case-insensitive uniqueness', async ({
+test('automatic game priorities preserve manual spelling and case-insensitive uniqueness', async ({
   page,
   request,
 }) => {
@@ -484,13 +491,16 @@ test('Select All preserves manual spelling, order and case-insensitive uniquenes
     data: { games_to_watch: ['Custom game', 'rust'] },
   });
   await page.goto('/settings');
-  await expect(
-    page.getByRole('spinbutton', { name: 'Priority for rust', exact: true }),
-  ).toBeVisible();
-  await page.getByRole('button', { name: 'Select All', exact: true }).click();
+  const rows = page.locator('#mining [data-game]');
+  await expect(rows).toHaveCount(4);
+  expect(
+    await rows.evaluateAll((items) => items.map((item) => item.getAttribute('data-game'))),
+  ).toEqual(['Custom game', 'rust', 'Sea of Thieves', 'The Elder Scrolls Online']);
+  await expect(page.getByRole('button', { name: 'Select All', exact: true })).toHaveCount(0);
+  await page.getByRole('button', { name: 'Reorder rust', exact: true }).press('ArrowUp');
   await expect(page.getByText('Changes saved.', { exact: true })).toBeVisible();
   const games = (await (await request.get('/api/settings')).json()).games_to_watch;
-  expect(games.slice(0, 2)).toEqual(['Custom game', 'rust']);
+  expect(games).toEqual(['rust', 'Custom game', 'Sea of Thieves', 'The Elder Scrolls Online']);
   expect(games.filter((name: string) => name.toLowerCase() === 'rust')).toHaveLength(1);
 });
 

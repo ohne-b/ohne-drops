@@ -501,7 +501,6 @@ function SettingsContent({ settings, auth }: { settings: SettingsData; auth: Aut
               Twitch
             </a>
           </p>
-          <p>{t('help_priorities')}</p>
           <a
             className="text-link inline-block"
             href="https://github.com/ohne-b/twitch-miner"
