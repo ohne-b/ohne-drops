@@ -149,12 +149,8 @@ export default function Campaigns() {
           </Link>
         ))}
       </nav>
-      {data.inventory_status?.available === false && (
-        <Notice error={!data.inventory_status.recovered}>
-          {data.inventory_status.recovered
-            ? t('campaigns_recovered', { count: data.inventory_status.recovered })
-            : t('campaigns_unavailable')}
-        </Notice>
+      {data.inventory_status?.available === false && !data.inventory_status.recovered && (
+        <Notice error>{t('campaigns_unavailable')}</Notice>
       )}
       <div className="flex flex-wrap gap-3">
         <div className="min-w-48 flex-1">

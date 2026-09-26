@@ -647,6 +647,10 @@ Campaigns shows active and upcoming rewards by default, with active confirmed pr
 Only the legacy upcoming-only default preset is migrated; custom filters are preserved.
 The visible count and Clear filters control expose hidden results. Ignored/skipped rewards
 are not completed campaigns, and missing artwork must not remove benefit metadata.
+Overview and Campaigns omit the recovered-campaign count banner, but retain the warning
+when the catalog is unavailable and no campaigns were recovered. Preserve availability
+metadata, discovery diagnostics and unknown link status; removing a banner does not make
+partial catalog coverage complete.
 
 CampaignHistory stores completed UI snapshots separately in `data/completed_campaigns.json`,
 using atomic replacement. Inventory clear/batch/refresh and startup snapshots retain these
