@@ -585,20 +585,25 @@ test('autosave retains conflicting edits and retries only edited fields', async 
   expect((await (await request.get('/api/settings')).json()).connection_quality).toBe(3);
 });
 
-test('removed notifications have no controls, API or saved credentials', async ({
+test('Telegram starts unconfigured and rejects invalid credentials without echoing them', async ({
   page,
   request,
 }) => {
   await page.goto('/settings');
-  await expect(page.getByText('Telegram', { exact: false })).toHaveCount(0);
+  await expect(
+    page.getByRole('heading', { name: 'Telegram Notifications', exact: true }),
+  ).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Test Connection', exact: true })).toBeDisabled();
   const result = await request.post('/api/settings', {
     headers,
     data: { telegram_bot_token: 'discard-me', telegram_chat_id: '123' },
   });
+  expect(result.status()).toBe(422);
   expect(JSON.stringify(await result.json())).not.toContain('discard-me');
-  expect((await request.post('/api/settings/test-telegram', { headers, data: {} })).status()).toBe(
-    404,
-  );
+  expect((await (await request.get('/api/settings')).json()).telegram_configured).toBe(false);
+  const testResult = await request.post('/api/settings/test-telegram', { headers, data: {} });
+  expect(testResult.status()).toBe(200);
+  expect(await testResult.json()).toEqual({ success: false });
 });
 
 test('history displays saved reward artwork and preserves old entries', async ({
