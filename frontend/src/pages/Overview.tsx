@@ -31,7 +31,9 @@ export default function Overview() {
         .toLocaleLowerCase()
         .includes(search.toLocaleLowerCase()),
     )
-    .sort((a, b) => Number(b.watching) - Number(a.watching) || b.viewers - a.viewers);
+    .sort(
+      (a, b) => Number(b.watching) - Number(a.watching) || (b.viewers ?? -1) - (a.viewers ?? -1),
+    );
   return (
     <div className="space-y-6">
       <div className="flex flex-wrap items-start justify-between gap-3">
@@ -146,7 +148,7 @@ export default function Overview() {
                     {channel.name}
                   </a>
                   <p className="muted truncate">
-                    {channel.game ?? t('unknown_game')} · {channel.viewers.toLocaleString()}{' '}
+                    {channel.game ?? t('unknown_game')} · {channel.viewers?.toLocaleString() ?? '—'}{' '}
                     {t('gui.channels.viewers')}
                   </p>
                 </div>
