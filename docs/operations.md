@@ -50,4 +50,4 @@ Deployment changes require rebuilding the image and recreating the container. Bu
 the current container runs, back up Compose and data before replacement, verify the new
 image and health, and keep the previous image/configuration available for rollback.
 Preserve existing mount paths, ownership and network binding. Interactive sudo belongs
-in the operator?s terminal, never in chat or a saved script.
+in the operator's terminal, never in chat or a saved script.
