@@ -14,7 +14,7 @@ from fastapi.exception_handlers import request_validation_exception_handler
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import HTMLResponse, JSONResponse, PlainTextResponse
 from fastapi.staticfiles import StaticFiles
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from src.config.paths import DATA_DIR
 from src.version import __version__
@@ -78,8 +78,8 @@ class SettingsUpdate(BaseModel):
     drop_name_blacklist: list[str] | None = None
     dark_mode: bool | None = None
     proxy: str | None = None
-    connection_quality: int | None = None
-    minimum_refresh_interval_minutes: int | None = None
+    connection_quality: int | None = Field(default=None, ge=1, le=6)
+    minimum_refresh_interval_minutes: int | None = Field(default=None, ge=1, le=1440)
     inventory_filters: dict | None = None
     inventory_list_view: bool | None = None
     mining_benefits: dict[str, bool] | None = None

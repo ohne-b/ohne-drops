@@ -145,10 +145,14 @@ function Access({ initial, disabled }: { initial: AuthStatus; disabled: boolean 
   );
 }
 function SettingsContent({ settings, auth }: { settings: SettingsData; auth: AuthStatus }) {
-  const { data, connected } = useMiner();
+  const { data, connected, autosave } = useMiner();
   const t = useT();
-  const [base, setBase] = useState(() => editable(settings));
-  const [draft, setDraft] = useState(() => editable(settings));
+  const draft = editable(autosave.draft ?? settings);
+  const [ignoredText, setIgnoredText] = useState(draft.drop_name_blacklist.join('\n'));
+  const [editingIgnored, setEditingIgnored] = useState(false);
+  useEffect(() => {
+    if (!editingIgnored) setIgnoredText(draft.drop_name_blacklist.join('\n'));
+  }, [draft.drop_name_blacklist, editingIgnored]);
   const [search, setSearch] = useState('');
   const [gameError, setGameError] = useState('');
   const [confirmation, setConfirmation] = useState<{
@@ -157,53 +161,20 @@ function SettingsContent({ settings, auth }: { settings: SettingsData; auth: Aut
     action: () => Promise<unknown>;
   } | null>(null);
   const [version, setVersion] = useState('');
-  const saveAction = useAction();
   const command = useAction();
   const proxyAction = useAction();
   const oauthAction = useAction();
-  const dirty = JSON.stringify(draft) !== JSON.stringify(base);
-  useEffect(() => {
-    if (!dirty) {
-      const next = editable(settings);
-      setBase(next);
-      setDraft(next);
-    }
-  }, [settings, dirty]);
+  const dirty = autosave.pending || autosave.busy;
   useEffect(() => {
     void request<{ current_version: string }>('/api/version')
       .then((result) => setVersion(result.current_version))
       .catch(() => {});
   }, []);
-  useEffect(() => {
-    const warn = (event: BeforeUnloadEvent) => {
-      if (dirty) event.preventDefault();
-    };
-    window.addEventListener('beforeunload', warn);
-    return () => window.removeEventListener('beforeunload', warn);
-  }, [dirty]);
-  function change<K extends keyof SettingsData>(key: K, value: SettingsData[K]) {
-    setDraft((current) => ({ ...current, [key]: value }));
-    saveAction.clear();
-  }
-  async function save() {
-    await saveAction.run(async () => {
-      const { games_available: _games, ...payload } = draft;
-      const result = await request<{ settings: SettingsData }>('/api/settings', payload);
-      const next = editable(result.settings);
-      setDraft(next);
-      setBase(next);
-    }, t('saved'));
-  }
+  const change = autosave.change;
   function addGame(name: string) {
-    setDraft((current) => ({
-      ...current,
-      games_to_watch: current.games_to_watch.some(
-        (game) => game.toLocaleLowerCase() === name.toLocaleLowerCase(),
-      )
-        ? current.games_to_watch
-        : [...current.games_to_watch, name],
-    }));
-    saveAction.clear();
+    change('games_to_watch', (games) =>
+      games.some((game) => game.toLowerCase() === name.toLowerCase()) ? games : [...games, name],
+    );
     setSearch('');
     setGameError('');
   }
@@ -294,10 +265,9 @@ function SettingsContent({ settings, auth }: { settings: SettingsData; auth: Aut
       <form
         onSubmit={(event) => {
           event.preventDefault();
-          void save();
         }}
       >
-        <fieldset disabled={saveAction.busy} className="min-w-0 space-y-8">
+        <fieldset disabled={!connected} className="min-w-0 space-y-8">
           <Section id="mining" title={t('mining')}>
             <div className="flex gap-2">
               <div
@@ -450,8 +420,13 @@ function SettingsContent({ settings, auth }: { settings: SettingsData; auth: Aut
             >
               <textarea
                 className="field"
-                value={draft.drop_name_blacklist.join('\n')}
-                onChange={(event) => change('drop_name_blacklist', event.target.value.split('\n'))}
+                value={ignoredText}
+                onFocus={() => setEditingIgnored(true)}
+                onBlur={() => setEditingIgnored(false)}
+                onChange={(event) => {
+                  setIgnoredText(event.target.value);
+                  change('drop_name_blacklist', event.target.value.split('\n'));
+                }}
               />
             </Field>
             <Field label={t('gui.settings.minimum_refresh')}>
@@ -510,31 +485,30 @@ function SettingsContent({ settings, auth }: { settings: SettingsData; auth: Aut
             </Button>
             <ActionResult action={proxyAction} />
           </Section>
-          {(dirty || saveAction.error || saveAction.success) && (
-            <div className="sticky bottom-0 z-10 space-y-3 border-t border-divider bg-canvas/95 py-4">
-              <ActionResult action={saveAction} />
-              {dirty && base.revision !== settings.revision && (
-                <Notice error>{t('settings_conflict')}</Notice>
+          <div className="space-y-2" aria-live="polite">
+            <p className="muted" role="status">
+              {t(
+                autosave.error
+                  ? 'unsaved'
+                  : autosave.busy || autosave.pending
+                    ? 'saving'
+                    : autosave.success
+                      ? 'saved'
+                      : 'autosave_help',
               )}
-              <div className="flex items-center gap-2">
-                <Button type="submit" primary disabled={!dirty || !connected || saveAction.busy}>
-                  {t(saveAction.busy ? 'saving' : 'save_changes')}
-                </Button>
+            </p>
+            {autosave.error && (
+              <Notice error>
+                {t(autosave.error)}{' '}
                 <Button
-                  disabled={!dirty || saveAction.busy}
-                  onClick={() => {
-                    const next = editable(settings);
-                    setBase(next);
-                    setDraft(next);
-                    saveAction.clear();
-                  }}
+                  disabled={!connected || autosave.busy}
+                  onClick={() => void autosave.retry()}
                 >
-                  {t('cancel')}
+                  {t('retry')}
                 </Button>
-                {dirty && <span className="ms-2 text-[13px] text-muted">{t('unsaved')}</span>}
-              </div>
-            </div>
-          )}
+              </Notice>
+            )}
+          </div>
         </fieldset>
       </form>
       <Access initial={auth} disabled={dirty || !connected} />

@@ -74,7 +74,6 @@ test('priorities add, reorder, validate rank and persist', async ({ page }) => {
   await rank.fill('');
   await rank.blur();
   await expect(rank).toHaveValue('1');
-  await page.getByRole('button', { name: 'Save changes', exact: true }).click();
   await expect(page.getByText('Changes saved.', { exact: true })).toBeVisible();
   await page.reload();
   await expect(
@@ -92,26 +91,52 @@ test('manual game confirmation supports Escape and safe literal names', async ({
   await page.getByRole('button', { name: 'Confirm', exact: true }).click();
   await expect(page.getByText('<script>new game</script>', { exact: true })).toBeVisible();
 });
-test('server rejects stale settings and keeps the dirty draft', async ({ page, request }) => {
+test('autosave retains conflicting edits and retries only edited fields', async ({
+  page,
+  request,
+}) => {
   await page.goto('/settings');
+  let release!: () => void;
+  const gate = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  await page.route(
+    '**/api/settings',
+    async (route) => {
+      await gate;
+      await route.continue();
+    },
+    { times: 1 },
+  );
+  const sent = page.waitForRequest('**/api/settings');
   const interval = page.getByLabel('Minimum Refresh Interval (minutes):', { exact: true });
   await interval.fill('45');
-  const settings = await (await request.get('/api/settings')).json();
+  await sent;
+  const current = await (await request.get('/api/settings')).json();
   await request.post('/api/settings', {
     headers,
-    data: { revision: settings.revision, minimum_refresh_interval_minutes: 90 },
+    data: {
+      revision: current.revision,
+      minimum_refresh_interval_minutes: 90,
+      connection_quality: 3,
+    },
   });
-  await expect(page.getByText(/Settings changed in another view/).first()).toBeVisible();
+  release();
+  await expect(page.getByRole('alert')).toContainText('Settings changed on another device');
   await expect(interval).toHaveValue('45');
-  await page.getByRole('button', { name: 'Save changes', exact: true }).click();
-  await expect(interval).toHaveValue('45');
-  await expect(page.getByRole('alert').last()).toBeVisible();
   expect((await (await request.get('/api/settings')).json()).minimum_refresh_interval_minutes).toBe(
     90,
   );
-  await page.getByRole('button', { name: 'Cancel', exact: true }).first().click();
-  await expect(interval).toHaveValue('90');
+  await page.getByRole('button', { name: 'Try again', exact: true }).click();
+  await expect
+    .poll(
+      async () =>
+        (await (await request.get('/api/settings')).json()).minimum_refresh_interval_minutes,
+    )
+    .toBe(45);
+  expect((await (await request.get('/api/settings')).json()).connection_quality).toBe(3);
 });
+
 test('removed notifications have no controls, API or saved credentials', async ({
   page,
   request,
@@ -253,16 +278,13 @@ test('failed settings save retains input', async ({ page }) => {
     (route) => route.fulfill({ status: 500, json: { detail: 'save_failed' } }),
     { times: 1 },
   );
-  await page.getByRole('button', { name: 'Save changes', exact: true }).click();
   await expect(page.getByRole('alert')).toBeVisible();
   await expect(page.getByLabel('Proxy URL', { exact: true })).toHaveValue('http://127.0.0.1:9999');
   await expect(page.getByText('gui.auth.save_failed')).toHaveCount(0);
 });
 
-test('pending saves lock fields until the persisted response arrives', async ({ page }) => {
+test('autosave queues newer input while an older request is pending', async ({ page, request }) => {
   await page.goto('/settings');
-  const interval = page.getByLabel('Minimum Refresh Interval (minutes):', { exact: true });
-  await interval.fill('45');
   let release!: () => void;
   const gate = new Promise<void>((resolve) => {
     release = resolve;
@@ -275,11 +297,20 @@ test('pending saves lock fields until the persisted response arrives', async ({ 
     },
     { times: 1 },
   );
-  await page.getByRole('button', { name: 'Save changes', exact: true }).click();
-  await expect(interval).toBeDisabled();
-  release();
+  const sent = page.waitForRequest('**/api/settings');
+  const interval = page.getByLabel('Minimum Refresh Interval (minutes):', { exact: true });
+  await interval.fill('45');
+  await sent;
   await expect(interval).toBeEnabled();
-  await expect(interval).toHaveValue('45');
+  await interval.fill('60');
+  release();
+  await expect
+    .poll(
+      async () =>
+        (await (await request.get('/api/settings')).json()).minimum_refresh_interval_minutes,
+    )
+    .toBe(60);
+  await expect(interval).toHaveValue('60');
 });
 
 test('manual game confirmation appends to the latest settings from another device', async ({
@@ -298,7 +329,6 @@ test('manual game confirmation appends to the latest settings from another devic
     page.getByRole('spinbutton', { name: 'Priority for Another device', exact: true }),
   ).toHaveCount(1);
   await page.getByRole('button', { name: 'Confirm', exact: true }).click();
-  await page.getByRole('button', { name: 'Save changes', exact: true }).click();
   await expect(page.getByText('Changes saved.', { exact: true })).toBeVisible();
   expect((await (await request.get('/api/settings')).json()).games_to_watch).toEqual([
     'Another device',
@@ -318,19 +348,22 @@ test('unchanged boundary ranks still normalize their visible input', async ({ pa
   await expect(last).toHaveValue('2');
 });
 
-test('server disconnect hydrates a fresh snapshot and preserves an unsaved draft', async ({
-  page,
-  request,
-}) => {
+test('autosave survives reconnect and navigation', async ({ page, request }) => {
   await page.goto('/settings');
-  const interval = page.getByLabel('Minimum Refresh Interval (minutes):', { exact: true });
-  await interval.fill('45');
+  await page.getByLabel('Minimum Refresh Interval (minutes):', { exact: true }).fill('45');
   await request.post('/__test/reconnect', { headers, data: {} });
-  await expect(page.getByRole('button', { name: 'Save changes', exact: true })).toBeEnabled();
-  await expect(interval).toHaveValue('45');
-  await page.getByRole('button', { name: 'Cancel', exact: true }).first().click();
   await page.getByRole('link', { name: 'Overview', exact: true }).click();
-  await expect(page.getByRole('link', { name: 'northwind', exact: true })).toHaveCount(0);
+  await expect
+    .poll(
+      async () =>
+        (await (await request.get('/api/settings')).json()).minimum_refresh_interval_minutes,
+    )
+    .toBe(45);
+  await page.goto('/settings');
+  await expect(page.getByLabel('Minimum Refresh Interval (minutes):', { exact: true })).toHaveValue(
+    '45',
+  );
+  await expect(page.getByRole('button', { name: 'Save changes', exact: true })).toHaveCount(0);
 });
 
 test('activity follows through bounded-buffer rollover and pauses for reading', async ({
@@ -458,7 +491,6 @@ test('Select All preserves manual spelling, order and case-insensitive uniquenes
     page.getByRole('spinbutton', { name: 'Priority for rust', exact: true }),
   ).toBeVisible();
   await page.getByRole('button', { name: 'Select All', exact: true }).click();
-  await page.getByRole('button', { name: 'Save changes', exact: true }).click();
   await expect(page.getByText('Changes saved.', { exact: true })).toBeVisible();
   const games = (await (await request.get('/api/settings')).json()).games_to_watch;
   expect(games.slice(0, 2)).toEqual(['Custom game', 'rust']);
@@ -544,4 +576,27 @@ test('long international labels remain usable at phone, tablet and zoom-equivale
   await request.post('/api/settings', { headers, data: { language: 'العربية' } });
   await expect(page.locator('html')).not.toHaveAttribute('dir', 'rtl');
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+});
+
+test('autosave keeps text editing stable and blocks invalid values', async ({ page, request }) => {
+  await page.goto('/settings');
+  const ignored = page.getByLabel('Ignored Drop Keywords', { exact: true });
+  await ignored.fill('Mask\n');
+  await expect
+    .poll(async () => (await (await request.get('/api/settings')).json()).drop_name_blacklist)
+    .toEqual(['Mask']);
+  await expect(ignored).toHaveValue('Mask\n');
+  const interval = page.getByLabel('Minimum Refresh Interval (minutes):', { exact: true });
+  await interval.fill('');
+  await expect(page.getByRole('alert')).toContainText('whole refresh interval');
+  expect((await (await request.get('/api/settings')).json()).minimum_refresh_interval_minutes).toBe(
+    30,
+  );
+  await interval.fill('20');
+  await expect
+    .poll(
+      async () =>
+        (await (await request.get('/api/settings')).json()).minimum_refresh_interval_minutes,
+    )
+    .toBe(20);
 });

@@ -90,7 +90,7 @@ Use the compiled build for deployment.
 1. Log in with your Twitch account through the OAuth device flow.
 2. Wait for the miner to discover available campaigns.
 3. All discovered games are included automatically; choose their priority. You can also search for a game, select
-   **Add Game**, and then **Save changes**. The miner applies the new priorities.
+   **Add Game**, and the miner saves the priority automatically.
 4. Leave the miner running while it selects eligible channels and tracks drop progress.
 
 Twitch login uses the Smart TV device authorization flow. This fixes the
@@ -100,7 +100,7 @@ once more at `twitch.tv/activate`; the new session is saved for later runs. Chan
 pages still use the public Twitch website to discover the watch-event endpoint.
 
 In **Settings → Mining**, use the up/down buttons or type a priority number to move a
-game directly. Save changes explicitly; Cancel restores the latest server settings.
+game directly. Changes save automatically after a short pause.
 Priority 1 is highest; out-of-range numbers are clamped to the list ends.
 Blank or fractional values leave the order unchanged. Priority controls and remove buttons
 use English labels for screen readers.
@@ -333,9 +333,8 @@ Source changes no longer need a manual browser cache-key bump. The existing rele
 still controls application versioning and image publication.
 
 Game priorities support Enter to add an exact or unique partial match. Ambiguous
-searches ask for a more specific name. Manual names and Deselect All require a
-confirmation; Escape cancels and keyboard focus stays in the dialog. Select All
-retains the existing priority order and manual entries, adding missing games only.
+searches ask for a more specific name. Manual names require confirmation; Escape
+cancels and keyboard focus stays in the dialog. All discovered games are included.
 
 ## Dashboard development and checks
 
@@ -347,8 +346,8 @@ stale browser cannot overwrite a newer save. Proxy credentials are masked in log
 
 History shows 25 records per page while preserving full filtered exports. Activity retains
 at most 1,000 lines and follows new messages only while the view is at the bottom. Dirty
-settings survive reconnects; saving locks their fields until the response arrives. A stale
-save keeps the draft and offers Cancel to load current settings. All UI copy is English.
+settings survive reconnects and navigation; saves are serialized while fields stay editable.
+A failed or conflicting save keeps the draft and offers Retry. All UI copy is English.
 
 Install development dependencies with `uv sync --active --extra dev --locked --python 3.12`
 in the activated environment. Then:
@@ -383,3 +382,5 @@ All eligible discovered games are mined, including games absent from the saved p
 
 Page headings stand on their own; repeated descriptive and appearance copy has been removed.
 Connection status lives under Settings → Twitch account; the sidebar footer links to GitHub.
+
+Settings save automatically after a short pause. Pending edits survive navigation; failed or conflicting saves retain input and offer Retry. Only changed fields are submitted, so other preferences are preserved.

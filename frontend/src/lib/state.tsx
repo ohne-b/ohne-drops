@@ -3,18 +3,32 @@ import { io, type Socket } from 'socket.io-client';
 import type { AuthStatus, Campaign, Channel, ServerEvents, Snapshot } from './types';
 import { request } from './api';
 import { I18n } from './i18n';
+import { useAutosave } from './autosave';
 export function upsert<T extends { id: string | number }>(items: T[], item: T): T[] {
   return items.some((current) => current.id === item.id)
     ? items.map((current) => (current.id === item.id ? item : current))
     : [...items, item];
 }
-const Context = createContext<{ data: Snapshot | null; connected: boolean }>({
+const Context = createContext<{
+  data: Snapshot | null;
+  connected: boolean;
+  autosave: ReturnType<typeof useAutosave>;
+}>({
   data: null,
   connected: false,
+  autosave: null as unknown as ReturnType<typeof useAutosave>,
 });
 export function MinerProvider({ children }: { children: ReactNode }) {
   const [data, setData] = useState<Snapshot | null>(null);
   const [connected, setConnected] = useState(false);
+  const autosave = useAutosave(data?.settings, connected, (settings, revision) => {
+    setData((current) =>
+      current &&
+      (current.settings.revision === revision || current.settings.revision === settings.revision)
+        ? { ...current, settings }
+        : current,
+    );
+  });
   useEffect(() => {
     const socket: Socket<ServerEvents> = io({ autoConnect: false });
     const update = (fn: (state: Snapshot) => Snapshot) =>
@@ -125,7 +139,7 @@ export function MinerProvider({ children }: { children: ReactNode }) {
     };
   }, []);
   return (
-    <Context value={{ data, connected }}>
+    <Context value={{ data, connected, autosave }}>
       <I18n>{children}</I18n>
     </Context>
   );
