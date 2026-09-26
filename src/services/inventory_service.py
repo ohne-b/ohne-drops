@@ -147,7 +147,9 @@ class InventoryService:
 
         # fetch general available campaigns data (campaigns)
         response = await self._twitch.gql_request(GQL_OPERATIONS["Campaigns"])
-        available_list: list[JsonType] = response["data"]["currentUser"]["dropCampaigns"] or []
+        catalog = response["data"]["currentUser"]["dropCampaigns"]
+        self._twitch.gui.inv.set_availability(catalog is not None)
+        available_list: list[JsonType] = catalog or []
         applicable_statuses = ("ACTIVE", "UPCOMING")
         available_campaigns: dict[str, JsonType] = {
             c["id"]: c

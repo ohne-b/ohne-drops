@@ -1,0 +1,322 @@
+import {
+  cloneElement,
+  useEffect,
+  useId,
+  useRef,
+  useState,
+  type ButtonHTMLAttributes,
+  type ComponentProps,
+  type ReactNode,
+  type ReactElement,
+} from 'react';
+import { mdiClose, mdiMagnify, mdiImageOutline, mdiAlertCircleOutline, mdiLoading } from '@mdi/js';
+import { ApiError, safeUrl } from '../lib/api';
+import { useT } from '../lib/i18n';
+export function Icon({ path, className = '' }: { path: string; className?: string }) {
+  return (
+    <svg
+      viewBox="0 0 24 24"
+      aria-hidden="true"
+      className={`size-[18px] shrink-0 fill-current ${className}`}
+    >
+      <path d={path} />
+    </svg>
+  );
+}
+export function Button({
+  children,
+  primary = false,
+  className = '',
+  ...props
+}: ButtonHTMLAttributes<HTMLButtonElement> & { primary?: boolean }) {
+  return (
+    <button
+      type="button"
+      className={`button ${primary ? 'button-primary' : ''} ${className}`}
+      {...props}
+    >
+      {children}
+    </button>
+  );
+}
+export function Input({ className = '', ...props }: ComponentProps<'input'>) {
+  return <input className={`field ${className}`} {...props} />;
+}
+export function Field({
+  label,
+  help,
+  children,
+}: {
+  label: string;
+  help?: string;
+  children: ReactElement<{ id?: string; 'aria-describedby'?: string }>;
+}) {
+  const id = useId();
+  return (
+    <div className="grid gap-2 text-soft">
+      <label htmlFor={id} className="text-[13px] font-medium">
+        {label}
+      </label>
+      {cloneElement(children, { id, 'aria-describedby': help ? `${id}-help` : undefined })}
+      {help && (
+        <p id={`${id}-help`} className="text-[13px] leading-relaxed text-muted">
+          {help}
+        </p>
+      )}
+    </div>
+  );
+}
+export function Search({
+  value,
+  onChange,
+  label,
+}: {
+  value: string;
+  onChange: (value: string) => void;
+  label: string;
+}) {
+  const ref = useRef<HTMLInputElement>(null);
+  const t = useT();
+  return (
+    <div className="relative min-w-0">
+      <span className="pointer-events-none absolute start-2.5 top-2.5 text-muted">
+        <Icon path={mdiMagnify} className="size-4" />
+      </span>
+      <Input
+        ref={ref}
+        type="search"
+        aria-label={label}
+        placeholder={label}
+        value={value}
+        className="ps-9 pe-10"
+        onChange={(event) => onChange(event.target.value)}
+        onKeyDown={(event) => {
+          if (event.key === 'Escape') onChange('');
+        }}
+      />
+      {value && (
+        <button
+          type="button"
+          aria-label={t('clear_search')}
+          title={t('clear_search')}
+          className="absolute end-1 top-1 grid size-7 place-items-center rounded hover:bg-hover"
+          onClick={() => {
+            onChange('');
+            ref.current?.focus();
+          }}
+        >
+          <Icon path={mdiClose} />
+        </button>
+      )}
+    </div>
+  );
+}
+export function Check({
+  label,
+  checked,
+  onChange,
+  disabled = false,
+}: {
+  label: string;
+  checked: boolean;
+  onChange: (value: boolean) => void;
+  disabled?: boolean;
+}) {
+  return (
+    <label className="flex min-h-9 cursor-pointer items-center gap-2.5 text-soft">
+      <input
+        type="checkbox"
+        checked={checked}
+        disabled={disabled}
+        onChange={(event) => onChange(event.target.checked)}
+        className="size-4 accent-soft"
+      />
+      <span>{label}</span>
+    </label>
+  );
+}
+export function Art({ url, className = '' }: { url?: string | null; className?: string }) {
+  const [failed, setFailed] = useState(false);
+  const source = safeUrl(url?.replaceAll('{width}', '80').replaceAll('{height}', '112'));
+  useEffect(() => setFailed(false), [url]);
+  return (
+    <span
+      className={`grid size-10 shrink-0 place-items-center overflow-hidden rounded bg-raised text-muted ${className}`}
+    >
+      {source && !failed ? (
+        <img
+          loading="lazy"
+          className="size-full object-cover"
+          src={source}
+          alt=""
+          onError={() => setFailed(true)}
+        />
+      ) : (
+        <Icon path={mdiImageOutline} />
+      )}
+    </span>
+  );
+}
+export function ProgressBar({
+  current,
+  total,
+  label,
+}: {
+  current: number;
+  total: number;
+  label: string;
+}) {
+  const value = Math.min(100, Math.max(0, total > 0 ? (current / total) * 100 : 0));
+  return (
+    <div
+      role="progressbar"
+      aria-label={label}
+      aria-valuemin={0}
+      aria-valuemax={total}
+      aria-valuenow={Math.min(total, Math.max(0, current))}
+      className="h-1.5 overflow-hidden rounded-sm bg-divider"
+    >
+      <div
+        className="h-full bg-soft transition-[width] motion-reduce:transition-none"
+        style={{ width: `${value}%` }}
+      />
+    </div>
+  );
+}
+export function Empty({
+  title,
+  detail,
+  children,
+}: {
+  title: string;
+  detail?: string;
+  children?: ReactNode;
+}) {
+  return (
+    <div className="py-10 text-center">
+      <p className="font-medium text-soft">{title}</p>
+      {detail && (
+        <p className="mx-auto mt-2 max-w-md text-[13px] leading-relaxed text-muted">{detail}</p>
+      )}
+      {children && <div className="mt-5 flex justify-center">{children}</div>}
+    </div>
+  );
+}
+export function Notice({ children, error = false }: { children: ReactNode; error?: boolean }) {
+  return (
+    <div
+      role={error ? 'alert' : 'status'}
+      className="flex items-start gap-2 rounded border border-divider bg-field px-3 py-2 text-[13px] leading-relaxed text-soft"
+    >
+      {error && <Icon path={mdiAlertCircleOutline} />}
+      {children}
+    </div>
+  );
+}
+export function useAction() {
+  const t = useT();
+  const pending = useRef(false);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState('');
+  const [success, setSuccess] = useState('');
+  async function run(action: () => Promise<unknown>, message = '') {
+    if (pending.current) return false;
+    pending.current = true;
+    setBusy(true);
+    setError('');
+    setSuccess('');
+    try {
+      await action();
+      setSuccess(message);
+      return true;
+    } catch (error) {
+      setError(
+        error instanceof ApiError && error.message === 'settings_conflict'
+          ? t('settings_conflict')
+          : error instanceof ApiError &&
+              t(`gui.auth.${error.message}`) !== `gui.auth.${error.message}`
+            ? t(`gui.auth.${error.message}`)
+            : t('gui.auth.request_failed'),
+      );
+      return false;
+    } finally {
+      pending.current = false;
+      setBusy(false);
+    }
+  }
+  return {
+    busy,
+    error,
+    success,
+    run,
+    clear: () => {
+      setError('');
+      setSuccess('');
+    },
+  };
+}
+export function ActionResult({ action }: { action: ReturnType<typeof useAction> }) {
+  return action.error ? (
+    <Notice error>{action.error}</Notice>
+  ) : action.success ? (
+    <Notice>{action.success}</Notice>
+  ) : null;
+}
+export function Busy({ label }: { label: string }) {
+  return (
+    <span className="flex items-center gap-2 text-muted">
+      <Icon path={mdiLoading} className="animate-spin motion-reduce:animate-none" />
+      {label}
+    </span>
+  );
+}
+export function Dialog({
+  open,
+  title,
+  onClose,
+  children,
+}: {
+  open: boolean;
+  title: string;
+  onClose: () => void;
+  children: ReactNode;
+}) {
+  const ref = useRef<HTMLDialogElement>(null);
+  const id = useId();
+  const t = useT();
+  useEffect(() => {
+    const dialog = ref.current;
+    if (open && !dialog?.open) dialog?.showModal();
+    else if (!open && dialog?.open) dialog.close();
+  }, [open]);
+  return (
+    <dialog
+      ref={ref}
+      aria-labelledby={id}
+      onCancel={(event) => {
+        event.preventDefault();
+        onClose();
+      }}
+      className="m-auto w-[calc(100%_-_32px)] max-w-md rounded-md border border-divider bg-raised p-6 text-text shadow-xl backdrop:bg-black/65"
+    >
+      <div className="mb-4 flex items-center justify-between gap-4">
+        <h2 id={id} className="text-lg font-semibold">
+          {title}
+        </h2>
+        <Button
+          aria-label={t('close')}
+          title={t('close')}
+          onClick={onClose}
+          className="size-9 px-0"
+        >
+          <Icon path={mdiClose} />
+        </Button>
+      </div>
+      {children}
+    </dialog>
+  );
+}
+export const dateTime = (value: string) =>
+  new Intl.DateTimeFormat(undefined, { dateStyle: 'medium', timeStyle: 'short' }).format(
+    new Date(value),
+  );

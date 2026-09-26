@@ -21,7 +21,13 @@ dashboard. It sends Twitch watch events without downloading the stream itself.
 > Maintenance and support are provided on a best-effort basis; continued compatibility
 > with Twitch is not guaranteed.
 
-![Twitch Drops Miner web dashboard showing campaign progress, output, and channels](./screenshot.png)
+![Dark React dashboard with current progress, channels, and reward queue; synthetic sample data](./screenshot.png)
+
+This fork keeps the Python miner and replaces the complete dashboard with React, strict
+TypeScript, Tailwind CSS, MDI icons, and locally served Manrope. The interface uses neutral
+dark surfaces, compact fields, and a thin custom native scrollbar. See the
+[architecture plan](./docs/plans/2026-09-26-redesign.md) and
+[design specification](./docs/plans/2026-09-26-design-spec.md).
 
 ## Features
 
@@ -36,53 +42,56 @@ dashboard. It sends Twitch watch events without downloading the stream itself.
   with a filterable **History** tab, aggregated stats, and one-click **Export CSV**
 - **Telegram notifications** — sends an alert when a drop is claimed, including claims found during startup and inventory refresh
 - **Headless deployment** — runs on your own home hardware, including Docker, without a desktop GUI
-- **Safe rendering** — builds dynamic translated content with DOM APIs instead of raw HTML
+- **Safe rendering** — React text rendering and validated external links; no injected HTML
 
 ## Quick start
 
 ### Docker (recommended)
 
-Docker stores persistent application data in `/app/data`. The command below binds that
-directory to `./data` on the host:
-
-```bash
-docker run -d \
-  --name twitch-drops-miner \
-  -p 8080:8080 \
-  -v "${PWD}/data:/app/data" \
-  --restart unless-stopped \
-  rangermix/twitch-drops-miner:latest
-```
-
-Open <http://localhost:8080>.
-
-### Docker Compose
-
-From the repository root, build and start the included
-[`docker-compose.yml`](./docker-compose.yml):
+Build this fork from source to get the redesigned dashboard. The upstream prebuilt image
+contains its own interface. From this checkout:
 
 ```bash
 docker compose up -d --build
 ```
 
+Open <http://localhost:8080>. The multi-stage build compiles the dashboard and copies it
+into the Python image. Node is only needed during build. The existing data and log mounts
+stay compatible; there is no account or database migration. Keep your previous image and
+back up persistent data before a future deployment. This source rewrite does not deploy itself.
+
 ### From source
 
-Source installations require Python 3.12 or newer and
-[`uv`](https://docs.astral.sh/uv/):
+Source installations require Python 3.12+, [uv](https://docs.astral.sh/uv/), and Node.js 24.
+From the repository root:
 
 ```bash
-uv sync
-uv run main.py
+uv venv env --python 3.12
+source env/bin/activate
+uv sync --active --locked --python 3.12
+cd frontend
+npm ci
+npm run build
+cd ..
+python main.py
 ```
 
-Then open <http://localhost:8080>.
+On Windows, activate `env\Scripts\Activate.ps1` instead; if PowerShell blocks npm's
+script launcher, use `npm.cmd`. Build before starting Python, then open
+<http://localhost:8080>. Rebuild after changing frontend code or bundled English strings.
+`web/` is generated and ignored by Git; do not edit it directly.
+
+For frontend development, start Python in one terminal and run `npm run dev` in
+`frontend/` in another. Vite serves the UI at <http://localhost:5173> and proxies HTTP
+and Socket.IO to Python on port 8080. Leave `PUBLIC_BASE_URL` unset for this local setup.
+Use the compiled build for deployment.
 
 ## Using the web app
 
 1. Log in with your Twitch account through the OAuth device flow.
 2. Wait for the miner to discover available campaigns.
 3. Choose the games you want to prioritize. You can also search for a game, select
-   **Add Game**, and then select **Reload**.
+   **Add Game**, and then **Save changes**. The miner applies the new priorities.
 4. Leave the miner running while it selects eligible channels and tracks drop progress.
 
 Twitch login uses the Smart TV device authorization flow. This fixes the
@@ -91,8 +100,9 @@ client. After upgrading from 1.3.0 or earlier, you may need to authorize the min
 once more at `twitch.tv/activate`; the new session is saved for later runs. Channel
 pages still use the public Twitch website to discover the watch-event endpoint.
 
-In **Games to Watch**, drag games to reorder them or type a priority number to move a
-game directly. Priority 1 is highest; out-of-range numbers are clamped to the list ends.
+In **Settings → Mining**, use the up/down buttons or type a priority number to move a
+game directly. Save changes explicitly; Cancel restores the latest server settings.
+Priority 1 is highest; out-of-range numbers are clamped to the list ends.
 Blank or fractional values leave the order unchanged. Priority controls and remove buttons
 use translated labels for screen readers.
 
@@ -194,19 +204,18 @@ turning off protection. **Clear All Cache** preserves dashboard authentication.
 The **History** tab logs every successfully claimed drop to `data/drop_history.json`.
 Filter the table by game name or "claimed on or after" date, view per-game and per-month
 stats, or download the current view as a CSV file (UTF-8 BOM so Excel opens it cleanly).
-History controls are translated in all supported languages. The date filter starts at
+Existing translations are retained; new labels have English fallback. The date filter starts at
 midnight UTC on the selected date; displayed claim times use your browser’s local timezone.
 CSV downloads support Unicode game names. Existing Twitch claims are not backfilled.
-The **Clear** button deletes all locally recorded history; this does not affect your
+**Clear local history** requires confirmation and deletes local history; this does not affect your
 Twitch account or already-claimed rewards.
 
 ### Telegram notifications
 
 In **Settings → Telegram Notifications**, enter a bot token from
 [@BotFather](https://t.me/BotFather) and your chat ID. Start a conversation with your bot
-before selecting **Test Connection**. The Help tab contains the setup steps. A successful
-test sends a test message and saves the credentials; **Save Settings** saves without sending
-a message. A failed test or save displays an error.
+before testing. Select **Save changes**, then **Send test message**. Testing stays disabled
+while settings are unsaved. A failed test or save displays an error beside the action.
 
 The bot token is stored on the server and is never returned to the browser. Leave the token
 field blank to reuse it when testing or changing the chat ID. To disable notifications,
@@ -233,6 +242,7 @@ failures do not undo a Twitch claim, and failed notifications are not retried.
 
 ## Contributing
 
+Use descriptive `feat/` or `fix/` branches and merge changes through a pull request.
 See [CONTRIBUTING.md](./CONTRIBUTING.md) for issue reporting, development setup,
 pull requests, required unit and regression checks, and independent adversarial review.
 Coding agents must follow the mandatory workflow in [AGENTS.md](./AGENTS.md), also
@@ -333,16 +343,18 @@ the same pinned, Node-24-native Buildx and image-build action releases.
 The suite also covers ignored-keyword normalization, dependency branches, the combined
 expiry/ignore Wanted Queue guard, watch selection, API persistence, translated placeholder
 parity, frontend rendering, and the claimed-drop history store with CSV export and API
-endpoints. Any `web/static/app.js` or `web/static/styles.css` change
-must go through the release workflow so the application version and browser asset cache key
-are bumped before deployment.
+endpoints. Vite generates content-hashed assets with immutable caching; HTML is revalidated.
+Source changes no longer need a manual browser cache-key bump. The existing release workflow
+still controls application versioning and image publication.
 
-Telegram regression coverage includes Help translation rendering, saved-token reuse,
+Telegram regression coverage includes translated controls, saved-token reuse,
 disabling notifications, failed saves, claim deduplication, and mocked Telegram transport
 errors. From the activated environment, run:
 
 ```bash
-python -m pytest tests/test_telegram_frontend.py tests/test_telegram_api.py tests/test_telegram_integration.py
+python -m pytest tests/test_telegram_api.py tests/test_telegram_integration.py
+cd frontend
+npm run test:browser
 ```
 
 No real Telegram messages are sent by these tests.
@@ -351,3 +363,39 @@ Games to Watch supports Enter to add an exact or unique partial match. Ambiguous
 searches ask for a more specific name. Manual names and Deselect All require a
 confirmation; Escape cancels and keyboard focus stays in the dialog. Select All
 retains the existing priority order and manual entries, adding missing games only.
+
+## Dashboard development and checks
+
+The frontend source is in `frontend/src`; shared controls, theme tokens, HTTP helpers,
+and the Socket.IO state provider serve Overview, Campaigns, History, Activity, Settings,
+and Login. Python owns mining, storage, secrets, and access control. The API includes
+confirmed minutes/timestamps, unavailable-catalog status, and settings revisions so a
+stale browser cannot overwrite a newer save. Proxy credentials are masked in logs.
+
+History shows 25 records per page while preserving full filtered exports. Activity retains
+at most 1,000 lines and follows new messages only while the view is at the bottom. Dirty
+settings survive reconnects; saving locks their fields until the response arrives. A stale
+save keeps the draft and offers Cancel to load current settings. New UI copy has English
+fallback; German includes translated labels, alongside all existing locales.
+
+Install development dependencies with `uv sync --active --extra dev --locked --python 3.12`
+in the activated environment. Then:
+
+```bash
+npm --prefix frontend ci
+npm --prefix frontend run format:check
+npm --prefix frontend test
+npm --prefix frontend run build
+python -m ruff check src/
+python -m mypy src/
+python -m pytest tests/
+cd frontend
+npx playwright install chromium
+npm run test:browser
+```
+
+Browser tests use the production build and a separate synthetic FastAPI/Socket.IO server
+on port 8765, temporary storage, and mocked services. They refuse to reuse an existing
+server and do not contact Twitch or send Telegram messages. CI also runs accessibility
+checks, release-script tests, and Docker builds for amd64 and arm64. See
+[CONTRIBUTING.md](./CONTRIBUTING.md) for the full workflow.
