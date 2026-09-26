@@ -538,7 +538,7 @@ test('long international labels remain usable at phone, tablet and zoom-equivale
     },
   });
   await page.goto('/settings');
-  await expect(page.locator('html')).toHaveAttribute('lang', 'de');
+  await expect(page.locator('html')).toHaveAttribute('lang', 'en');
   for (const width of [360, 640, 820]) {
     await page.setViewportSize({ width, height: 844 });
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(
@@ -546,6 +546,6 @@ test('long international labels remain usable at phone, tablet and zoom-equivale
     );
   }
   await request.post('/api/settings', { headers, data: { language: 'العربية' } });
-  await expect(page.locator('html')).toHaveAttribute('dir', 'rtl');
+  await expect(page.locator('html')).not.toHaveAttribute('dir', 'rtl');
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
 });

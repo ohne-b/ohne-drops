@@ -1,7 +1,7 @@
 # Contributing to Twitch Drops Miner
 
 Contributions are welcome: bug reports, feature requests, code, tests, documentation,
-and translations. This guide defines the contribution workflow for people and coding
+and English copy. This guide defines the contribution workflow for people and coding
 agents. Agents must read it before starting work and follow the same requirements.
 
 ## About the repository
@@ -27,7 +27,7 @@ Twitch OAuth login, persistent local data, and Docker support.
 | `frontend/`, `web/` | React/TypeScript source and ignored compiled output |
 | `src/config/`, `src/utils/` | Configuration and shared utilities |
 | `src/drop_history.py` | Claimed-drop history, filtering, statistics, and export |
-| `src/i18n/`, `lang/` | Translation schema and locale files |
+| `src/i18n/`, `lang/` | English message schema and catalog |
 | `tests/` | Backend, integration, regression, and frontend behavior tests |
 | `.github/workflows/`, `.github/scripts/` | Validation, releases, and contributor automation |
 
@@ -180,9 +180,7 @@ exists; use closing keywords only when the PR fully resolves that issue.
   `AGENTS.md`; do not replace them with duplicated text. Put agent-specific guidance
   in clearly named sections of `AGENTS.md`. Update this guide when the contribution
   workflow changes.
-- For UI or console text changes, update the English source, every affected locale in
-  `lang/`, and the TypedDict translation schema when keys change. Preserve key and
-  placeholder parity. Render translated UI as React text with validated links;
+- For UI or console text changes, update `lang/English.json` and the TypedDict message schema when keys change. Preserve message keys and placeholders. Render translated UI as React text with validated links;
   allowlist intentional links and create link nodes explicitly.
 - Preserve account eligibility, campaign/drop timing, prerequisites, ignore rules,
   authentication boundaries, and credential redaction. Cache recovery must preserve

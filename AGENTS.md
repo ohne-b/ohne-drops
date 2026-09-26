@@ -40,7 +40,7 @@ and PR descriptions free of assistant branding. Changes to main go through a pul
    - **Permission Required**: You MUST ask for user permission before significant refactoring.
 
 4. **Localization (i18n)**:
-   - Update translation files if there are changes to UI text or console messages.
+   - Update lang/English.json if UI text or console messages change; no other locales or language settings are supported.
    - Frontend translation rendering must use safe DOM construction. Do not inject translated strings with non-clearing `innerHTML`; allowlist any intentional links and build them as DOM nodes.
 
 5. **Documentation**:
@@ -85,12 +85,8 @@ src/
 ├── version.py       # Version string
 └── __main__.py      # Entry point
 
-lang/                # Translation JSON files (20 languages)
-├── English.json     # Default/fallback translations
-├── Español.json
-├── Français.json
-├── Deutsch.json
-└── ...              # 16 more languages
+lang/                # English message catalog
+└── English.json
 ```
 
 ### React dashboard
@@ -219,7 +215,6 @@ lang/                # Translation JSON files (20 languages)
   Keep priority and remove-control labels translated and accessible. Regression tests in
   `frontend/tests/` cover order, bounds, invalid inputs, and persistence calls.
 - Connection quality multiplier
-- Language selection
 - Proxy support (including verification)
 - Logging and dump flags from command-line arguments
 - Persistence to JSON file (`settings.json`) in DATA_DIR
@@ -247,7 +242,7 @@ lang/                # Translation JSON files (20 languages)
 - `frontend/tests/dashboard.spec.ts`, `tests/test_telegram_api.py`, and
   `tests/test_telegram_integration.py` cover translated Help rendering, stored credentials,
   failed saves, disabling, all shared claim paths, and transport failures without sending
-  real Telegram messages. Keep Telegram UI result strings in every locale.
+  real Telegram messages. Keep Telegram UI result strings in English.
 
 Drop-name ignore policy is dependency-aware: a matching unclaimed drop and its dependent
 branches are ignored dynamically. Prerequisite-only branches with no mineable reward are
@@ -313,7 +308,7 @@ progress to an ignored drop while the miner intentionally targets another reward
 - React Login and Settings own dashboard auth controls; the shared fetch helper adds
   the same-origin write header. Failed initial auth status leaves login/retry usable.
   Preserve public auth translations and synchronize protection status across devices.
-  Keep auth strings in `gui.auth`, rendered as text with native password fields.
+  Keep English auth strings in `gui.auth`, rendered as text with native password fields.
 - `tests/test_web_auth.py` and `frontend/tests/dashboard.spec.ts` cover access control,
   credential persistence, cookie lifetimes, CSRF, rate limiting, revocation, and UI errors.
   The idle socket-expiry regression controls the auth wall clock and captures the
@@ -360,52 +355,11 @@ Runs in background to trigger:
 - Channel cleanup when drops start/end (based on time_triggers)
 - Inventory reload every ~60 minutes
 
-### Translation System
+### English messages
 
-**Architecture:**
-
-- All translations stored as JSON files in `lang/` directory (20 languages supported)
-- English (`lang/English.json`) is the single source of truth and fallback language
-- Strongly typed with TypedDict schema defined in `src/i18n/translator.py`
-- Translator class (`src/i18n/translator.py`) handles language loading and fallback
-- Singleton instance `_` available via `from src.i18n import _`
-
-**Supported Languages:**
-
-- English, Dansk (Danish), Deutsch (German), Español (Spanish), Français (French)
-- Magyar (Hungarian), Indonesian, Italiano (Italian), Nederlandse (Dutch), Polski (Polish), Português (Portuguese)
-- Română (Romanian), Türkçe (Turkish), Čeština (Czech)
-- Русский (Russian), Українська (Ukrainian), العربية (Arabic)
-- 日本語 (Japanese), 简体中文 (Simplified Chinese), 繁體中文 (Traditional Chinese)
-
-**Translation Structure:**
-
-```python
-Translation = {
-    "language_name": str,      # Display name of language
-    "english_name": str,       # English name of language
-    "status": StatusMessages,  # Console status messages
-    "login": LoginMessages,    # Login-related messages
-    "error": ErrorMessages,    # Error messages
-    "gui": GUIMessages        # All web GUI text (tabs, settings, help, etc.)
-}
-```
-
-**Usage:**
-
-```python
-from src.i18n import _
-
-# Access translations
-status_text = _.t["gui"]["status"]["idle"]  # Returns "Idle"
-login_text = _.t["login"]["status"]["logged_in"]  # Returns "Logged in"
-```
-
-**Language Persistence:**
-
-- Language selection persisted in `settings.json` (DATA_DIR)
-- Dynamic language switching supported in web GUI
-- Changes take effect immediately without restart
+`lang/English.json` contains all interface and miner messages. Its TypedDict schema
+lives in `src/i18n/translator.py`; the singleton `_` exposes `_.t`. The frontend
+bundles this one catalog. There are no locale selection, loading or switching APIs.
 
 ## Key Files
 
@@ -421,7 +375,7 @@ login_text = _.t["login"]["status"]["logged_in"]  # Returns "Logged in"
 - **src/i18n/** - Internationalization package with TypedDict schema and Translator class
   - **translator.py** - Translator class with typed translation schema (Translation TypedDict)
   - **__init__.py** - Exports translation types and `_` (Translator instance)
-- **lang/** - Translation JSON files for 20 languages (English.json is the single source of truth)
+- **lang/** - English.json message catalog
 - **src/version.py** - Version string
 - **src/web/app.py** - FastAPI application with REST API and Socket.IO
 - **src/web/managers/cache.py** - ImageCache for campaign artwork caching
@@ -642,3 +596,5 @@ and confirmed local deletion. Date-only filters mean midnight UTC; aware timesta
 preserve their instant. CSV attachment names use UTF-8 percent encoding with an ASCII
 fallback. History text is defined in `gui.history` for every locale and rendered as text.
 Tests cover persistence, filtering, Unicode exports, offsets, and translated UI behavior.
+
+English is the only language. The settings loader discards old language preferences; do not reintroduce locale APIs, selection controls, or language broadcasts.

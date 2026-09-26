@@ -10,7 +10,6 @@ from collections.abc import Callable
 from typing import TYPE_CHECKING, Any
 
 from src.config.settings import default_settings
-from src.i18n.translator import _
 from src.models.game import Game
 from src.utils import DropIgnorePolicy, merge_json
 
@@ -77,17 +76,6 @@ class SettingsManager:
             settings["inventory_filters"] = inventory_filters
         return settings
 
-    def get_languages(self) -> dict[str, Any]:
-        """Get available languages and current selection.
-
-        Returns:
-            Dictionary with available languages and current language
-        """
-        return {
-            "available": _.get_languages(),
-            "current": _.current_language,
-        }
-
     def _log_change(self, message: str):
         """Log setting change to both console and system logger."""
         self._console.print(message)
@@ -112,9 +100,6 @@ class SettingsManager:
         )
         should_trigger_update |= self.check_and_update_setting(
             "dark_mode", settings_data.get("dark_mode")
-        )
-        should_trigger_update |= self.check_and_update_setting(
-            "language", settings_data.get("language"), False, self._set_language
         )
         should_trigger_update |= self.check_and_update_setting(
             "connection_quality", settings_data.get("connection_quality")
@@ -191,11 +176,6 @@ class SettingsManager:
         self._log_change(f"Setting changed: {key} = {log_value}")
         action(new_value)
         return should_trigger_update
-
-    def _set_language(self, language: str):
-        _.set_language(language)
-        # Notify clients that translations need to be reloaded
-        asyncio.create_task(self._broadcaster.emit("language_changed", {"language": language}))
 
     def set_games(self, games: set[Game]):
         """Update the list of available games for settings panel.

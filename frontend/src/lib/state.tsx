@@ -114,9 +114,6 @@ export function MinerProvider({ children }: { children: ReactNode }) {
     socket.on('wanted_items_update', (value) =>
       update((state) => ({ ...state, wanted_items: value })),
     );
-    socket.on('language_changed', (value) =>
-      update((state) => ({ ...state, settings: { ...state.settings, language: value.language } })),
-    );
     socket.on('notification', (value) => {
       if ('Notification' in window && Notification.permission === 'granted')
         new Notification(value.title, { body: value.message });
@@ -129,7 +126,7 @@ export function MinerProvider({ children }: { children: ReactNode }) {
   }, []);
   return (
     <Context value={{ data, connected }}>
-      <I18n language={data?.settings.language}>{children}</I18n>
+      <I18n>{children}</I18n>
     </Context>
   );
 }

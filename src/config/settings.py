@@ -5,7 +5,7 @@ from typing import TypedDict
 
 from yarl import URL
 
-from src.config import DEFAULT_LANG, SETTINGS_PATH
+from src.config import SETTINGS_PATH
 from src.utils import DropIgnorePolicy, json_load, json_save
 
 
@@ -27,7 +27,6 @@ default_settings = {
     "dark_mode": False,
     "drop_name_blacklist": [],
     "games_to_watch": [],
-    "language": DEFAULT_LANG,
     "inventory_filters": {
         "game_name_search": [],
         "show_active": False,
@@ -60,7 +59,6 @@ class Settings:
     dark_mode: bool
     drop_name_blacklist: list[str]
     games_to_watch: list[str]
-    language: str
     inventory_filters: InventoryFilters
     inventory_list_view: bool
     minimum_refresh_interval_minutes: int

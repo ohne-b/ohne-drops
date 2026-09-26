@@ -148,9 +148,6 @@ function SettingsContent({ settings, auth }: { settings: SettingsData; auth: Aut
   const [draft, setDraft] = useState(() => editable(settings));
   const [search, setSearch] = useState('');
   const [gameError, setGameError] = useState('');
-  const [languages, setLanguages] = useState<{ available: Record<string, string> | string[] }>({
-    available: [],
-  });
   const [confirmation, setConfirmation] = useState<{
     title: string;
     text: string;
@@ -171,9 +168,6 @@ function SettingsContent({ settings, auth }: { settings: SettingsData; auth: Aut
     }
   }, [settings, dirty]);
   useEffect(() => {
-    void request<typeof languages>('/api/languages')
-      .then(setLanguages)
-      .catch(() => {});
     void request<{ current_version: string }>('/api/version')
       .then((result) => setVersion(result.current_version))
       .catch(() => {});
@@ -241,9 +235,6 @@ function SettingsContent({ settings, auth }: { settings: SettingsData; auth: Aut
       !draft.games_to_watch.includes(game) &&
       game.toLocaleLowerCase().includes(search.toLocaleLowerCase()),
   );
-  const languageOptions = Array.isArray(languages.available)
-    ? languages.available.map((name) => [name, name])
-    : Object.entries(languages.available);
   const oauth = data?.login.oauth_pending;
   async function test(path: string, payload: unknown) {
     const result = await request<Result>(path, payload);
@@ -605,19 +596,6 @@ function SettingsContent({ settings, auth }: { settings: SettingsData; auth: Aut
             </p>
           </Section>
           <Section id="interface" title={t('interface')}>
-            <Field label={t('gui.header.language')}>
-              <select
-                className="field max-w-sm"
-                value={draft.language}
-                onChange={(event) => change('language', event.target.value)}
-              >
-                {languageOptions.map(([key, label]) => (
-                  <option key={key} value={key}>
-                    {label}
-                  </option>
-                ))}
-              </select>
-            </Field>
             <p className="muted">{t('dark_appearance')}</p>
           </Section>
           {(dirty || saveAction.error || saveAction.success) && (
