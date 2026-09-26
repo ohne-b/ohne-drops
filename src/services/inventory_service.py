@@ -187,7 +187,6 @@ class InventoryService:
         ]
         campaigns.sort(key=lambda c: c.active, reverse=True)
         campaigns.sort(key=lambda c: c.upcoming and c.starts_at or c.ends_at)
-        campaigns.sort(key=lambda c: c.eligible, reverse=True)
 
         self._clear_inventory_state()
         switch_triggers: set[datetime] = set()

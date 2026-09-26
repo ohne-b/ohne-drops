@@ -160,8 +160,7 @@ lang/                # English message catalog
   `ignore_channel_status=True` checks retain their discovery-only status bypass.
 - `WatchService.can_watch()` requires the campaign's game in `wanted_games`, a live
   channel, and `campaign.can_earn(channel)`. Special categories bypass the channel's
-  drops-enabled flag; regular campaigns still require it. Account eligibility, campaign
-  and drop timing, prerequisites, claims, and ignore rules remain enforced.
+  drops-enabled flag; regular campaigns still require it. Campaign and drop timing, prerequisites, claims, and ignore rules remain enforced.
 - Channel priority still uses the streamed category; channels outside `wanted_games`
   retain `MAX_INT` fallback priority. Preserve special-category eligibility when changing
   watch selection; do not reintroduce an unconditional campaign/channel game equality gate.
@@ -585,3 +584,5 @@ Tests cover persistence, filtering, Unicode exports, offsets, and translated UI 
 English is the only language. The settings loader discards old language preferences; do not reintroduce locale APIs, selection controls, or language broadcasts.
 
 No Telegram service, endpoints, credentials, notification hooks or UI remain. Legacy stored fields are ignored and removed on the next settings save.
+
+Game-account linking is display metadata, not a local earning gate. Include unlinked item campaigns while retaining timing, channel ACL, prerequisites, benefit types, ignore rules and server-confirmed progress. Twitch still controls reward delivery.

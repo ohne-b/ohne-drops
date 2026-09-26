@@ -210,8 +210,8 @@ CSV downloads support Unicode game names. Existing Twitch claims are not backfil
 Twitch account or already-claimed rewards.
 
 > [!NOTE]
-> Your Twitch account must be linked to the relevant game accounts. Review your
-> [Twitch Drops campaigns](https://www.twitch.tv/drops/campaigns) before mining.
+> Unlinked game accounts are included in mining. Twitch may require linking before
+> a reward can be delivered. Check the campaign’s account-link requirement.
 
 ## Important notes
 

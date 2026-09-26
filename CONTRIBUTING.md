@@ -33,8 +33,7 @@ Twitch OAuth login, persistent local data, and Docker support.
 
 Read [README.md](./README.md) for setup and user behavior, and
 [AGENTS.md](./AGENTS.md) for architecture and detailed implementation constraints.
-The current scope excludes multiple accounts, channel-points mining, unlinked
-campaign mining, and a desktop GUI. Discuss proposed scope changes before implementing
+The current scope excludes multiple accounts, channel-points mining, and a desktop GUI. Discuss proposed scope changes before implementing
 them; opening a feature request does not itself approve a change in scope.
 
 This is a hobby project for personal use on your own hardware and home network.
@@ -65,7 +64,7 @@ Include enough information for someone else to reproduce the problem:
 - Minimal redacted logs, tracebacks, screenshots, or sample responses. Explain any
   troubleshooting already tried and its result.
 
-For mining problems, check that the game account is linked, the reward is earned by
+For mining problems, check the campaign’s account-link requirements, that the reward is earned by
 watching, the campaign is active, the channel participates, and your game selection or
 ignore rules do not exclude it. Mention simultaneous manual Twitch viewing. Distinguish
 what the miner displays from what Twitch's own inventory reports; a local display issue
@@ -182,7 +181,7 @@ exists; use closing keywords only when the PR fully resolves that issue.
   workflow changes.
 - For UI or console text changes, update `lang/English.json` and the TypedDict message schema when keys change. Preserve message keys and placeholders. Render translated UI as React text with validated links;
   allowlist intentional links and create link nodes explicitly.
-- Preserve account eligibility, campaign/drop timing, prerequisites, ignore rules,
+- Preserve campaign/drop timing, prerequisites, ignore rules,
   authentication boundaries, and credential redaction. Cache recovery must preserve
   credentials and settings. Consult the detailed contracts in the agent instructions.
 - Edit frontend sources in `frontend/`, never generated `web/`. Vite content hashes
