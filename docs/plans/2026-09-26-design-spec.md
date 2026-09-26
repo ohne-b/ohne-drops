@@ -1,6 +1,11 @@
 # Dashboard design specification
 
-Status: proposed design, not implemented. Prepared 26 September 2026 for the local fork at `C:\Users\benno\Desktop\repos\twitch-miner`.
+Status: implemented and reviewed. Prepared before implementation on 26 September 2026 for the local fork at `C:\Users\benno\Desktop\repos\twitch-miner`; updated with the final choices below.
+
+The finished UI uses one explicit settings draft/save bar, native inline campaign details,
+and existing timestamped activity messages with search. It does not invent structured log
+levels or a Twitch reconnect endpoint. Validation and review evidence are recorded in the
+[implementation plan](./2026-09-26-redesign.md#implementation-and-validation-record).
 
 ## Direction
 
