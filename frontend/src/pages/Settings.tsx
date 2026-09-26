@@ -1,7 +1,7 @@
 import { useEffect, useState, type ReactNode } from 'react';
 import { mdiPlus, mdiOpenInNew } from '@mdi/js';
 import type { AuthStatus, Result, Settings as SettingsData } from '../lib/types';
-import { ApiError, request, safeUrl } from '../lib/api';
+import { request, safeUrl } from '../lib/api';
 import { useMiner } from '../lib/state';
 import { GamePriorities } from '../components/GamePriorities';
 import { plainText, useT } from '../lib/i18n';
@@ -138,144 +138,6 @@ function Access({ initial, disabled }: { initial: AuthStatus; disabled: boolean 
     </Section>
   );
 }
-function Telegram({ settings, disabled }: { settings: SettingsData; disabled: boolean }) {
-  const t = useT();
-  const action = useAction();
-  const [draft, setDraft] = useState({
-    token: '',
-    chat: settings.telegram_chat_id,
-    revision: settings.revision,
-    dirty: false,
-  });
-  const [testError, setTestError] = useState('');
-  const [conflict, setConflict] = useState(false);
-  useEffect(() => {
-    setDraft((current) =>
-      current.dirty
-        ? current
-        : { token: '', chat: settings.telegram_chat_id, revision: settings.revision, dirty: false },
-    );
-  }, [settings.telegram_chat_id, settings.revision]);
-  async function save(test = false, retry = false) {
-    const sent = draft;
-    setTestError('');
-    setConflict(false);
-    await action.run(
-      async () => {
-        const revision = retry
-          ? (await request<SettingsData>('/api/settings')).revision
-          : sent.revision;
-        if (test) {
-          const result = await request<Result>('/api/settings/test-telegram', {
-            telegram_bot_token: sent.token,
-            telegram_chat_id: sent.chat,
-          });
-          if (!result.success) {
-            setTestError(t('gui.settings.telegram.error'));
-            throw new Error('telegram_test_failed');
-          }
-        }
-        try {
-          const result = await request<{ settings: SettingsData }>('/api/settings', {
-            telegram_bot_token: sent.token,
-            telegram_chat_id: sent.chat,
-            revision,
-          });
-          setDraft((current) =>
-            current === sent
-              ? {
-                  token: '',
-                  chat: result.settings.telegram_chat_id,
-                  revision: result.settings.revision,
-                  dirty: false,
-                }
-              : { ...current, revision: result.settings.revision },
-          );
-        } catch (error) {
-          setConflict(error instanceof ApiError && error.status === 409);
-          throw error;
-        }
-      },
-      t(test ? 'gui.settings.telegram.success' : 'gui.settings.telegram.saved'),
-    );
-  }
-  return (
-    <Section
-      id="telegram"
-      title={t('gui.settings.telegram.name')}
-      help={t('gui.settings.telegram.description')}
-    >
-      <p className="muted">{t('gui.settings.telegram.credentials_help')}</p>
-      <p className="muted">
-        {t(
-          settings.telegram_configured
-            ? 'gui.settings.telegram.configured'
-            : 'gui.settings.telegram.not_configured',
-        )}
-      </p>
-      <form
-        className="max-w-md space-y-4"
-        onSubmit={(event) => {
-          event.preventDefault();
-          void save();
-        }}
-      >
-        <Field label={t('gui.settings.telegram.bot_token')}>
-          <Input
-            type="password"
-            autoComplete="new-password"
-            maxLength={256}
-            value={draft.token}
-            onChange={(event) => setDraft({ ...draft, token: event.target.value, dirty: true })}
-          />
-        </Field>
-        <Field label={t('gui.settings.telegram.chat_id')}>
-          <Input
-            autoComplete="off"
-            maxLength={128}
-            value={draft.chat}
-            onChange={(event) => setDraft({ ...draft, chat: event.target.value, dirty: true })}
-          />
-        </Field>
-        <div className="flex flex-wrap gap-2">
-          <Button type="submit" primary disabled={disabled || action.busy || !draft.dirty}>
-            {t('gui.settings.telegram.save_settings')}
-          </Button>
-          <Button
-            disabled={
-              disabled ||
-              action.busy ||
-              !draft.chat.trim() ||
-              (!draft.token.trim() && !settings.telegram_configured)
-            }
-            onClick={() => void save(true)}
-          >
-            {t('gui.settings.telegram.test_connection')}
-          </Button>
-          {conflict && (
-            <Button disabled={disabled || action.busy} onClick={() => void save(false, true)}>
-              {t('retry')}
-            </Button>
-          )}
-        </div>
-        <ActionResult action={{ ...action, error: testError || action.error }} />
-      </form>
-      <details className="text-[13px] text-muted">
-        <summary>{t('gui.settings.telegram.how_to_setup')}</summary>
-        <ol className="mt-3 list-decimal space-y-2 ps-5">
-          <li>
-            <a className="text-link" href="https://t.me/BotFather" target="_blank" rel="noreferrer">
-              @BotFather
-            </a>
-            : {t('gui.settings.telegram.setup_bot')}
-          </li>
-          <li>{t('gui.settings.telegram.setup_start')}</li>
-          <li>{t('gui.settings.telegram.setup_chat')}</li>
-        </ol>
-      </details>
-    </Section>
-  );
-}
 function SettingsContent({ settings, auth }: { settings: SettingsData; auth: AuthStatus }) {
   const { data, connected, autosave } = useMiner();
   const t = useT();
@@ -355,9 +217,9 @@ function SettingsContent({ settings, auth }: { settings: SettingsData; auth: Aut
         aria-label={t('settings_sections')}
         className="flex flex-wrap gap-x-5 gap-y-2 text-[13px] text-muted"
       >
-        {['account', 'mining', 'connection', 'access', 'telegram', 'maintenance'].map((id) => (
+        {['account', 'mining', 'connection', 'access', 'maintenance'].map((id) => (
           <a className="hover:text-text" key={id} href={`#${id}`}>
-            {t(id === 'telegram' ? 'gui.settings.telegram.name' : id)}
+            {t(id)}
           </a>
         ))}
       </nav>
@@ -577,7 +439,6 @@ function SettingsContent({ settings, auth }: { settings: SettingsData; auth: Aut
         </fieldset>
       </form>
       <Access initial={auth} disabled={dirty || !connected} />
-      <Telegram settings={settings} disabled={dirty || !connected} />
       <Section id="maintenance" title={t('maintenance')}>
         <div className="flex flex-wrap gap-2">
           <Button
