@@ -40,6 +40,73 @@ test('confirmed progress and compact desktop design', async ({ page }) => {
       .evaluate((element) => getComputedStyle(element, '::-webkit-scrollbar').width),
   ).toBe('3px');
 });
+test('Up next scrolls within its panel with reward artwork and safe fallbacks', async ({
+  page,
+  request,
+}) => {
+  const png =
+    'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVQIHWP4z8DwHwAFgAI/ScLbtAAAAABJRU5ErkJggg==';
+  await page.route('https://art.example/**', (route) =>
+    route.request().url().endsWith('broken.png')
+      ? route.abort()
+      : route.fulfill({ contentType: 'image/png', body: Buffer.from(png, 'base64') }),
+  );
+  const game = snapshot.wanted_items[0]!;
+  await request.post('/__test/event', {
+    headers,
+    data: {
+      event: 'wanted_items_update',
+      data: [
+        {
+          ...game,
+          campaigns: [
+            {
+              ...game.campaigns[0],
+              drops: Array.from({ length: 30 }, (_, i) => ({
+                name: `Reward ${i}`,
+                benefits: [`Reward ${i}`],
+                image_url:
+                  i === 0
+                    ? 'https://art.example/reward.png'
+                    : i === 1
+                      ? 'https://art.example/broken.png'
+                      : '',
+              })),
+            },
+          ],
+        },
+      ],
+    },
+  });
+  const panel = page.getByRole('region', { name: 'Up next', exact: true });
+  await expect(panel.locator('li')).toHaveCount(30);
+  await expect(panel.locator('li').first().locator('img')).toHaveAttribute(
+    'src',
+    'https://art.example/reward.png',
+  );
+  await expect(panel.locator('li').nth(1).locator('svg')).toBeVisible();
+  await expect(panel.locator('li').nth(2).locator('svg')).toBeVisible();
+  for (const width of [1440, 390]) {
+    await page.setViewportSize({ width, height: 900 });
+    expect((await panel.boundingBox())!.height).toBeLessThanOrEqual(440);
+    expect(
+      await panel.evaluate(
+        (el) => el.scrollHeight > el.clientHeight && getComputedStyle(el).overflowY === 'auto',
+      ),
+    ).toBe(true);
+    await panel.focus();
+    await page.keyboard.press('End');
+    await expect.poll(() => panel.evaluate((el) => el.scrollTop)).toBeGreaterThan(0);
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(
+      true,
+    );
+  }
+  await page.setViewportSize({ width: 1440, height: 1000 });
+  await panel.evaluate((el) => {
+    el.scrollTop = 0;
+  });
+  await page.screenshot({ path: '../artifacts/overview-queue.png', fullPage: true });
+});
 test('every route loads directly and stays usable on a phone', async ({ page }) => {
   await page.goto('/settings');
   const proxy = await page.getByLabel('Proxy URL', { exact: true }).boundingBox();

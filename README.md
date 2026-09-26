@@ -429,3 +429,6 @@ They survive restarts, catalog refreshes, and Clear All Cache, and are display h
 Finished also groups older recorded rewards when campaign metadata is gone, clearly marked
 **Completion unverified**: legacy drop history has no total reward count. Existing
 `drop_history.json`, credentials, settings, and server-confirmed progress are preserved.
+
+Overview Up next scrolls inside a 440px maximum-height panel, matching Channels.
+Each queue reward includes item artwork; missing, unsafe, or failed images use the shared Art fallback.

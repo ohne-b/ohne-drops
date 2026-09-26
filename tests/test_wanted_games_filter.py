@@ -126,3 +126,16 @@ def test_discovery_does_not_select_games_and_explicit_choices_are_deduplicated()
     settings.games_to_watch = ["beta", "BETA"]
     assert [g.name for g in selector.get_wanted_games(settings, [a, b])] == ["Beta"]
     assert settings.games_to_watch == ["beta", "BETA"]
+
+
+def test_queue_uses_reward_art_and_allows_missing_art():
+    from types import SimpleNamespace
+    from tests.test_watch_drop_filtering import _campaign, _drop
+    campaign = _campaign("art", [_drop("reward", "Reward", 10)])
+    settings = SimpleNamespace(games_to_watch=[campaign.game.name], mining_benefits={"DIRECT_ENTITLEMENT": True})
+    selector = StreamSelector()
+    benefit = next(iter(campaign.drops)).benefits[0]
+    benefit.image_url = "https://example.test/reward.png"
+    assert selector.get_wanted_game_tree(settings, [campaign])[0]["campaigns"][0]["drops"][0]["image_url"] == benefit.image_url
+    benefit.image_url = None
+    assert selector.get_wanted_game_tree(settings, [campaign])[0]["campaigns"][0]["drops"][0]["image_url"] == ""

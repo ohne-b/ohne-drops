@@ -183,47 +183,59 @@ export default function Overview() {
         </section>
         <section className="panel order-1 xl:order-2">
           <div className="flex items-center justify-between border-b border-divider p-4">
-            <h2 className="section-title">{t('up_next')}</h2>
+            <h2 id="up-next-heading" className="section-title">
+              {t('up_next')}
+            </h2>
             <Link className="text-[13px] text-muted hover:text-text" to="/settings#mining">
               {t('edit')}
             </Link>
           </div>
-          {data.wanted_items.map((game, index) => (
-            <div key={game.game_name} className="border-b border-divider p-4 last:border-0">
-              <div className="flex items-center gap-3">
-                <span className="w-4 text-[13px] tabular-nums text-muted">{index + 1}</span>
-                <Art url={game.game_icon} className="size-8" />
-                <p className="font-medium">{game.game_name}</p>
-              </div>
-              {game.campaigns.map((item) => (
-                <div className="mt-3 ps-7 text-[13px]" key={item.id}>
-                  {safeUrl(item.url) ? (
-                    <a
-                      className="text-link"
-                      href={safeUrl(item.url)}
-                      target="_blank"
-                      rel="noreferrer"
-                    >
-                      {item.name}
-                    </a>
-                  ) : (
-                    <p className="text-soft">{item.name}</p>
-                  )}
-                  <ul className="mt-2 space-y-2 text-muted">
-                    {item.drops.map((drop, position) => (
-                      <li key={`${drop.name}/${position}`}>
-                        <p>{drop.name}</p>
-                        {drop.benefits.some((benefit) => benefit !== drop.name) && (
-                          <p className="mt-0.5 text-xs">{drop.benefits.join(', ')}</p>
-                        )}
-                      </li>
-                    ))}
-                  </ul>
+          <div
+            className="max-h-[440px] overflow-y-auto"
+            role="region"
+            aria-labelledby="up-next-heading"
+            tabIndex={0}
+          >
+            {data.wanted_items.map((game, index) => (
+              <div key={game.game_name} className="border-b border-divider p-4 last:border-0">
+                <div className="flex items-center gap-3">
+                  <span className="w-4 text-[13px] tabular-nums text-muted">{index + 1}</span>
+                  <Art url={game.game_icon} className="size-8" />
+                  <p className="font-medium">{game.game_name}</p>
                 </div>
-              ))}
-            </div>
-          ))}
-          {!data.wanted_items.length && <Empty title={t('gui.wanted.none')} />}
+                {game.campaigns.map((item) => (
+                  <div className="mt-3 ps-7 text-[13px]" key={item.id}>
+                    {safeUrl(item.url) ? (
+                      <a
+                        className="text-link"
+                        href={safeUrl(item.url)}
+                        target="_blank"
+                        rel="noreferrer"
+                      >
+                        {item.name}
+                      </a>
+                    ) : (
+                      <p className="text-soft">{item.name}</p>
+                    )}
+                    <ul className="mt-2 space-y-2 text-muted">
+                      {item.drops.map((drop, position) => (
+                        <li className="flex items-start gap-3" key={`${drop.name}/${position}`}>
+                          <Art url={drop.image_url} className="size-9 [&_img]:object-contain" />
+                          <div className="min-w-0 flex-1">
+                            <p>{drop.name}</p>
+                            {drop.benefits.some((benefit) => benefit !== drop.name) && (
+                              <p className="mt-0.5 text-xs">{drop.benefits.join(', ')}</p>
+                            )}
+                          </div>
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                ))}
+              </div>
+            ))}
+            {!data.wanted_items.length && <Empty title={t('gui.wanted.none')} />}
+          </div>
         </section>
       </div>
       <section>
