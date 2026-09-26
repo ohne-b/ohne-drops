@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="frontend/src/assets/twitch-miner-logo.svg" width="96" height="125" alt="Twitch Drops Miner logo">
+  <img src="frontend/src/assets/twitch-miner-logo.svg" width="128" alt="Twitch Drops Miner logo">
 </p>
 
 <h1 align="center">Twitch Drops Miner</h1>
