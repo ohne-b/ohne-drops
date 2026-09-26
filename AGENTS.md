@@ -27,7 +27,8 @@ It is the repository's contribution policy, not optional background reading.
 The sidebar footer shows the Twitch account ID and GitHub icon. Live connection status remains in Settings → Twitch account.
 Label that transport status "Dashboard connected" to distinguish it from Twitch login.
 The GitHub glyph is 24px, matching OhneGuessr; its size must override the shared 18px icon default.
-Overview Channels and Up next share equal desktop columns and stack on smaller screens.
+Overview Channels and Up next share equal desktop widths and heights and stack on smaller screens.
+Keep watching information in the mining card and console messages on Activity; Overview has neither a status subtitle nor Recent activity.
 Show confirmed progress values and their timestamp without the redundant "Confirmed by Twitch" label.
 History entries may include image_url. Preserve old entries without artwork; use the
 matching live campaign/drop benefit as a display fallback and the shared safe Art control.
@@ -646,6 +647,10 @@ Campaigns shows active and upcoming rewards by default, with active confirmed pr
 Only the legacy upcoming-only default preset is migrated; custom filters are preserved.
 The visible count and Clear filters control expose hidden results. Ignored/skipped rewards
 are not completed campaigns, and missing artwork must not remove benefit metadata.
+Overview and Campaigns omit the recovered-campaign count banner, but retain the warning
+when the catalog is unavailable and no campaigns were recovered. Preserve availability
+metadata, discovery diagnostics and unknown link status; removing a banner does not make
+partial catalog coverage complete.
 
 CampaignHistory stores completed UI snapshots separately in `data/completed_campaigns.json`,
 using atomic replacement. Inventory clear/batch/refresh and startup snapshots retain these
@@ -653,7 +658,8 @@ records; the archive never enters the mining inventory. Only all-claimed watch r
 completed, never expired/ignored/skipped. Preserve corrupt archives without overwriting them.
 Legacy claim history without campaign totals is displayed separately as completion unverified.
 
-Overview Up next scrolls inside a 440px maximum-height panel, matching Channels.
+Overview Channels and Up next share a 552px outer height on desktop, with independently
+scrolling lists below fixed headers. Stacked layouts cap each list at 440px.
 Each queue reward includes item artwork; missing, unsafe, or failed images use the shared Art fallback.
 
 Mine controls remain outside expandable campaign summaries for keyboard/screen-reader access.
