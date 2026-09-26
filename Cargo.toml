@@ -52,6 +52,7 @@ tracing = "0.1"
 tracing-appender = "0.2"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 twitch_oauth2 = { version = "0.17", features = ["client"] }
+tungstenite = { version = "0.28", default-features = false }
 unicode-casefold = "0.2"
 url = { version = "2", features = ["serde"] }
 

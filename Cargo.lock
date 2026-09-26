@@ -2676,6 +2676,7 @@ dependencies = [
  "tracing",
  "tracing-appender",
  "tracing-subscriber",
+ "tungstenite 0.28.0",
  "twitch_oauth2",
  "unicode-casefold",
  "url",
