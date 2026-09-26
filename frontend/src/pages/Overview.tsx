@@ -1,8 +1,8 @@
 import { useState } from 'react';
 import { Link } from 'react-router';
-import { mdiArrowRight, mdiRefresh, mdiPlayOutline } from '@mdi/js';
+import { mdiRefresh, mdiPlayOutline } from '@mdi/js';
 import { useMiner } from '../lib/state';
-import { useT, plainText } from '../lib/i18n';
+import { useT } from '../lib/i18n';
 import { request, safeUrl } from '../lib/api';
 import {
   Art,
@@ -37,10 +37,7 @@ export default function Overview() {
   return (
     <div className="space-y-6">
       <div className="flex flex-wrap items-start justify-between gap-3">
-        <div>
-          <h1 className="text-[22px] font-semibold">{t('overview')}</h1>
-          <p className="mt-1 text-muted">{plainText(data.status)}</p>
-        </div>
+        <h1 className="text-[22px] font-semibold">{t('overview')}</h1>
         <Button
           disabled={!connected || action.busy}
           onClick={() => void action.run(() => request('/api/reload', {}), t('refresh_requested'))}
@@ -131,16 +128,23 @@ export default function Overview() {
           </Button>
         )}
       </section>
-      <div className="grid items-start gap-6 xl:grid-cols-2">
-        <section className="panel order-2 xl:order-1">
-          <div className="space-y-4 border-b border-divider p-4">
+      <div className="grid gap-6 xl:h-[552px] xl:grid-cols-2">
+        <section className="panel order-2 flex min-h-0 flex-col overflow-hidden xl:order-1">
+          <div className="shrink-0 space-y-4 border-b border-divider p-4">
             <div className="flex items-center justify-between">
-              <h2 className="section-title">{t('gui.channels.name')}</h2>
+              <h2 id="channels-heading" className="section-title">
+                {t('gui.channels.name')}
+              </h2>
               <span className="muted tabular-nums">{channels.length}</span>
             </div>
             <Search value={search} onChange={setSearch} label={t('search_channels')} />
           </div>
-          <div className="max-h-[440px] overflow-y-auto">
+          <div
+            className="min-h-0 max-h-[440px] overflow-y-auto focus-visible:bg-field xl:max-h-none xl:flex-1"
+            role="region"
+            aria-labelledby="channels-heading"
+            tabIndex={0}
+          >
             {channels.map((channel) => (
               <div className="row flex-wrap sm:flex-nowrap" key={channel.id}>
                 <Art url={channel.game_icon} />
@@ -181,8 +185,8 @@ export default function Overview() {
             )}
           </div>
         </section>
-        <section className="panel order-1 xl:order-2">
-          <div className="flex items-center justify-between border-b border-divider p-4">
+        <section className="panel order-1 flex min-h-0 flex-col overflow-hidden xl:order-2">
+          <div className="flex shrink-0 items-center justify-between border-b border-divider p-4">
             <h2 id="up-next-heading" className="section-title">
               {t('up_next')}
             </h2>
@@ -191,7 +195,7 @@ export default function Overview() {
             </Link>
           </div>
           <div
-            className="max-h-[440px] overflow-y-auto"
+            className="min-h-0 max-h-[440px] overflow-y-auto focus-visible:bg-field xl:max-h-none xl:flex-1"
             role="region"
             aria-labelledby="up-next-heading"
             tabIndex={0}
@@ -238,28 +242,6 @@ export default function Overview() {
           </div>
         </section>
       </div>
-      <section>
-        <div className="mb-3 flex items-center justify-between">
-          <h2 className="section-title">{t('recent_activity')}</h2>
-          <Link
-            className="flex items-center gap-1 text-[13px] text-muted hover:text-text"
-            to="/activity"
-          >
-            {t('view_all')}
-            <Icon path={mdiArrowRight} />
-          </Link>
-        </div>
-        <div className="divide-y divide-divider">
-          {data.console
-            .slice(-3)
-            .reverse()
-            .map((line, index) => (
-              <p className="break-words py-2 text-[13px] text-muted" key={index}>
-                {plainText(line)}
-              </p>
-            ))}
-        </div>
-      </section>
     </div>
   );
 }
