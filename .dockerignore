@@ -1,77 +1,15 @@
-# Python
-__pycache__/
-*.py[cod]
-*$py.class
-*.so
-.Python
-*.egg-info/
-dist/
-build/
-*.egg
-
-# Virtual Environment
-env/
-venv/
-ENV/
-
-# IDEs
-.vscode/
-.idea/
-*.swp
-*.swo
-*~
-
-# Git
-.git/
-tdm-session.json
-tdm-connection.json
-server-seed.json
-renewal-state/
-.gitignore
-.gitattributes
-
-# GitHub
-.github/
-
-# CI/CD
-.gitlab-ci.yml
-
-# Documentation
-*.md
-!README.md
-
-# OS
-.DS_Store
-Thumbs.db
-
-# Application data (will be mounted as volumes)
-data/
-cache/
-cookies.jar
-settings.json
-log.txt
-dump.dat
-lock.file
-logs/
-.claude/
-
-# Build artifacts
-*.exe
-*.AppImage
-*.deb
-*.rpm
-
-# Other
-.env
-.env.local
-
-# Dashboard build inputs only; never copy local output or test data.
+**
+!Cargo.toml
+!Cargo.lock
+!rust-toolchain.toml
+!LICENSE
+!src/
+!src/**
+!lang/
+!lang/English.json
+!frontend/
+!frontend/**
 frontend/node_modules/
 frontend/test-results/
 frontend/playwright-report/
 frontend/tests/
-web/
-.venv/
-.tools/
-artifacts/
-tests/

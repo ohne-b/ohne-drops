@@ -2,101 +2,49 @@ name: validation
 
 on:
   push:
-    branches:
-      - main
-      - 'feat/**'
+    branches: [main]
   pull_request:
   workflow_dispatch:
 
 permissions:
   contents: read
 
-env:
-  PYTHON_VERSION: '3.12'
+concurrency:
+  group: validation-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
-  lint:
-    name: Code Quality (Ruff & Mypy)
-    runs-on: ubuntu-latest
-
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v6
-
-      - name: Set up Python
-        uses: actions/setup-python@v6
-        with:
-          python-version: ${{env.PYTHON_VERSION}}
-
-      - name: Install dependencies
-        run: |
-          python -m pip install --upgrade pip
-          pip install .
-          pip install ruff mypy
-
-      - name: Run Ruff linter
-        run: |
-          ruff check src/
-          echo "✅ Ruff checks passed!"
-
-      - name: Run Mypy type checker
-        run: |
-          mypy src/
-          echo "✅ Mypy checks passed!"
-        continue-on-error: true  # Don't fail CI on mypy errors yet
-
   test:
-    name: Python and Dashboard Tests
+    name: Rust and Dashboard Tests
     runs-on: ubuntu-latest
-
     steps:
-      - name: Checkout code
-        uses: actions/checkout@v6
-
-      - name: Set up Python
-        uses: actions/setup-python@v6
-        with:
-          python-version: ${{env.PYTHON_VERSION}}
-          cache: pip
-
-      - name: Set up Node.js
-        uses: actions/setup-node@v6
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v6
         with:
           node-version: '24'
-
-      - name: Set up uv
-        uses: astral-sh/setup-uv@c771a70e6277c0a99b617c7a806ffedaca235ff9 # v9.0.0
-        with:
-          version: '0.12.19'
-
-      - name: Install locked test dependencies
-        run: |
-          uv venv env --python 3.12
-          source env/bin/activate
-          uv sync --active --extra dev --locked --python 3.12
-
-      - name: Validate uv lockfile
-        run: uv lock --check
-
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - name: Install pinned Rust toolchain
+        run: rustup show
       - name: Build and check dashboard
-        working-directory: frontend
         run: |
-          npm ci
-          npm run format:check
-          npm test
-          npm run build
-
-      - name: Run Python tests
+          npm --prefix frontend ci
+          npm --prefix frontend run format:check
+          npm --prefix frontend test
+          npm --prefix frontend run build
+      - name: Check Rust and repository automation
         run: |
-          source env/bin/activate
-          python -m pytest tests/
-
-      - name: Run browser and accessibility tests
+          cargo fmt --all -- --check
+          cargo clippy --all-targets --all-features --locked -- -D warnings
+          cargo test --all-targets --all-features --locked
+          node --test .github/scripts/test/*.test.mjs
+          node .github/scripts/release.mjs read
+          git diff --exit-code
+      - name: Browser and accessibility tests
         working-directory: frontend
         run: |
           npx playwright install --with-deps chromium
           npm run test:browser
-
       - name: Upload browser failure traces
         if: failure()
         uses: actions/upload-artifact@v4
@@ -105,63 +53,46 @@ jobs:
           path: frontend/test-results/
           retention-days: 7
 
-      - name: Run release script tests
-        run: |
-          bash .github/scripts/test/test_validate_semver.sh
-          bash .github/scripts/test/test_github_output.sh
-          bash .github/scripts/test/test_extract_version.sh
-
-  validate:
-    name: Validate Language Files
-    runs-on: ubuntu-latest
-
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v6
-
-      - name: Set up Python
-        uses: actions/setup-python@v6
-        with:
-          python-version: ${{env.PYTHON_VERSION}}
-
-      - name: Validate language files
-        run: |
-          failed=()
-          for file in "lang/"*.json; do
-            if err="$(python -m json.tool "${file}" 2>&1 >/dev/null)"; then
-              echo "[OK] ${file}"
-            else
-              echo "[ERROR] ${file} ${err}"
-              failed+=("${file}")
-            fi
-          done
-          if [ "${#failed[@]}" -gt 0 ]; then
-            echo -e "\nFailed to validate the following language file(s): ${failed[@]}"
-            exit 1
-          fi
-
   docker:
-    name: Docker Build Validation
+    name: Docker Build (${{ matrix.arch }})
     runs-on: ubuntu-latest
-    needs: [lint, test, validate]
-
+    needs: test
+    strategy:
+      fail-fast: false
+      matrix:
+        arch: [amd64, arm64]
     steps:
-      - name: Checkout code
-        uses: actions/checkout@v6
-
-      - name: Set up QEMU for arm64 validation
-        uses: docker/setup-qemu-action@99012661954931238ded8c8b007157a8430204e1 # v4.4.0
+      - uses: actions/checkout@v6
+      - uses: docker/setup-qemu-action@99012661954931238ded8c8b007157a8430204e1 # v4.4.0
         with:
           platforms: arm64
-
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@37fe631027851001ddb9b187196cc803df7f5f0e # v4.3.0
-
-      - name: Build Docker image
-        uses: docker/build-push-action@53b7df96c91f9c12dcc8a07bcb9ccacbed38856a # v7.3.0
+      - uses: docker/setup-buildx-action@37fe631027851001ddb9b187196cc803df7f5f0e # v4.3.0
+      - uses: docker/build-push-action@53b7df96c91f9c12dcc8a07bcb9ccacbed38856a # v7.3.0
         with:
           context: .
-          platforms: linux/amd64,linux/arm64
-          push: false
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
+          platforms: linux/${{ matrix.arch }}
+          load: true
+          tags: twitch-miner:test
+          cache-from: type=gha,scope=miner-${{ matrix.arch }}
+          cache-to: type=gha,scope=miner-${{ matrix.arch }},mode=max
+      - name: Check runtime, ownership and health without network access
+        env:
+          PLATFORM: linux/${{ matrix.arch }}
+        run: |
+          docker run --rm --platform "$PLATFORM" --network none twitch-miner:test --version
+          docker run --rm --platform "$PLATFORM" --network none --entrypoint sh twitch-miner:test -c '
+            test "$(id -u):$(id -g)" = "1000:1000"
+            test -r /usr/share/licenses/twitch-miner/LICENSE
+            test -r /usr/share/licenses/twitch-miner/dashboard/manrope.txt
+            test ! -e /app/src
+            ! command -v python
+            ! command -v node
+          '
+          container=$(docker run -d --platform "$PLATFORM" --network none --read-only \
+            --tmpfs /app/data:uid=1000,gid=1000 --tmpfs /app/logs:uid=1000,gid=1000 twitch-miner:test)
+          trap 'docker logs "$container"; docker rm -f "$container" >/dev/null' EXIT
+          for attempt in $(seq 1 20); do
+            if docker exec "$container" /usr/local/bin/twitch-miner healthcheck; then exit 0; fi
+            sleep 1
+          done
+          exit 1
