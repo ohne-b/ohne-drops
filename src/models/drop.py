@@ -12,6 +12,7 @@ from src.config.operations import GQL_OPERATIONS
 from src.exceptions import GQLException
 from src.i18n import _
 from src.models.benefit import Benefit
+from src.services.telegram_service import TelegramNotifier
 from src.utils import DropIgnoreReason
 
 
@@ -181,9 +182,20 @@ class BaseDrop:
                 _.t["status"]["claimed_drop"].format(drop=claim_text.replace("\n", " "))
             )
             await self._twitch.gui.broadcast_wanted_items_now()
+            await self._after_claim()
         elif not result:
             logger.error(f"Drop claim has potentially failed! Drop ID: {self.id}")
         return result
+
+    async def _after_claim(self) -> None:
+        settings = self._twitch.settings
+        token = settings.telegram_bot_token
+        chat_id = settings.telegram_chat_id
+        if token and chat_id:
+            try:
+                await TelegramNotifier(token, chat_id).notify_drop_claimed(self)
+            except Exception:
+                logger.warning(_.t["gui"]["settings"]["telegram"]["delivery_failed"])
 
     async def _claim(self) -> bool:
         """
@@ -340,10 +352,17 @@ class TimedDrop(BaseDrop):
         if result:
             self.real_current_minutes = self.required_minutes
             self.extra_current_minutes = 0
-            if not was_claimed:
-                self._twitch.drop_history.record(self, self.campaign)
-        self._on_state_changed()
+        if was_claimed or not result:
+            self._on_state_changed()
         return result
+
+    async def _after_claim(self) -> None:
+        # Persist the successful claim before cancellable Telegram I/O.
+        self.real_current_minutes = self.required_minutes
+        self.extra_current_minutes = 0
+        self._twitch.drop_history.record(self, self.campaign)
+        self._on_state_changed()
+        await super()._after_claim()
 
     def display(self, *, countdown: bool = True, subone: bool = False) -> None:
         """Display this drop in the GUI with progress information."""

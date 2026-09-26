@@ -206,6 +206,89 @@ test('every route loads directly and stays usable on a phone', async ({ page }) 
   await page.screenshot({ path: '../artifacts/redesign-settings-mobile.png', fullPage: true });
 });
 
+test('Telegram saves explicitly, reuses the masked token, tests drafts and disables alerts', async ({
+  page,
+  request,
+}) => {
+  await page.goto('/settings#telegram');
+  const section = page.locator('#telegram');
+  const token = section.getByLabel('Telegram Bot Token', { exact: true });
+  const chat = section.getByLabel('Telegram Chat ID', { exact: true });
+  const save = section.getByRole('button', { name: 'Save Settings', exact: true });
+  const testConnection = section.getByRole('button', { name: 'Test Connection', exact: true });
+  await expect(token).toHaveAttribute('type', 'password');
+  await token.fill('123456:browser_fixture');
+  await chat.fill('42');
+  expect((await (await request.get('/api/settings')).json()).telegram_configured).toBe(false);
+  await save.click();
+  await expect(section.getByText('Telegram settings saved.', { exact: true })).toBeVisible();
+  await expect(token).toHaveValue('');
+  const stored = await (await request.get('/api/settings')).json();
+  expect(stored.telegram_bot_token).toBe('••••••••');
+  expect(JSON.stringify(stored)).not.toContain('browser_fixture');
+  await expect(section.getByText('A bot token is saved.')).toBeVisible();
+  await chat.fill('reject');
+  await testConnection.click();
+  await expect(section.getByText('Telegram connection failed.', { exact: false })).toBeVisible();
+  expect((await (await request.get('/api/settings')).json()).telegram_chat_id).toBe('42');
+  await chat.fill('-7');
+  await testConnection.click();
+  await expect(section.getByText('Telegram connection successful. Settings saved.')).toBeVisible();
+  expect((await (await request.get('/api/settings')).json()).telegram_chat_id).toBe('-7');
+  await page.reload();
+  await expect(token).toHaveValue('');
+  await expect(chat).toHaveValue('-7');
+  await chat.fill('');
+  await save.click();
+  await expect(section.getByText('Telegram settings saved.', { exact: true })).toBeVisible();
+  const disabled = await (await request.get('/api/settings')).json();
+  expect(disabled.telegram_chat_id).toBe('');
+  expect(disabled.telegram_configured).toBe(true);
+  await expect(testConnection).toBeDisabled();
+  await section.getByText('How to Set Up', { exact: true }).click();
+  await expect(section.getByRole('link', { name: '@BotFather', exact: true })).toHaveAttribute(
+    'href',
+    'https://t.me/BotFather',
+  );
+  await expect(section.getByText('Open your bot in Telegram and send /start.')).toBeVisible();
+  await page.setViewportSize({ width: 390, height: 844 });
+  await section.scrollIntoViewIfNeeded();
+  expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(390);
+  await page.screenshot({ path: '../artifacts/telegram-settings-phone.png', fullPage: true });
+});
+
+test('Telegram retains edits on failed or conflicting saves and does not overwrite other settings', async ({
+  page,
+  request,
+}) => {
+  await page.goto('/settings#telegram');
+  const section = page.locator('#telegram');
+  const token = section.getByLabel('Telegram Bot Token', { exact: true });
+  const chat = section.getByLabel('Telegram Chat ID', { exact: true });
+  const save = section.getByRole('button', { name: 'Save Settings', exact: true });
+  await token.fill('123456:retained_fixture');
+  await chat.fill('42');
+  await page.route('**/api/settings', (route) =>
+    route.request().method() === 'POST'
+      ? route.fulfill({ status: 500, json: { detail: 'failed' } })
+      : route.continue(),
+  );
+  await save.click();
+  await expect(section.getByRole('alert')).toBeVisible();
+  await expect(token).toHaveValue('123456:retained_fixture');
+  await expect(chat).toHaveValue('42');
+  await page.unroute('**/api/settings');
+  await request.post('/api/settings', { headers, data: { connection_quality: 3 } });
+  await expect(page.getByLabel('Connection Quality:', { exact: true })).toHaveValue('3');
+  await save.click();
+  await expect(section.getByRole('button', { name: 'Try again', exact: true })).toBeVisible();
+  await expect(token).toHaveValue('123456:retained_fixture');
+  await section.getByRole('button', { name: 'Try again', exact: true }).click();
+  await expect(section.getByText('Telegram settings saved.', { exact: true })).toBeVisible();
+  await expect(token).toHaveValue('');
+  expect((await (await request.get('/api/settings')).json()).connection_quality).toBe(3);
+});
+
 test('keyboard focus remains visible without outlines across controls', async ({ page }) => {
   await page.goto('/settings');
   await page.keyboard.press('Tab');

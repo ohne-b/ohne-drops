@@ -17,6 +17,7 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
 from src.config.paths import DATA_DIR
+from src.services.telegram_service import BOT_TOKEN_PATTERN, TELEGRAM_TOKEN_MASK
 from src.version import __version__
 from src.web.auth import AuthAPI, AuthMiddleware, AuthSocketServer, WebAuth
 
@@ -43,7 +44,7 @@ socket_app = AuthMiddleware(socketio.ASGIApp(sio, app), web_auth)
 
 @app.exception_handler(RequestValidationError)
 async def validation_error(request, exc):
-    if request.url.path.startswith("/api/auth/"):
+    if request.url.path.startswith(("/api/auth/", "/api/settings")):
         return JSONResponse({"detail": "invalid_request"}, status_code=422)
     return await request_validation_exception_handler(request, exc)
 
@@ -83,6 +84,18 @@ class SettingsUpdate(BaseModel):
     inventory_filters: dict | None = None
     inventory_list_view: bool | None = None
     mining_benefits: dict[str, bool] | None = None
+    telegram_bot_token: str | None = Field(
+        default=None,
+        max_length=256,
+        repr=False,
+        pattern=rf"^\s*(?:{BOT_TOKEN_PATTERN}|{TELEGRAM_TOKEN_MASK})?\s*$",
+    )
+    telegram_chat_id: str | None = Field(default=None, max_length=128)
+
+
+class TelegramTestRequest(BaseModel):
+    telegram_bot_token: str = Field(default="", max_length=256, repr=False)
+    telegram_chat_id: str = Field(default="", max_length=128)
 
 
 class ProxyVerifyRequest(BaseModel):
@@ -205,6 +218,16 @@ async def update_settings(settings: SettingsUpdate):
     # No await between checking and saving: concurrent requests cannot interleave.
     updated_settings = gui_manager.settings.update_settings(settings_dict)
     return {"success": True, "settings": updated_settings}
+
+
+@app.post("/api/settings/test-telegram")
+async def test_telegram(request: TelegramTestRequest):
+    if not gui_manager:
+        raise HTTPException(status_code=503, detail="GUI not initialized")
+    success = await gui_manager.settings.test_telegram(
+        request.telegram_bot_token, request.telegram_chat_id,
+    )
+    return {"success": success}
 
 
 @app.post("/api/settings/verify-proxy")
