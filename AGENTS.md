@@ -80,7 +80,8 @@ embed it and run without a build tool/runtime companion. Production builds never
   restart even without catalog metadata. Never retire it before durable history/archive writes.
 - Every session/job/socket task is owned and drained. Logout coalesces and removes only Twitch
   credentials after drainage; concurrent shutdown cannot interrupt removal in either queue order.
-  Hourly validation/network reconfiguration preserves eligible manual selection. Cache clear
+  Hourly validation/network reconfiguration preserves eligible manual selection and queues
+  new channel choices until fresh channel eligibility is available. Cache clear
   preserves settings, credentials, claim history and completed campaigns.
 - Requests use bounded concurrency/rate, retries and cancellation. Quality 1..6 controls connect
   timeout 5×quality and total 10×quality seconds; the saved refresh interval actually schedules
