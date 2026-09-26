@@ -103,13 +103,7 @@ export default function Overview() {
         ) : (
           <Empty
             title={t('gui.progress.no_drop')}
-            detail={
-              !data.login.user_id
-                ? t('connect_help')
-                : !data.settings.games_to_watch.length
-                  ? t('choose_games')
-                  : t('waiting_help')
-            }
+            detail={t(data.login.user_id ? 'waiting_help' : 'connect_help')}
           >
             <Link
               className="button"
