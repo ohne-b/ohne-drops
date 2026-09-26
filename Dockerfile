@@ -30,7 +30,6 @@ RUN uv sync --locked --no-dev --no-install-project --no-cache
 COPY main.py ./
 COPY src/ ./src/
 COPY lang/ ./lang/
-COPY icons/ ./icons/
 COPY --from=dashboard /build/web/ ./web/
 RUN mkdir -p /app/data /app/logs
 EXPOSE 8080
