@@ -14,6 +14,7 @@ class StatusMessages(TypedDict):
     claimed_drop: str
     no_channel: str
     no_campaign: str
+    catalog_unavailable: str
 
 
 class LoginStatus(TypedDict):

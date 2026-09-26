@@ -6,7 +6,8 @@
         "goes_offline": "{channel} goes OFFLINE, switching...",
         "claimed_drop": "Claimed drop: {drop}",
         "no_channel": "No available channels to watch. Waiting for an ONLINE channel...",
-        "no_campaign": "No active campaigns to mine drops for. Waiting for an active campaign..."
+        "no_campaign": "No active campaigns to mine drops for. Waiting for an active campaign...",
+        "catalog_unavailable": "Twitch did not provide the campaign catalog. Waiting for available inventory..."
     },
     "login": {
         "unexpected_content": "Unexpected content type returned, usually due to being redirected. Do you need to login for internet access?",
@@ -315,7 +316,7 @@
             "edit": "Edit",
             "recent_activity": "Recent activity",
             "view_all": "View all",
-            "campaigns_unavailable": "Twitch did not return the campaign catalog. Existing inventory may still be shown. This is different from having no eligible rewards. Try refreshing, or check the account status.",
+            "campaigns_unavailable": "Twitch did not provide the campaign catalog for this login. In-progress campaigns remain available. This can happen even when Twitch login succeeds.",
             "search_campaigns": "Search campaigns and rewards",
             "filters": "Filters",
             "toggle_view": "Change campaign layout",
