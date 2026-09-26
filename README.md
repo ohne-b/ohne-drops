@@ -86,8 +86,10 @@ amd64 and arm64 and run without Node or a second backend runtime.
 
 ## License and contributors
 
-[MIT](LICENSE). Based on [rangermix/TwitchDropsMiner](https://github.com/rangermix/TwitchDropsMiner)
-and its upstream contributors. Font/icon licenses are in
+[MIT](LICENSE), copyright 2026 ohne-b (OhneB). Based on
+[rangermix/TwitchDropsMiner](https://github.com/rangermix/TwitchDropsMiner)
+and its upstream contributors; the original MIT license is preserved in [NOTICE.md](NOTICE.md).
+Font/icon licenses are in
 [frontend/public/assets/licenses](frontend/public/assets/licenses).
 This hobby project supports personal use on your own hardware and home network.
 
