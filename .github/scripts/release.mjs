@@ -1,4 +1,4 @@
-import { readFileSync, writeFileSync } from 'node:fs';
+import { readFileSync, writeFileSync, mkdirSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import { execFileSync } from 'node:child_process';
 import { resolve } from 'node:path';
@@ -17,6 +17,55 @@ export function validateVersion(version, previous) {
 }
 
 export const isPrerelease = version => semver.prerelease(validateVersion(version)) !== null;
+
+const repository = 'https://github.com/ohne-b/twitch-miner';
+
+export function releaseImages(version, dockerHubImage = '') {
+  const tag = validateVersion(version).replace('+', '_');
+  const images = ['ghcr.io/ohne-b/twitch-miner'];
+  if (dockerHubImage) {
+    if (dockerHubImage.length > 255 || !/^[a-z0-9][a-z0-9_-]*\/[a-z0-9]+(?:[._-][a-z0-9]+)*$/.test(dockerHubImage)) {
+      throw new Error('DOCKERHUB_IMAGE must be a lowercase namespace/repository without a registry or tag.');
+    }
+    images.push(`docker.io/${dockerHubImage}`);
+  }
+  return images.map(image => `${image}:${tag}`);
+}
+
+export function releaseManifest(version) {
+  validateVersion(version);
+  return {
+    schemaVersion: 1,
+    version,
+    notes: `[Check release notes on GitHub](${repository}/releases/tag/v${version})`,
+  };
+}
+
+export function releaseNotes(version, changelog) {
+  validateVersion(version);
+  const lines = changelog.split(/\r?\n/);
+  const heading = `## [v${version}](${repository}/releases/tag/v${version})`;
+  const matches = lines.flatMap((line, index) => line.startsWith(heading + ' ') ? [index] : []);
+  if (matches.length !== 1) throw new Error(`Add exactly one CHANGELOG entry for v${version}.`);
+  const start = matches[0] + 1;
+  const next = lines.findIndex((line, index) => index >= start && line.startsWith('## '));
+  const notes = lines.slice(start, next < 0 ? undefined : next).join('\n').trim();
+  if (!notes.startsWith('- ')) throw new Error('Release notes must start with a change list.');
+  const previous = next < 0 ? null : lines[next].match(/^## \[v([^\]]+)\]/)?.[1];
+  if (previous) validateVersion(version, validateVersion(previous));
+  const changes = previous ? `compare/v${previous}...v${version}` : `commits/v${version}`;
+  return `${notes}\n\nFull Changelog: ${repository}/${changes}\n\n` +
+    `Please [open an issue](${repository}/issues/new) to report bugs or request features.\n`;
+}
+
+export function writeReleaseArtifacts(version, directory = process.cwd()) {
+  if (readVersion(directory) !== validateVersion(version)) throw new Error('Release differs from Cargo version.');
+  const notes = releaseNotes(version, readFileSync(resolve(directory, 'CHANGELOG.md'), 'utf8'));
+  const output = resolve(directory, 'dist/release');
+  mkdirSync(output, { recursive: true });
+  writeFileSync(resolve(output, 'latest.json'), JSON.stringify(releaseManifest(version), null, 2) + '\n');
+  writeFileSync(resolve(output, 'notes.md'), notes);
+}
 
 export function readVersion(directory = process.cwd(), locked = true) {
   const args = ['metadata', '--format-version', '1'];
@@ -55,9 +104,11 @@ if (process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1]
   if (command === 'read') console.log(readVersion());
   else if (command === 'bump') console.log(bumpVersion(version));
   else if (command === 'prerelease') console.log(isPrerelease(version));
+  else if (command === 'images') console.log(releaseImages(version, process.env.DOCKERHUB_IMAGE).join('\n'));
+  else if (command === 'artifacts') writeReleaseArtifacts(version);
   else if (command === 'verify') {
     validateVersion(version);
     if (readVersion() !== version) throw new Error('Requested release differs from the checked-out package.');
     console.log(version);
-  } else throw new Error('Usage: node .github/scripts/release.mjs read|bump VERSION|verify VERSION|prerelease VERSION');
+  } else throw new Error('Usage: node .github/scripts/release.mjs read|bump VERSION|verify VERSION|prerelease VERSION|images VERSION|artifacts VERSION');
 }

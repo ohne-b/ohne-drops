@@ -39,6 +39,7 @@ jobs:
         env:
           RELEASE_VERSION: ${{ inputs.version }}
           GH_TOKEN: ${{ github.token }}
+          DOCKERHUB_IMAGE: ${{ vars.DOCKERHUB_IMAGE }}
         run: |
           node .github/scripts/release.mjs verify "$RELEASE_VERSION"
           test "$(git ls-remote origin refs/heads/main | cut -f1)" = "$GITHUB_SHA"
@@ -47,9 +48,13 @@ jobs:
           test "$conclusion" = success
           test -z "$(git ls-remote origin "refs/tags/v${RELEASE_VERSION}")"
           echo "version=$RELEASE_VERSION" >> "$GITHUB_OUTPUT"
-          echo "image_version=${RELEASE_VERSION//+/_}" >> "$GITHUB_OUTPUT"
-          echo "image=ghcr.io/${GITHUB_REPOSITORY,,}" >> "$GITHUB_OUTPUT"
+          {
+            echo 'tags<<EOF'
+            node .github/scripts/release.mjs images "$RELEASE_VERSION"
+            echo EOF
+          } >> "$GITHUB_OUTPUT"
           echo "prerelease=$(node .github/scripts/release.mjs prerelease "$RELEASE_VERSION")" >> "$GITHUB_OUTPUT"
+          node .github/scripts/release.mjs artifacts "$RELEASE_VERSION"
       - uses: docker/setup-qemu-action@99012661954931238ded8c8b007157a8430204e1 # v4.4.0
         with:
           platforms: arm64
@@ -58,30 +63,47 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: printf '%s' "$GH_TOKEN" | docker login ghcr.io -u "$GITHUB_ACTOR" --password-stdin
+      - name: Authenticate to Docker Hub when configured
+        if: vars.DOCKERHUB_IMAGE != ''
+        env:
+          DOCKERHUB_USERNAME: ${{ vars.DOCKERHUB_USERNAME }}
+          DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
+        run: |
+          : "${DOCKERHUB_USERNAME:?Set the DOCKERHUB_USERNAME repository variable}"
+          : "${DOCKERHUB_TOKEN:?Set the DOCKERHUB_TOKEN repository secret}"
+          printf '%s' "$DOCKERHUB_TOKEN" | docker login docker.io -u "$DOCKERHUB_USERNAME" --password-stdin
       - uses: docker/build-push-action@53b7df96c91f9c12dcc8a07bcb9ccacbed38856a # v7.3.0
         with:
           context: .
           platforms: linux/amd64,linux/arm64
           push: true
-          tags: ${{ steps.release.outputs.image }}:${{ steps.release.outputs.image_version }}
+          tags: ${{ steps.release.outputs.tags }}
           build-args: |
             VERSION=${{ steps.release.outputs.version }}
             VCS_REF=${{ github.sha }}
           cache-from: |
             type=gha,scope=miner-amd64
             type=gha,scope=miner-arm64
-      - name: Publish immutable tag and generated release notes
+      - name: Publish release with manifest and reviewed notes
         env:
           GH_TOKEN: ${{ github.token }}
           RELEASE_VERSION: ${{ steps.release.outputs.version }}
-          IMAGE: ${{ steps.release.outputs.image }}
-          IMAGE_VERSION: ${{ steps.release.outputs.image_version }}
+          IMAGE_TAGS: ${{ steps.release.outputs.tags }}
           PRERELEASE: ${{ steps.release.outputs.prerelease }}
         run: |
-          flags=()
-          if [[ "$PRERELEASE" == true ]]; then flags+=(--prerelease --latest=false); fi
-          gh release create "v${RELEASE_VERSION}" --target "$GITHUB_SHA" --generate-notes \
-            --title "${RELEASE_VERSION}" "${flags[@]}"
+          # Upload to a draft first: the public release must never lack latest.json.
+          gh release create "v${RELEASE_VERSION}" --target "$GITHUB_SHA" --draft \
+            --title "Twitch miner v${RELEASE_VERSION}" --notes-file dist/release/notes.md \
+            dist/release/latest.json
+          gh release download "v${RELEASE_VERSION}" --pattern latest.json --dir dist/verify
+          cmp dist/release/latest.json dist/verify/latest.json
           if [[ "$PRERELEASE" == false ]]; then
-            docker buildx imagetools create --tag "${IMAGE}:latest" "${IMAGE}:${IMAGE_VERSION}"
+            while IFS= read -r image; do
+              docker buildx imagetools create --tag "${image%:*}:latest" "$image"
+            done <<< "$IMAGE_TAGS"
+          fi
+          if [[ "$PRERELEASE" == true ]]; then
+            gh release edit "v${RELEASE_VERSION}" --draft=false --prerelease --latest=false
+          else
+            gh release edit "v${RELEASE_VERSION}" --draft=false --latest
           fi
