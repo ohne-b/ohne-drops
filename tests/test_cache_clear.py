@@ -110,8 +110,12 @@ def test_clear_cached_state_discards_only_derived_runtime_state():
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize("catalog", [[], None])
-async def test_inventory_replacement_removes_stale_campaign_lookup_entries(catalog):
+async def test_inventory_replacement_removes_stale_campaign_lookup_entries(catalog, monkeypatch):
+    monkeypatch.setattr(
+        "src.services.campaign_discovery.CampaignDiscovery.fetch", AsyncMock(return_value={}),
+    )
     twitch = SimpleNamespace(
+        settings=SimpleNamespace(games_to_watch=[]),
         _drops={"stale-drop": object()},
         _campaigns={"stale-campaign": object()},
         inventory=[object()],
@@ -141,7 +145,7 @@ async def test_inventory_replacement_removes_stale_campaign_lookup_entries(catal
     )
 
     await InventoryService(cast(Twitch, twitch)).fetch_inventory()
-    twitch.gui.inv.set_availability.assert_called_once_with(catalog is not None)
+    twitch.gui.inv.set_availability.assert_called_once_with(catalog is not None, recovered=0)
     assert twitch._campaigns == {}
     assert twitch._drops == {}
     assert twitch.inventory == []

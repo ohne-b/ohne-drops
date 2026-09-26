@@ -25,6 +25,7 @@ It is the repository's contribution policy, not optional background reading.
 ## Development Guidelines
 
 The sidebar footer shows the Twitch account ID and GitHub icon. Live connection status remains in Settings → Twitch account.
+Label that transport status "Dashboard connected" to distinguish it from Twitch login.
 The GitHub glyph is 24px, matching OhneGuessr; its size must override the shared 18px icon default.
 Overview Channels and Up next share equal desktop columns and stack on smaller screens.
 Show confirmed progress values and their timestamp without the redundant "Confirmed by Twitch" label.
@@ -102,20 +103,6 @@ lang/                # English message catalog
 
 ### React dashboard
 
-- Optional browser import and server renewal are documented in docs/browser-login.md.
-  Preserve Smart TV operation until validated import. Never mix browser credentials
-  into cookies.jar. Import requires dashboard authentication and validates identity,
-  Inventory and catalog. Retain strict body/header bounds, fixed Twitch destinations,
-  redirect refusal, account binding, and post-validation authorization checks.
-- Serialized legacy login must finish before an import may activate. Logout closes
-  the importer, rejects in-flight replacements, deletes its saved state and creates
-  a fresh importer. Renewal checks its pairing before launching Chromium, including
-  after helper restarts. Helper-owned seeds must be deleted separately on permanent
-  disconnect. Never print/export credentials in logs, fixtures, PRs or chat.
-- Docker's renewal target adds Chromium; the default production target does not.
-  CI builds both targets on amd64/arm64. Linux-only process/permission tests run in
-  CI; Windows private exports require a restricted directory ACL.
-
 - Channel viewer counts are nullable for offline streams. Preserve that API type,
   render unknown counts as a dash, and sort them after known counts within watching priority.
 
@@ -137,6 +124,21 @@ lang/                # English message catalog
   Missing details also mean incomplete discovery, even when summaries were returned.
   Smart TV catalog access is an upstream limitation; do not claim cache clearing,
   relogin or client-ID substitution repairs it.
+- `CampaignDiscovery` recovers missing metadata through Twitch's live-channel
+  `viewerDropCampaigns` resolver, with the existing authenticated/rate-limited GQL
+  client. Omit account `self` edges from that query: they can null the entire list.
+  Scan at most 500 categories/3 streams plus 100 known or saved game slugs, bounded
+  by 60 seconds. Cancellation must propagate on logout/shutdown. No external mirror.
+  Keep Inventory/detail records authoritative as whole records; when the normal
+  catalog exists, recover only IDs it lists as active/upcoming. A valid empty list
+  never triggers recovery. Preserve real ACLs, prerequisites and timing, and limit
+  recovered campaigns to `discovery_channels`. Do not treat these channels as a new
+  campaign ACL for special-category rules. Surface partial discovery via `recovered`
+  while keeping `available` false. Unknown linkage is null; unknown progress has no
+  confirmation timestamp. Retain the original device login and UI refinements.
+  Require account evidence for every benefit before inferring a claim without a self
+  edge. Skip nullable directory/channel entries without discarding valid neighbors.
+  Discovery may handle GQL failures, but must propagate login and exit requests.
 - Render API/translated strings as React text; validate external links. Expand Twitch
   art URL placeholders in Art. Keep the English message schema consistent. No injected
   HTML or CDN scripts. Keep auth/status translations usable before authentication.
@@ -275,6 +277,12 @@ progress to an ignored drop while the miner intentionally targets another reward
 7. Loop between CHANNEL_SWITCH and periodic INVENTORY_FETCH (hourly)
 
 ### Authentication
+
+- Use the in-app device-code flow only. Browser session import routes, credentials,
+  helper containers and renewal services have been removed. Retain credential-safe
+  HTTP/websocket logging and report device authorization failures by status code.
+  Keep retired session-export and renewal-state ignore patterns: upgrades may still
+  have old credential files even though their consuming feature has been removed.
 
 - `/api/twitch/logout` is separate from dashboard logout. The session owner cancels
   and drains inventory/channel batches, watch/maintenance work, delayed channel

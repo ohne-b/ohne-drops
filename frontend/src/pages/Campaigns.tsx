@@ -35,7 +35,7 @@ export function matchesCampaign(campaign: CampaignData, filters: Filters, search
   )
     return false;
   if (
-    (filters.show_only_not_linked && campaign.linked) ||
+    (filters.show_only_not_linked && campaign.linked !== false) ||
     (!filters.show_finished && (campaign.mining_finished ?? campaign.finished))
   )
     return false;
@@ -108,7 +108,11 @@ export default function Campaigns() {
         <h1 className="text-[22px] font-semibold">{t('campaigns')}</h1>
       </div>
       {data.inventory_status?.available === false && (
-        <Notice error>{t('campaigns_unavailable')}</Notice>
+        <Notice error={!data.inventory_status.recovered}>
+          {data.inventory_status.recovered
+            ? t('campaigns_recovered', { count: data.inventory_status.recovered })
+            : t('campaigns_unavailable')}
+        </Notice>
       )}
       <div className="flex flex-wrap gap-3">
         <div className="min-w-48 flex-1">
