@@ -159,11 +159,14 @@ Version ownership is `Cargo.toml` and `Cargo.lock`. **Prepare release**, manuall
 main, uses `PUBLISHER_TOKEN` to create a draft version PR whose checks run normally. The
 token needs repository contents/PR access; configure it as a secret, never in source.
 Review and merge that PR under the same policy. **Publish release** then runs manually
-from main for that version, requires successful push validation on the exact commit,
+from main for that version, requires successful push or manually dispatched validation on the exact commit,
 and uses the `prod` environment. It builds both architectures, publishes
 `ghcr.io/ohne-b/twitch-miner:VERSION`, and creates a `vVERSION` GitHub release with generated
 notes. Stable releases update `latest`; prereleases do not. The first GHCR package may
 need public visibility configured for anonymous pulls. Ordinary merges publish nothing.
+Contributor credit commits made with the workflow token do not trigger push workflows;
+run **validation** manually on main before publishing when its latest commit is such a credit.
+SemVer build metadata uses `_` in place of `+` in the Docker tag.
 
 Do not rewrite published tags or bypass checks. Revert source through a normal PR; an
 installation rollback redeploys a previously validated image with its backed-up data.
