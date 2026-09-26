@@ -1,111 +1,303 @@
-# Twitch Drops Miner
+<h1 align="center">Twitch Drops Miner</h1>
 
-Mine timed Twitch Drops from a quiet, self-hosted dashboard without downloading stream
-video or audio. Rust backend, React/TypeScript frontend, Docker support.
+<p align="center">Mine timed Twitch Drops without streaming video or audio.</p>
 
-## Getting started
+<p align="center">
+  <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-22c55e" alt="License: MIT"></a>
+</p>
+
+Twitch Drops Miner runs on your own hardware and manages one Twitch account through a
+web dashboard. It discovers campaigns, watches eligible live channels through Twitch
+watch events, and claims earned rewards. The Rust executable includes the React dashboard.
+
+> [!NOTE]
+> This is a hobby project for personal use on your own hardware and home network.
+> Support is best effort. VPS, cloud hosting, and services operated for other users are
+> outside the support scope; continued compatibility with Twitch is not guaranteed.
+
+## Features
+
+- Automatic discovery of active and upcoming campaigns, with game priorities and channel selection.
+- Reward-type filters and drop-name ignore rules that account for prerequisite rewards.
+- Live progress with a distinction between Twitch-confirmed values and local estimates.
+- Saved Twitch sessions, claimed-drop history, and completed campaigns.
+- History filters, statistics, and CSV or JSON export.
+- Optional password protection for the dashboard, API, and live connections.
+- Docker images for amd64 and arm64, or a standalone executable built from source.
+
+## Quick start
+
+### Docker Compose
+
+Install Docker with Compose support. In a new directory, save this as `compose.yaml`:
+
+```yaml
+services:
+  twitch-drops-miner:
+    image: ghcr.io/ohne-b/twitch-miner:latest
+    container_name: twitch-drops-miner
+    user: "1000:1000"
+    ports:
+      - "127.0.0.1:8080:8080"
+    volumes:
+      - ./data:/app/data
+      - ./logs:/app/logs
+    restart: unless-stopped
+```
+
+Create the `data` and `logs` directories beside that file. On Linux, make them writable
+by UID/GID `1000:1000`, which runs the container. Then start it:
 
 ```bash
-mkdir -p data logs
+docker compose up -d
+```
+
+Open <http://127.0.0.1:8080> and follow [First login](#first-login).
+The port mapping limits access to the local machine. For LAN access, bind an explicit
+LAN address and enable [dashboard protection](#dashboard-password-and-remote-access).
+
+Images are also published on [Docker Hub](https://hub.docker.com/r/ohneb/twitch-miner)
+as `ohneb/twitch-miner`. Use `latest` for the stable release or a version tag to pin an
+installation. [Release notes](https://github.com/ohne-b/twitch-miner/releases) and the
+[changelog](CHANGELOG.md) describe changes between versions.
+
+<details>
+<summary>Build the Docker image from a checkout</summary>
+
+The repository's [docker-compose.yml](docker-compose.yml) builds the image locally and
+uses the same data paths, user, and loopback port mapping. With Git and Docker installed:
+
+```bash
+git clone https://github.com/ohne-b/twitch-miner.git
+cd twitch-miner
+```
+
+Create writable `data` and `logs` directories as above, then run:
+
+```bash
 docker compose up -d --build
 ```
 
-Open <http://127.0.0.1:8080>. In **Settings > Twitch account**, authorize the displayed
-Twitch device code and confirm in the dashboard. Choose **Mine** on a campaign to start.
-**Only games you select are mined.** Reorder them in Settings to set priority.
+</details>
 
-The container runs as UID/GID `1000:1000`; its data/log directories must be writable by
-that user. Compose binds to loopback by default. For LAN access, set an explicit LAN
-address in the port mapping and enable the dashboard password in Settings.
+### Run from source
 
-## Dashboard
-
-- **Overview:** current progress, live channels and the next rewards.
-- **Campaigns:** discovered campaigns, filters and Mine/Stop mining controls. Active
-  campaigns with progress appear first. Clear filters if fewer results appear than expected.
-- **Finished:** completed campaigns retained across restarts and refreshes. Expired
-  campaigns remain distinct; older incomplete records are labeled completion unverified.
-- **History:** claimed rewards, filters, statistics and CSV/JSON export.
-- **Activity and Settings:** diagnostics, game priorities, ignore rules, account and access controls.
-
-Twitch may withhold part of its campaign catalog. Live-channel discovery improves coverage,
-but cannot guarantee every campaign appears. Progress confirmed by Twitch is distinguished
-from local estimates. A healthy dashboard does not prove live earning.
-
-## Updates and data
-
-Back up `data/` and your Compose file before upgrading. For a source checkout:
+Install [Rust through rustup](https://rustup.rs/), Node.js 24, and Git. Windows builds
+also require the Visual Studio C++ build tools. The repository pins the Rust toolchain.
 
 ```bash
-git pull --ff-only
-docker compose build
-docker compose up -d --force-recreate
-```
-
-Restarting alone does not install new code. Preserve your existing Compose mounts, network
-binding and ownership. There is no in-dashboard updater.
-
-**Settings > Maintenance** checks for new releases and links to their release notes.
-It distinguishes an available update from a failed check. Every release includes
-[`latest.json`](https://github.com/ohne-b/twitch-miner/releases/latest/download/latest.json);
-the [changelog](CHANGELOG.md) describes each release. Versioning starts at `0.1.0` for
-this project; installations labeled `1.3.2` need one manual upgrade to this release series.
-
-Release images for amd64 and arm64 are available on
-[Docker Hub](https://hub.docker.com/r/ohneb/twitch-miner) as `ohneb/twitch-miner:VERSION`
-and GHCR as `ghcr.io/ohne-b/twitch-miner:VERSION`. Both also provide `latest` for stable releases.
-To use a published image with the supplied Compose file, remove `build: .`, change
-`image:` to `ohneb/twitch-miner:latest`, then run `docker compose pull` and
-`docker compose up -d`. Keep your existing mounts, ownership and port mapping.
-Registry publishing setup is covered in
-[CONTRIBUTING.md](CONTRIBUTING.md#release-and-automation).
-
-The Rust version reads existing settings, mining selections, history, completed campaigns
-and dashboard protection. **One new Twitch device-code login is required.** Existing
-credential files stay untouched for rollback; live progress is restored from Twitch.
-Telegram is removed. See [operations and migration details](docs/operations.md) for data
-files, reverse-proxy configuration and password recovery.
-
-## Run from source
-
-Install [Rust through rustup](https://rustup.rs/) and Node.js 24. Windows also needs the
-Visual Studio C++ build tools. The repository pins the Rust toolchain and dependency locks.
-
-```bash
+git clone https://github.com/ohne-b/twitch-miner.git
+cd twitch-miner
 npm --prefix frontend ci
 npm --prefix frontend run build
 cargo run --locked -- --host 127.0.0.1
 ```
 
-`cargo build --release --locked --bin twitch-miner` builds a standalone executable with
-the dashboard embedded. Use `--help` for host/port/data/log options. Docker images support
-amd64 and arm64 and run without Node or a second backend runtime.
+Open <http://127.0.0.1:8080>. Data and logs go to `data/` and `logs/` relative to the
+working directory. After building the frontend, create a release executable with:
 
-[CONTRIBUTING.md](CONTRIBUTING.md) covers development, testing and releases.
-[AGENTS.md](AGENTS.md) records the architecture and behavior contracts.
+```bash
+cargo build --release --locked --bin twitch-miner
+```
 
-## License and contributors
+The executable in `target/release/` embeds the dashboard and runs without Node.js.
+Use `--help` for host, port, data directory, and log directory options.
 
-[MIT](LICENSE), copyright 2026 ohne-b (OhneB). Based on
-[rangermix/TwitchDropsMiner](https://github.com/rangermix/TwitchDropsMiner)
-and its upstream contributors; the original MIT license is preserved in [NOTICE.md](NOTICE.md).
-Font/icon licenses are in
+## First login
+
+1. Open **Settings > Twitch account** and follow the displayed device-code authorization
+   link. Complete authorization on Twitch, then confirm in the dashboard.
+2. Link the relevant game accounts through
+   [Twitch Drops campaigns](https://www.twitch.tv/drops/campaigns).
+3. In **Campaigns**, select **Mine** on a campaign. This selects its game across all
+   eligible campaigns. Add more games the same way.
+4. Reorder **Settings > Game priorities** and leave the miner running. It selects an
+   eligible live channel and claims rewards when Twitch makes them available.
+
+> [!IMPORTANT]
+> Only selected games are mined. Discovering a campaign does not select its game, and
+> an empty game list sends no watch events. **Stop mining** removes the entire game
+> from that list. Already-earned rewards can still be claimed.
+
+Login uses Twitch's Smart TV device authorization flow. The saved session survives
+restarts; enter your Twitch password only on Twitch's authorization page.
+
+> [!WARNING]
+> Avoid watching Twitch manually with the same account while mining. Simultaneous
+> viewing can interfere with drop progress.
+
+## Using the dashboard
+
+| Page                     | What it shows                                                                             |
+| ------------------------ | ----------------------------------------------------------------------------------------- |
+| **Overview**             | Mining progress, live channels, and the **Up next** reward queue.                         |
+| **Campaigns**            | Available campaigns, eligibility, filters, and **Mine / Stop mining** controls.           |
+| **Campaigns > Finished** | Completed campaigns retained across restarts and refreshes.                               |
+| **History**              | Recorded claims, game/date filters, statistics, and exports.                              |
+| **Activity**             | Mining messages and errors.                                                               |
+| **Settings**             | Twitch login, game priorities, mining preferences, connection, password, and maintenance. |
+
+### Games, filters, and ignored rewards
+
+In **Game priorities**, drag games into order or focus a drag handle and use the arrow
+keys. The first game has the highest priority. Settings save automatically; if a save
+fails or another browser changes the same settings, your edits stay available for **Retry**.
+
+Campaign status filters combine **Active**, **Upcoming**, and **Expired**; **Not linked**
+narrows the result to campaigns known to need account linking. Active campaigns with
+existing progress appear first. **Finished** requires all watch rewards to be claimed;
+expiry alone does not count as completion. Older history without completion evidence
+appears separately as **Older recorded rewards**.
+
+**Ignored Drop Keywords** accepts one literal substring per line, matched without regard
+to case. Blank lines and duplicates are removed. A matching reward and dependent branches
+are ignored, while prerequisites shared with an allowed reward remain mineable. Ignored
+or skipped rewards are never treated as claimed. Twitch may still advance an ignored
+reward alongside another reward.
+
+Zero-minute subscription rewards are omitted from **Campaigns** and **Up next** because
+watching cannot earn them. Expired rewards leave **Up next**; upcoming and sequential
+watch rewards remain visible.
+
+**Special Events** and **IRL** can use listed participating channels in other categories
+when the campaign has an enabled, nonempty channel list. Select the campaign's game and
+keep its rewards eligible. Other campaigns require a matching category and drops-enabled
+channel; every watched channel must be live.
+
+### History and saved data
+
+**History** filters by game and a starting date at midnight UTC. Claim times display in
+your browser's timezone. CSV and JSON exports contain the filtered results.
+**Clear local history** removes the local claim list; Twitch claims and completed
+campaign snapshots in **Finished** are kept.
+
+Docker stores application data in `/app/data` and logs in `/app/logs`, mounted to the
+directories in the Compose example. Settings, Twitch credentials, dashboard sessions,
+claim history, and interrupted-claim recovery records live in the data directory.
+Run only one miner per data directory and keep it private.
+
+**Settings > Maintenance > Clear All Cache** discards derived campaign/channel state
+and refreshes from Twitch. It preserves settings, credentials, claim history, and
+completed campaigns. See [persistent data and migration](docs/operations.md#persistent-data)
+for filenames, compatibility, and recovery details.
+
+## Dashboard password and remote access
+
+Password protection is off by default. In **Settings > Dashboard password**, enter and
+confirm a password, then enable protection. It protects the dashboard, application API,
+and live connections. Mining continues while the dashboard is locked.
+
+- The dashboard password is separate from your Twitch login; no username is needed.
+- Sessions last up to 30 days. **Remember me** also persists the browser cookie for that period.
+- Changing the password signs out other sessions. Disabling protection requires the
+  current password and clears all dashboard sessions.
+- Logging out of the dashboard does not log the miner out of Twitch.
+
+> [!IMPORTANT]
+> Enable protection on a trusted network before making the dashboard remotely reachable.
+> Use HTTPS through a reverse proxy to protect passwords and cookies in transit.
+
+Set `PUBLIC_BASE_URL` to the exact root URL opened in the browser. Add this under the
+Compose service, replacing the example hostname:
+
+```yaml
+environment:
+  PUBLIC_BASE_URL: https://drops.example.com
+```
+
+Recreate the container with `docker compose up -d` after changing its environment.
+The setting controls the permitted browser origin and enables Secure cookies for HTTPS.
+It does not provide TLS, support subpaths, or trust forwarded client-IP headers. Use
+one HTTP(S) root URL without credentials, a query, or a fragment. A reverse proxy must
+forward both HTTP and Socket.IO connections.
+
+See [dashboard protection](docs/operations.md#dashboard-protection) for session storage
+and forgotten-password recovery.
+
+## Updating
+
+**Settings > Maintenance** checks the latest stable release and links to its notes.
+Installation is manual. A failed update check is reported separately from an up-to-date
+installation.
+
+> [!CAUTION]
+> Save a copy of the current Compose file before editing it or pulling source changes.
+> Stop the miner before backing up its entire data directory. Keep the previous image
+> and configuration for rollback.
+
+For the published-image Compose example, update `image:` first if it pins a version tag.
+Pull the image before stopping the current container:
+
+```bash
+docker compose pull
+docker compose stop
+```
+
+Back up `data/`, then start the replacement:
+
+```bash
+docker compose up -d
+```
+
+For a checkout using the repository's Compose file, back up `docker-compose.yml` before
+pulling changes. Build while the old container runs:
+
+```bash
+git pull --ff-only
+docker compose build
+docker compose stop
+```
+
+Back up `data/`, then recreate the container:
+
+```bash
+docker compose up -d --force-recreate
+```
+
+Preserve mounts, ownership, and the port binding. Restarting a container alone does not
+install a new image. After replacement, inspect `docker compose ps` and
+`docker compose logs --tail=100`, then check the dashboard.
+
+When migrating from the Python version, existing settings, history, completed campaigns,
+and dashboard protection remain compatible. One fresh Twitch device-code login is
+required; old credential files stay untouched for rollback. See
+[operations and upgrades](docs/operations.md) for migration details, including earlier
+development builds labeled `1.3.2`.
+
+## Troubleshooting
+
+- **No campaigns appear:** clear the campaign filters and check **Activity**. Twitch can
+  return an incomplete catalog; live-channel discovery may improve coverage but cannot
+  guarantee every campaign appears. Clearing cache or logging in again cannot repair
+  an upstream catalog restriction.
+- **Mining is idle:** select a game, check account linking, campaign dates, prerequisites,
+  reward filters, and ignore rules. Progress requires an eligible live channel.
+- **Progress seems stuck:** compare Twitch's inventory with the dashboard's confirmed
+  values and local estimates, and stop simultaneous manual viewing. A healthy process
+  or **Dashboard connected** status does not prove Twitch is awarding progress.
+- **The container cannot write data or logs:** check that the mounted directories are
+  writable by UID/GID `1000:1000` and that another miner is not using the same data directory.
+- **Writes or live updates fail behind a proxy:** open the configured `PUBLIC_BASE_URL`
+  exactly, check the proxy's Socket.IO support, and review the
+  [protection configuration](docs/operations.md#dashboard-protection).
+
+## Contributing
+
+Read [CONTRIBUTING.md](CONTRIBUTING.md) for issue reporting, development, required tests,
+and independent review. [AGENTS.md](AGENTS.md) contains the repository's agent instructions.
+Backend tests use temporary storage and mock transports; browser tests start their own
+offline fixture. Never use a live miner or real credentials for automated checks.
+
+Report reproducible problems through [GitHub issues](https://github.com/ohne-b/twitch-miner/issues).
+Include the version, installation method, and redacted evidence; never upload credentials,
+device codes, or a data directory.
+
+## License and credits
+
+[MIT](LICENSE), copyright 2026 ohne-b (OhneB).
+
+Based on [rangermix/TwitchDropsMiner](https://github.com/rangermix/TwitchDropsMiner),
+which builds on [DevilXD/TwitchDropsMiner](https://github.com/DevilXD/TwitchDropsMiner),
+and their contributors. The full upstream MIT license is preserved in [NOTICE.md](NOTICE.md).
+Bundled font and icon notices are in
 [frontend/public/assets/licenses](frontend/public/assets/licenses).
-This hobby project supports personal use on your own hardware and home network.
-
-<!-- contributors:start -->
-| Contributor | Merged pull requests |
-| --- | --- |
-| [@3lb0z0](https://github.com/3lb0z0) | [#110](https://github.com/rangermix/TwitchDropsMiner/pull/110) |
-| [@birdhimself](https://github.com/birdhimself) | [#41](https://github.com/rangermix/TwitchDropsMiner/pull/41) |
-| [@capkz](https://github.com/capkz) | [#70](https://github.com/rangermix/TwitchDropsMiner/pull/70) |
-| [@EthanBlazkowicz](https://github.com/EthanBlazkowicz) | [#33](https://github.com/rangermix/TwitchDropsMiner/pull/33) |
-| [@Klages](https://github.com/Klages) | [#94](https://github.com/rangermix/TwitchDropsMiner/pull/94) · [#95](https://github.com/rangermix/TwitchDropsMiner/pull/95) |
-| [@Knight-sys](https://github.com/Knight-sys) | [#3](https://github.com/rangermix/TwitchDropsMiner/pull/3) |
-| [@ohne-b](https://github.com/ohne-b) | [#1](https://github.com/ohne-b/twitch-miner/pull/1) · [#2](https://github.com/ohne-b/twitch-miner/pull/2) · [#3](https://github.com/ohne-b/twitch-miner/pull/3) · [#4](https://github.com/ohne-b/twitch-miner/pull/4) · [#5](https://github.com/ohne-b/twitch-miner/pull/5) · [#6](https://github.com/ohne-b/twitch-miner/pull/6) · [#7](https://github.com/ohne-b/twitch-miner/pull/7) · [#8](https://github.com/ohne-b/twitch-miner/pull/8) · [#9](https://github.com/ohne-b/twitch-miner/pull/9) · [#10](https://github.com/ohne-b/twitch-miner/pull/10) · [#11](https://github.com/ohne-b/twitch-miner/pull/11) · [#12](https://github.com/ohne-b/twitch-miner/pull/12) · [#13](https://github.com/ohne-b/twitch-miner/pull/13) · [#14](https://github.com/ohne-b/twitch-miner/pull/14) |
-| [@rangermix](https://github.com/rangermix) | [#1](https://github.com/rangermix/TwitchDropsMiner/pull/1) · [#2](https://github.com/rangermix/TwitchDropsMiner/pull/2) · [#7](https://github.com/rangermix/TwitchDropsMiner/pull/7) · [#8](https://github.com/rangermix/TwitchDropsMiner/pull/8) · [#9](https://github.com/rangermix/TwitchDropsMiner/pull/9) · [#13](https://github.com/rangermix/TwitchDropsMiner/pull/13) · [#20](https://github.com/rangermix/TwitchDropsMiner/pull/20) · [#24](https://github.com/rangermix/TwitchDropsMiner/pull/24) · [#29](https://github.com/rangermix/TwitchDropsMiner/pull/29) · [#32](https://github.com/rangermix/TwitchDropsMiner/pull/32) · [#45](https://github.com/rangermix/TwitchDropsMiner/pull/45) · [#74](https://github.com/rangermix/TwitchDropsMiner/pull/74) · [#79](https://github.com/rangermix/TwitchDropsMiner/pull/79) · [#80](https://github.com/rangermix/TwitchDropsMiner/pull/80) · [#84](https://github.com/rangermix/TwitchDropsMiner/pull/84) · [#86](https://github.com/rangermix/TwitchDropsMiner/pull/86) · [#88](https://github.com/rangermix/TwitchDropsMiner/pull/88) · [#93](https://github.com/rangermix/TwitchDropsMiner/pull/93) · [#89](https://github.com/rangermix/TwitchDropsMiner/pull/89) · [#90](https://github.com/rangermix/TwitchDropsMiner/pull/90) · [#91](https://github.com/rangermix/TwitchDropsMiner/pull/91) · [#92](https://github.com/rangermix/TwitchDropsMiner/pull/92) · [#104](https://github.com/rangermix/TwitchDropsMiner/pull/104) · [#105](https://github.com/rangermix/TwitchDropsMiner/pull/105) · [#116](https://github.com/rangermix/TwitchDropsMiner/pull/116) · [#119](https://github.com/rangermix/TwitchDropsMiner/pull/119) · [#120](https://github.com/rangermix/TwitchDropsMiner/pull/120) |
-| [@Sean-Destefano](https://github.com/Sean-Destefano) | [#49](https://github.com/rangermix/TwitchDropsMiner/pull/49) |
-| [@SimpliAj](https://github.com/SimpliAj) | [#72](https://github.com/rangermix/TwitchDropsMiner/pull/72) |
-| [@Stein-N](https://github.com/Stein-N) | [#71](https://github.com/rangermix/TwitchDropsMiner/pull/71) |
-| [@vurmil](https://github.com/vurmil) | [#12](https://github.com/rangermix/TwitchDropsMiner/pull/12) · [#17](https://github.com/rangermix/TwitchDropsMiner/pull/17) · [#18](https://github.com/rangermix/TwitchDropsMiner/pull/18) · [#100](https://github.com/rangermix/TwitchDropsMiner/pull/100) |
-<!-- contributors:end -->
