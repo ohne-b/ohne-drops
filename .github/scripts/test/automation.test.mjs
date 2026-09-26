@@ -9,6 +9,8 @@ import { updateContributors } from '../update-contributors.mjs';
 
 test('release versions use SemVer precedence and reject shell syntax and noncanonical input', () => {
   assert.equal(validateVersion('2.0.0-rc.10', '2.0.0-rc.2'), '2.0.0-rc.10');
+  assert.equal(validateVersion('2.0.0+build.1', '1.0.0'), '2.0.0+build.1');
+  assert.equal(validateVersion('2.0.0-rc.1+build.1', '1.0.0'), '2.0.0-rc.1+build.1');
   for (const version of ['v2.0.0', '02.0.0', '2.0', '2.0.0\n', '2.0.0;true', '$(id)', '1.0.0', '0.9.9']) {
     assert.throws(() => validateVersion(version, '1.0.0'));
   }
@@ -22,8 +24,8 @@ test('Cargo metadata validates and updates both version files without changing d
     writeFileSync(join(directory, 'Cargo.toml'), '[package]\nname = "twitch-miner"\nversion = "1.0.0"\nedition = "2024"\n');
     execFileSync('cargo', ['generate-lockfile', '--offline'], { cwd: directory });
     assert.equal(readVersion(directory), '1.0.0');
-    assert.equal(bumpVersion('1.1.0-rc.1', directory), '1.1.0-rc.1');
-    assert.match(readFileSync(join(directory, 'Cargo.lock'), 'utf8'), /version = "1.1.0-rc.1"/);
+    assert.equal(bumpVersion('1.1.0-rc.1+build.1', directory), '1.1.0-rc.1+build.1');
+    assert.match(readFileSync(join(directory, 'Cargo.lock'), 'utf8'), /version = "1.1.0-rc.1\+build.1"/);
     const lock = readFileSync(join(directory, 'Cargo.lock'), 'utf8');
     writeFileSync(join(directory, 'Cargo.lock'), lock.replace('1.1.0-rc.1', '0.0.1'));
     assert.throws(() => readVersion(directory));

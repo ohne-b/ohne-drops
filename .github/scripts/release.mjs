@@ -7,9 +7,11 @@ import { pathToFileURL } from 'node:url';
 const semver = createRequire(new URL('../../frontend/package.json', import.meta.url))('semver');
 
 export function validateVersion(version, previous) {
-  if (typeof version !== 'string' || semver.valid(version) !== version ||
+  const parsed = typeof version === 'string' ? semver.parse(version) : null;
+  const canonical = parsed && parsed.version + (parsed.build.length ? `+${parsed.build.join('.')}` : '');
+  if (!parsed || canonical !== version || version.length > 128 ||
       (previous && !semver.gt(version, previous))) {
-    throw new Error('Use a canonical SemVer version greater than the current version.');
+    throw new Error('Use a canonical SemVer version (up to 128 characters) greater than the current version.');
   }
   return version;
 }
