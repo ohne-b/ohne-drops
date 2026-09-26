@@ -10,7 +10,7 @@ mkdir -p data logs
 docker compose up -d --build
 ```
 
-Open <http://127.0.0.1:8080>. In **Settings ? Twitch account**, authorize the displayed
+Open <http://127.0.0.1:8080>. In **Settings > Twitch account**, authorize the displayed
 Twitch device code and confirm in the dashboard. Choose **Mine** on a campaign to start.
 **Only games you select are mined.** Reorder them in Settings to set priority.
 
