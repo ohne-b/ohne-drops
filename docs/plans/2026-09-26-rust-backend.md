@@ -350,18 +350,32 @@ after installation; automated parity evidence is not described as proof of live 
 
 ## Completion record
 
-Keep this section updated with actual decisions, commands, reviewed commit, CI links and
-remaining limitations. Do not mark implementation complete because it compiles or because
-the deadline is inconvenient. Any unfinished production behavior or security/review gate
-keeps the PR in draft. The final handoff always includes the PowerShell update command.
-
 Plan review: the independent reviewer identified three parity details before implementation:
 claiming independent of mining selection with the 24-hour grace, the 15-minute estimate
 ceiling with recovery, and wiring retained network/refresh controls into real behavior.
-All three are included above and have explicit acceptance cases. No architecture blocker
-was reported. Final implementation review remains required.
+All three were implemented with regression coverage.
 
-Implementation review milestones: foundation and protocol fixes were rechecked independently.
-At `5e3a446`, the reviewer cleared the mining lifecycle and durable-claim findings, independently
-running 25 committed miner tests and two additional recovery/failure probes. Final packaging,
-whole-rewrite review, CI and merge gates remain pending until recorded with their final revisions.
+Implementation and whole-rewrite adversarial review completed at
+`deff6a25baba16d066111ffa4b02c32a68b7d6da`, incorporating main `5958c44`.
+The separate read-only reviewer cleared the foundation, Twitch protocol, mining lifecycle,
+durable claims, migration and packaging changes after fixes. The final recheck included
+26 miner tests and four independent full-owner probes covering queued channel selection,
+exit from manual mode, another network restart and logout during reload.
+
+[Validation on that revision](https://github.com/ohne-b/twitch-miner/actions/runs/36249547135)
+passed Rust fmt/Clippy, 94 library tests and one executable test, frontend format/type/build,
+six frontend unit tests, 43 browser/accessibility tests, five automation tests, version/lock
+agreement, and production amd64/arm64 image builds with isolated health and ownership checks.
+Local dependency-use and workflow syntax audits also passed. The production image contains
+the standalone executable, certificates and license notices, with no old backend runtime.
+
+The current tree removes retired source/tooling, unused messages and obsolete documentation.
+Old local environments and artifacts were moved outside the checkout without touching user
+data. README focuses on setup/use; operations and contribution details have dedicated guides.
+
+[PR #12](https://github.com/ohne-b/twitch-miner/pull/12) records the final tested/reviewed head
+and merge checks, including later documentation-only changes. No release or home-server
+deployment is part of this rewrite. The local update helper is reviewed and tested separately,
+then pinned to the merged revision for the operator's interactive PowerShell/sudo execution.
+One new Twitch device login is required. Live earning remains unverified, and upstream
+campaign recovery remains partial; neither mock tests nor container health prove earning.
