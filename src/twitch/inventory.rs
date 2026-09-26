@@ -235,6 +235,8 @@ impl TwitchClient {
                     };
                     if !matches!(raw["status"].as_str(), Some("ACTIVE" | "UPCOMING"))
                         || !raw["game"].is_object()
+                        || raw["timeBasedDrops"].as_array().is_none_or(Vec::is_empty)
+                        || Campaign::parse(raw, &HashMap::new(), Utc::now()).is_err()
                     {
                         continue;
                     }

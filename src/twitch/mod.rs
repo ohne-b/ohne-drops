@@ -11,7 +11,10 @@ use std::{collections::VecDeque, sync::Arc, time::Duration};
 use http::{HeaderMap, HeaderValue, Method, StatusCode, header};
 use reqwest::cookie::{CookieStore, Jar};
 use serde_json::Value;
-use tokio::{sync::Mutex, time::Instant};
+use tokio::{
+    sync::{Mutex, Semaphore},
+    time::Instant,
+};
 use tokio_util::sync::CancellationToken;
 use url::Url;
 
@@ -68,7 +71,7 @@ impl Default for Endpoints {
 
 #[cfg(test)]
 impl Endpoints {
-    fn mock(base: &str) -> Self {
+    pub(crate) fn mock(base: &str) -> Self {
         let base = Url::parse(&format!("{base}/")).unwrap();
         let mut pubsub = base.join("pubsub").unwrap();
         pubsub.set_scheme("ws").unwrap();
@@ -90,6 +93,7 @@ pub struct TwitchHttp {
     pub device_id: String,
     pub cancel: CancellationToken,
     rate: Arc<Mutex<VecDeque<Instant>>>,
+    concurrent: Arc<Semaphore>,
 }
 
 impl TwitchHttp {
@@ -101,7 +105,7 @@ impl TwitchHttp {
         Self::build(settings, device_id, cancel, Endpoints::default())
     }
 
-    fn build(
+    pub(crate) fn build(
         settings: &Settings,
         device_id: Option<&str>,
         cancel: CancellationToken,
@@ -150,6 +154,7 @@ impl TwitchHttp {
             device_id,
             cancel,
             rate: Arc::new(Mutex::new(VecDeque::new())),
+            concurrent: Arc::new(Semaphore::new(5)),
         })
     }
 
@@ -391,6 +396,10 @@ impl TwitchClient {
     }
 
     pub async fn gql(&self, operation: Value) -> Result<Value, TwitchError> {
+        let _permit = tokio::select! {biased;
+            _=self.http.cancel.cancelled()=>return Err(TwitchError::Cancelled),
+            permit=self.http.concurrent.acquire()=>permit.map_err(|_|TwitchError::Cancelled)?,
+        };
         for attempt in 0..5 {
             self.http.acquire().await?;
             let response = self
@@ -451,6 +460,11 @@ fn gql_errors(response: &mut Value, attempt: u32) -> Result<bool, TwitchError> {
             "server error" => {
                 let mut target = &mut response["data"];
                 for part in error["path"].as_array().into_iter().flatten() {
+                    // GraphQL null propagation may already have nulled a parent
+                    // before reporting a deeper resolver path.
+                    if target.is_null() {
+                        break;
+                    }
                     let child = if let Some(key) = part.as_str() {
                         target.get_mut(key)
                     } else if let Some(index) = part.as_u64().and_then(|v| usize::try_from(v).ok())
