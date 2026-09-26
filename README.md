@@ -45,6 +45,21 @@ docker compose up -d --force-recreate
 Restarting alone does not install new code. Preserve your existing Compose mounts, network
 binding and ownership. There is no in-dashboard updater.
 
+**Settings > Maintenance** checks for new releases and links to their release notes.
+It distinguishes an available update from a failed check. Every release includes
+[`latest.json`](https://github.com/ohne-b/twitch-miner/releases/latest/download/latest.json);
+the [changelog](CHANGELOG.md) describes each release. Versioning starts at `0.1.0` for
+this project; installations labeled `1.3.2` need one manual upgrade to this release series.
+
+Release images for amd64 and arm64 are available on
+[Docker Hub](https://hub.docker.com/r/ohneb/twitch-miner) as `ohneb/twitch-miner:VERSION`
+and GHCR as `ghcr.io/ohne-b/twitch-miner:VERSION`. Both also provide `latest` for stable releases.
+To use a published image with the supplied Compose file, remove `build: .`, change
+`image:` to `ohneb/twitch-miner:latest`, then run `docker compose pull` and
+`docker compose up -d`. Keep your existing mounts, ownership and port mapping.
+Registry publishing setup is covered in
+[CONTRIBUTING.md](CONTRIBUTING.md#release-and-automation).
+
 The Rust version reads existing settings, mining selections, history, completed campaigns
 and dashboard protection. **One new Twitch device-code login is required.** Existing
 credential files stay untouched for rollback; live progress is restored from Twitch.

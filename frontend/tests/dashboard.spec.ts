@@ -5,6 +5,68 @@ import type { Snapshot } from '../src/lib/types';
 const snapshot: Snapshot = fixture;
 const headers = { 'X-TDM-Request': '1' };
 
+test('Maintenance shows a release notice and notes link without installing anything', async ({
+  page,
+}) => {
+  const writes: string[] = [];
+  page.on('request', (request) => {
+    if (request.method() === 'POST' && request.url().includes('/api/')) writes.push(request.url());
+  });
+  await page.route('**/api/version', (route) =>
+    route.fulfill({
+      json: {
+        current_version: '0.1.0',
+        latest_version: '0.2.0',
+        update_available: true,
+        check_succeeded: true,
+        download_url: 'https://github.com/ohne-b/twitch-miner/releases/tag/v0.2.0',
+      },
+    }),
+  );
+  await page.goto('/settings#maintenance');
+  const maintenance = page.locator('#maintenance');
+  await expect(maintenance.getByText('New version available: 0.2.0')).toBeVisible();
+  await expect(maintenance.getByText('Twitch miner · 0.1.0')).toBeVisible();
+  await expect(maintenance.getByRole('link', { name: 'Release notes' })).toHaveAttribute(
+    'href',
+    'https://github.com/ohne-b/twitch-miner/releases/tag/v0.2.0',
+  );
+  await expect(maintenance.getByRole('button', { name: /^(Install|Update now)/ })).toHaveCount(0);
+  await maintenance.getByRole('button', { name: 'Check for updates' }).click();
+  await expect(maintenance.getByText('New version available: 0.2.0')).toBeVisible();
+  expect(writes).toEqual([]);
+  await page.setViewportSize({ width: 375, height: 720 });
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(
+    true,
+  );
+  expect((await new AxeBuilder({ page }).include('#maintenance').analyze()).violations).toEqual([]);
+});
+
+test('failed release checks stay distinct from up-to-date and can be retried', async ({ page }) => {
+  let successful = false;
+  await page.route('**/api/version', (route) =>
+    route.fulfill({
+      json: {
+        current_version: '0.1.0',
+        latest_version: successful ? '0.1.0' : null,
+        update_available: false,
+        check_succeeded: successful,
+        download_url: 'https://github.com/ohne-b/twitch-miner/releases',
+      },
+    }),
+  );
+  await page.goto('/settings#maintenance');
+  const maintenance = page.locator('#maintenance');
+  await expect(
+    maintenance.getByText('Could not check for updates. Try again shortly.'),
+  ).toBeVisible();
+  await expect(maintenance.getByText("You're up to date.")).toHaveCount(0);
+  successful = true;
+  await maintenance.getByRole('button', { name: 'Check for updates' }).click();
+  await expect(maintenance.getByText("You're up to date.")).toBeVisible();
+  await expect(maintenance.getByRole('link', { name: 'Release notes' })).toHaveCount(0);
+});
+
 test('retired notifications are absent from the dashboard and API', async ({ page, request }) => {
   await page.goto('/settings');
   await expect(page.getByRole('heading', { name: 'Telegram Notifications' })).toHaveCount(0);

@@ -1,3 +1,4 @@
+mod releases;
 pub mod socket;
 #[cfg(test)]
 mod tests;
@@ -19,7 +20,7 @@ use axum::{
     routing::{get, post},
 };
 use chrono::{NaiveDate, NaiveDateTime, Utc};
-use serde::{Deserialize, Serialize};
+use serde::Deserialize;
 use serde_json::{Value, json};
 use socketioxide::SocketIo;
 use tokio::sync::{Mutex, RwLock, Semaphore, mpsc, oneshot};
@@ -79,6 +80,7 @@ pub struct App {
     pub shutdown: CancellationToken,
     writes: TaskTracker,
     settings_slot: Arc<Semaphore>,
+    releases: releases::Releases,
     commands: mpsc::Sender<CommandRequest>,
     #[cfg(feature = "dashboard-fixture")]
     pub fixture: bool,
@@ -117,6 +119,7 @@ impl App {
                 shutdown: CancellationToken::new(),
                 writes: TaskTracker::new(),
                 settings_slot: Arc::new(Semaphore::new(1)),
+                releases: releases::Releases::new()?,
                 commands,
                 #[cfg(feature = "dashboard-fixture")]
                 fixture: false,
@@ -692,50 +695,10 @@ async fn verify_proxy(
     }))
 }
 
-#[derive(Serialize)]
-struct Version {
-    current_version: &'static str,
-    latest_version: Option<String>,
-    update_available: bool,
-    download_url: String,
-}
-async fn version(State(app): State<Arc<App>>) -> Json<Version> {
-    let mut version = Version {
-        current_version: env!("CARGO_PKG_VERSION"),
-        latest_version: None,
-        update_available: false,
-        download_url: "https://github.com/ohne-b/twitch-miner/releases".into(),
-    };
+async fn version(State(app): State<Arc<App>>) -> Json<releases::ReleaseInfo> {
     #[cfg(feature = "dashboard-fixture")]
     if app.fixture {
-        return Json(version);
+        return Json(releases::ReleaseInfo::default());
     }
-    let _ = app;
-    if let Ok(client) = reqwest::Client::builder()
-        .no_proxy()
-        .user_agent("twitch-miner")
-        .timeout(std::time::Duration::from_secs(5))
-        .build()
-        && let Ok(response) = client
-            .get("https://api.github.com/repos/ohne-b/twitch-miner/releases/latest")
-            .send()
-            .await
-        && response.status().is_success()
-        && let Ok(value) = response.json::<Value>().await
-        && let Some(tag) = value["tag_name"]
-            .as_str()
-            .map(|v| v.trim_start_matches('v'))
-        && let Ok(latest) = semver::Version::parse(tag)
-    {
-        version.latest_version = Some(tag.to_owned());
-        version.update_available =
-            latest > semver::Version::parse(env!("CARGO_PKG_VERSION")).expect("Cargo version");
-        if let Some(url) = value["html_url"]
-            .as_str()
-            .filter(|url| url.starts_with("https://github.com/ohne-b/twitch-miner/releases/"))
-        {
-            version.download_url = url.to_owned();
-        }
-    }
-    Json(version)
+    Json(app.releases.check(&app.shutdown).await)
 }
