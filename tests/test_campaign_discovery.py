@@ -2,6 +2,7 @@
 
 import asyncio
 from collections import deque
+from copy import deepcopy
 from datetime import datetime, timedelta, timezone
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock
@@ -59,17 +60,18 @@ def client():
 @pytest.mark.asyncio
 async def test_discovery_paginates_deduplicates_and_keeps_real_twitch_metadata():
     twitch = client()
+    expected = metadata()
     twitch.gql_request = AsyncMock(side_effect=[
         [{"data": {"game": game_channels("10")}}],
         directory("10", "20", more=True), directory("30", cursor="last"),
-        [available("10", metadata()), available("20", metadata()), {"data": {"channel": None}}],
+        [available("10", deepcopy(expected)), available("20", deepcopy(expected)), {"data": {"channel": None}}],
     ])
     data = await CampaignDiscovery(twitch).fetch([Game({"id": "1", "name": "Game"})])
     recovered = data["recovered"]
     assert recovered["self"] == {"isAccountConnected": None}
     assert "self" not in recovered["timeBasedDrops"][0]
     assert [channel["id"] for channel in recovered["discovery_channels"]] == ["10", "20"]
-    assert recovered["timeBasedDrops"] == metadata()["timeBasedDrops"]
+    assert recovered["timeBasedDrops"] == expected["timeBasedDrops"]
     requests = twitch.gql_request.call_args_list
     assert requests[2].args[0]["variables"] == {"after": "next"}
     assert [op["variables"]["channelID"] for op in requests[3].args[0]] == ["10", "20", "30"]
