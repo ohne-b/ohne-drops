@@ -368,7 +368,8 @@
             "shutdown_help": "This stops the miner and dashboard. Your process manager or Docker restart policy determines whether it restarts automatically.",
             "help_link_accounts": "Link the appropriate game account on",
             "help_priorities": "Select games above and arrange their priority. Keep the miner running to track timed rewards.",
-            "source_license": "Source code and MIT license"
+            "source_license": "Source code and MIT license",
+            "all_games_automatic": "All games are included automatically. This order sets their priority."
         }
     }
 }

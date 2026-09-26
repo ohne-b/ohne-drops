@@ -204,11 +204,10 @@ lang/                # English message catalog
 
 **src/config/settings.py** - Application settings:
 
-- Games to watch list (auto-populated from available campaigns if empty)
+- Games to watch is a priority list, never an allowlist. Include all discovered games after saved priorities.
 - Games can also be added manually from the web settings search box. Exact and
   unique partial matches resolve to available game names; ambiguous matches do not
-  add a game. Confirmations support keyboard focus and Escape. Select All preserves
-  priority order and manual entries, and manual confirmation uses current settings.
+  add a game. Confirmations support keyboard focus and Escape; manual confirmation uses current settings.
 - Games to Watch supports up/down buttons and editable integer priority numbers. Clamp valid
   ranks to the list bounds; reject blank/fractional values without changing settings.
   Keep priority and remove-control labels translated and accessible. Regression tests in
@@ -586,3 +585,5 @@ English is the only language. The settings loader discards old language preferen
 No Telegram service, endpoints, credentials, notification hooks or UI remain. Legacy stored fields are ignored and removed on the next settings save.
 
 Game-account linking is display metadata, not a local earning gate. Include unlinked item campaigns while retaining timing, channel ACL, prerequisites, benefit types, ignore rules and server-confirmed progress. Twitch still controls reward delivery.
+
+StreamSelector includes every discovered game after saved priorities, case-insensitively deduplicated. Empty priorities still mine all eligible games. Channel display must not hide games absent from the priority list.
