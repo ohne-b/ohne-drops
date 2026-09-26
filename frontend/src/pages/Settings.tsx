@@ -6,6 +6,7 @@ import { useMiner } from '../lib/state';
 import { plainText, useT } from '../lib/i18n';
 import {
   ActionResult,
+  Art,
   Button,
   Check,
   Dialog,
@@ -311,38 +312,14 @@ function SettingsContent({ settings, auth }: { settings: SettingsData; auth: Aut
             <p className="muted">{t('all_games_automatic')}</p>
             <div className="panel">
               {draft.games_to_watch.map((game, index) => (
-                <div className="row" key={game}>
-                  <Input
-                    key={`${game}:${index}`}
-                    className="w-14 shrink-0 text-center tabular-nums"
-                    type="number"
-                    min={1}
-                    step={1}
-                    aria-label={t('gui.settings.game_priority', { game })}
-                    defaultValue={index + 1}
-                    onBlur={(event) => {
-                      const value = event.target.value.trim();
-                      if (!value || !Number.isInteger(Number(value)))
-                        event.target.value = String(index + 1);
-                      else {
-                        const rank = Math.min(
-                          draft.games_to_watch.length,
-                          Math.max(1, Number(value)),
-                        );
-                        event.target.value = String(rank);
-                        change('games_to_watch', moveGame(draft.games_to_watch, index, rank - 1));
-                      }
-                    }}
-                    onKeyDown={(event) => {
-                      if (event.key === 'Enter') {
-                        event.preventDefault();
-                        event.currentTarget.blur();
-                      }
-                      if (event.key === 'Escape') {
-                        event.currentTarget.value = String(index + 1);
-                        event.currentTarget.blur();
-                      }
-                    }}
+                <div className="row" data-game={game} key={game}>
+                  <Art
+                    url={
+                      data?.campaigns.find(
+                        (campaign) => campaign.game_name.toLowerCase() === game.toLowerCase(),
+                      )?.game_box_art_url
+                    }
+                    className="size-9"
                   />
                   <span className="min-w-0 flex-1 break-words text-[13px]">{game}</span>
                   <div className="flex gap-1">
