@@ -91,6 +91,14 @@ def test_special_categories_are_identified_by_id(game, expected):
     assert Game({**game, "name": "Localized category name"}).is_special() is expected
 
 
+def test_active_campaign_does_not_choose_an_unselected_cross_category_reward(twitch):
+    unwanted = _campaign(twitch, SPECIAL_EVENTS)
+    selected = _campaign(twitch, TEST_GAME)
+    twitch.inventory = [unwanted, selected]
+    twitch.wanted_games = [selected.game]
+    assert InventoryService(twitch).get_active_campaign(_channel(twitch)) is selected
+
+
 @pytest.mark.parametrize("game", [TEST_GAME, SPECIAL_EVENTS, IRL])
 def test_unlinked_game_accounts_can_earn_timed_items(twitch, game):
     campaign = _campaign(twitch, game, benefit_type="DIRECT_ENTITLEMENT")

@@ -138,7 +138,7 @@
             "clear_all_cache": "Clear All Cache",
             "clear_all_cache_help": "Clears local campaign, channel, and derived miner state; keeps your login and settings, then reloads from Twitch.",
             "games_to_watch": "Games to Watch",
-            "games_help": "All discovered games are included. Drag to set priority (top = highest priority).",
+            "games_help": "Only selected games are mined. Drag to set priority; remove a game to stop mining it.",
             "search_games": "Search games...",
             "add_game": "Add Game",
             "add_game_hint": " Click \"Add Game\" to add it manually.",
@@ -160,8 +160,8 @@
             "how_to_use_items": [
                 "Login using your Twitch account (OAuth device code flow)",
                 "Link your accounts at <a href=\"https://www.twitch.tv/drops/campaigns\" target=\"_blank\">twitch.tv/drops/campaigns</a>",
-                "The miner will automatically discover campaigns and start mining",
-                "Configure priority games in Settings to focus on what you want",
+                "Discovered campaigns appear in Campaigns; select Mine to opt into a game",
+                "Reorder or remove selected games in Settings",
                 "Monitor progress in the Main and Inventory tabs"
             ],
             "features": "Features",
@@ -306,7 +306,7 @@
             "edit": "Edit",
             "recent_activity": "Recent activity",
             "view_all": "View all",
-            "campaigns_unavailable": "Twitch did not provide the complete campaign catalog, and live-channel discovery found no additional campaigns. Available inventory will still be mined.",
+            "campaigns_unavailable": "Twitch did not provide the complete campaign catalog, and live-channel discovery found no additional campaigns. Selected games with available inventory can still be mined.",
             "campaigns_recovered": "Found {count} campaigns through live Twitch channels. Campaigns without a sampled live channel may be missing.",
             "account_link_unknown": "Account link unknown",
             "check_account_link": "Check account link",
@@ -354,7 +354,6 @@
             "shutdown_help": "This stops the miner and dashboard. Your process manager or Docker restart policy determines whether it restarts automatically.",
             "help_link_accounts": "Link the appropriate game account on",
             "source_license": "Source code and MIT license",
-            "all_games_automatic": "All games are included automatically. This order sets their priority.",
             "autosave_help": "Changes save automatically.",
             "settings_invalid": "Enter a valid proxy URL and a whole refresh interval from 1 to 1440 minutes.",
             "settings_save_failed": "Changes could not be saved. Your edits are kept here.",
@@ -362,9 +361,16 @@
             "reorder_game": "Reorder {game}",
             "reordered_game": "{game}, position {position} of {total}.",
             "game_priorities": "Game priorities",
-            "no_game_priorities": "Games appear here when campaigns are discovered.",
+            "no_game_priorities": "No games selected for mining.",
             "twitch_logout": "Log out of Twitch",
-            "clear_filters": "Clear filters"
+            "clear_filters": "Clear filters",
+            "selected_games_help": "Only selected games are mined. Drag to set priority; remove a game to stop mining it.",
+            "mine": "Mine",
+            "stop_mining": "Stop mining",
+            "mine_game": "Mine {game}",
+            "stop_mining_game": "Stop mining {game}",
+            "mine_game_help": "Select this game for mining across its eligible campaigns.",
+            "select_games_help": "Choose Mine on a campaign to select its game."
         }
     }
 }

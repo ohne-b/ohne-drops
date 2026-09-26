@@ -123,8 +123,8 @@ Offline channels can have an unknown viewer count, displayed as a dash in Overvi
 
 1. Log in with your Twitch account through the OAuth device flow.
 2. Wait for the miner to discover available campaigns.
-3. All discovered games are included automatically; choose their priority. You can also search for a game, select
-   **Add Game**, and the miner saves the priority automatically.
+3. In **Campaigns**, select **Mine** to mine that game across its eligible campaigns.
+   You can also use **Add Game** in Settings. Discovery never selects games for you.
 4. Leave the miner running while it selects eligible channels and tracks drop progress.
 
 Twitch login uses the Smart TV device authorization flow. This fixes the
@@ -138,7 +138,7 @@ press the up/down arrow keys. The first game has the highest priority; changes s
 
 **Special Events** and **IRL** campaigns can be mined on their listed participating
 channels even when those channels stream another category or lack a drops-enabled flag.
-These categories are included automatically. Channels must be live and eligible;
+Select these categories to mine their campaigns. Channels must be live and eligible;
 campaigns without an enabled participating-channel list still require a matching category.
 Channels streaming categories outside Games to Watch retain the lowest automatic priority.
 When the watched channel goes offline or becomes ineligible, another eligible participant
@@ -410,8 +410,9 @@ Native checkboxes highlight their label, and forced-colors mode retains system f
 
 Notification integration has been removed. Obsolete notification credentials are discarded when settings are loaded and saved.
 
-All eligible discovered games are mined, including games absent from the saved priority list. New games follow saved priorities; Select all and Deselect all are unnecessary.
-An empty priority list also mines automatically; no initial game selection is needed.
+Only games explicitly selected with **Mine** or **Add Game** are mined. An empty list mines nothing.
+**Stop mining** or removing a game in Settings leaves its campaigns visible and preserves progress.
+Existing saved game choices and their order are retained; review them if you previously saved automatic priorities.
 
 Page headings stand on their own; repeated descriptive and appearance copy has been removed.
 Connection status lives under Settings → Twitch account; the sidebar footer links to GitHub.

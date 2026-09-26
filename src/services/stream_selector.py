@@ -14,9 +14,8 @@ class StreamSelector:
         Ignoring 'can earn within' time constraint.
         """
         wanted_games = []
-        # Saved names rank games; newly discovered games are included automatically.
-        names = settings.games_to_watch + sorted({c.game.name for c in campaigns})
-        games_to_watch = list({name.casefold(): name for name in names}.values())
+        # Only explicitly selected games may enter the mining queue.
+        games_to_watch = list(dict.fromkeys(name.casefold() for name in settings.games_to_watch))
         mining_benefits = settings.mining_benefits
         now = datetime.now(timezone.utc)
         next_hour = now + timedelta(hours=1)
@@ -66,7 +65,7 @@ class StreamSelector:
                 wanted_games.append(
                     {
                         "game_id": game_obj.id if game_obj else None,
-                        "game_name": game_name,
+                        "game_name": game_obj.name if game_obj else game_name,
                         "game_icon": game_obj.box_art_url if game_obj else None,
                         "game_obj": game_obj,
                         "campaigns": wanted_campaigns,

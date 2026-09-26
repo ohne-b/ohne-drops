@@ -78,7 +78,7 @@ export function campaignOrder(a: CampaignData, b: CampaignData): number {
   return rank(a) - rank(b) || a.ends_at.localeCompare(b.ends_at) || a.id.localeCompare(b.id);
 }
 export default function Campaigns() {
-  const { data, connected } = useMiner();
+  const { data, connected, autosave } = useMiner();
   const t = useT();
   const [params, setParams] = useSearchParams();
   const [showFilters, setShowFilters] = useState(false);
@@ -87,6 +87,8 @@ export default function Campaigns() {
   useEffect(() => setPendingFilters(null), [data?.settings.revision]);
   if (!data) return <Empty title={t('loading')} />;
   const filters = pendingFilters ?? data.settings.inventory_filters;
+  const selectedGames = (autosave.draft ?? data.settings).games_to_watch;
+  const settingsBusy = action.busy || autosave.busy || autosave.pending;
   const search = params.get('q') ?? '';
   const campaigns = data.campaigns
     .filter((campaign) => matchesCampaign(campaign, filters, search))
@@ -143,7 +145,7 @@ export default function Campaigns() {
         <Button
           aria-label={t('toggle_view')}
           title={t('toggle_view')}
-          disabled={!connected || action.busy}
+          disabled={!connected || settingsBusy}
           onClick={() => void update({ inventory_list_view: !data.settings.inventory_list_view })}
         >
           <Icon path={data.settings.inventory_list_view ? mdiViewGridOutline : mdiViewList} />
@@ -157,7 +159,7 @@ export default function Campaigns() {
                 key={key}
                 label={t(`gui.inventory.filters.${name}`)}
                 checked={filters[key]}
-                disabled={!connected || action.busy}
+                disabled={!connected || settingsBusy}
                 onChange={(value) => changeFilters({ ...filters, [key]: value })}
               />
             ))}
@@ -170,7 +172,7 @@ export default function Campaigns() {
                   key={game}
                   label={game}
                   checked={filters.game_name_search.includes(game)}
-                  disabled={!connected || action.busy}
+                  disabled={!connected || settingsBusy}
                   onChange={(checked) =>
                     changeFilters({
                       ...filters,
@@ -192,13 +194,26 @@ export default function Campaigns() {
         </div>
       )}
       <ActionResult action={action} />
+      {autosave.error && (
+        <Notice error>
+          {t(autosave.error)}{' '}
+          <Button disabled={!connected || autosave.busy} onClick={() => void autosave.retry()}>
+            {t('retry')}
+          </Button>
+        </Notice>
+      )}
+      {(autosave.busy || autosave.pending) && !autosave.error && (
+        <p className="muted" role="status">
+          {t('saving')}
+        </p>
+      )}
       <div className="flex items-center justify-between gap-3">
         <p className="muted">
           {t('campaign_count', { count: campaigns.length, total: data.campaigns.length })}
         </p>
         {campaigns.length < data.campaigns.length && (
           <Button
-            disabled={!connected || action.busy}
+            disabled={!connected || settingsBusy}
             onClick={() => {
               setParams({}, { replace: true });
               changeFilters({
@@ -232,7 +247,47 @@ export default function Campaigns() {
             key={campaign.id}
             className={data.settings.inventory_list_view ? '' : 'panel overflow-hidden'}
           >
-            <Campaign campaign={campaign} />
+            <Campaign
+              campaign={campaign}
+              action={
+                !campaign.finished &&
+                !campaign.expired && (
+                  <Button
+                    disabled={!connected || action.busy}
+                    title={t('mine_game_help')}
+                    aria-label={t(
+                      selectedGames.some(
+                        (game) => game.toLowerCase() === campaign.game_name.toLowerCase(),
+                      )
+                        ? 'stop_mining_game'
+                        : 'mine_game',
+                      { game: campaign.game_name },
+                    )}
+                    onClick={(event) => {
+                      event.preventDefault();
+                      event.stopPropagation();
+                      autosave.change('games_to_watch', (games) =>
+                        games.some(
+                          (game) => game.toLowerCase() === campaign.game_name.toLowerCase(),
+                        )
+                          ? games.filter(
+                              (game) => game.toLowerCase() !== campaign.game_name.toLowerCase(),
+                            )
+                          : [...games, campaign.game_name],
+                      );
+                    }}
+                  >
+                    {t(
+                      selectedGames.some(
+                        (game) => game.toLowerCase() === campaign.game_name.toLowerCase(),
+                      )
+                        ? 'stop_mining'
+                        : 'mine',
+                    )}
+                  </Button>
+                )
+              }
+            />
           </div>
         ))}
       </div>

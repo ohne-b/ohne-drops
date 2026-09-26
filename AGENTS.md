@@ -240,7 +240,7 @@ lang/                # English message catalog
 
 **src/config/settings.py** - Application settings:
 
-- Games to watch is a priority list, never an allowlist. Include all discovered games after saved priorities.
+- Games to watch is the explicit mining allowlist, in priority order. Never add discovered games automatically.
 - Games can also be added manually from the web settings search box. Exact and
   unique partial matches resolve to available game names; ambiguous matches do not
   add a game. Confirmations support keyboard focus and Escape; manual confirmation uses current settings.
@@ -631,8 +631,10 @@ No Telegram service, endpoints, credentials, notification hooks or UI remain. Le
 
 Game-account linking is display metadata, not a local earning gate. Include unlinked item campaigns while retaining timing, channel ACL, prerequisites, benefit types, ignore rules and server-confirmed progress. Twitch still controls reward delivery.
 
-StreamSelector includes every discovered game after saved priorities, case-insensitively deduplicated. Empty priorities still mine all eligible games. Channel display must not hide games absent from the priority list.
-Overview must describe automatic waiting when priorities are empty; never ask users to select games to start mining.
+StreamSelector includes only saved selected games, case-insensitively deduplicated. Empty selection mines nothing.
+Campaign Mine/Stop mining toggles its game through provider-owned autosave; all eligible campaigns for that game participate.
+Settings never appends discovery results to the selected list, and every selected game can be removed.
+Overview prompts for a mining choice when the selection is empty. Campaign visibility is independent of selection.
 
 Keep page introductions compact: no redundant subtitles for Settings, Campaigns, History or Activity, no fixed-dark appearance description, and no generic mining instructions.
 

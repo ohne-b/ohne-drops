@@ -108,13 +108,16 @@ export default function Overview() {
         ) : (
           <Empty
             title={t('gui.progress.no_drop')}
-            detail={t(data.login.user_id ? 'waiting_help' : 'connect_help')}
+            detail={t(
+              !data.login.user_id
+                ? 'connect_help'
+                : data.settings.games_to_watch.length
+                  ? 'waiting_help'
+                  : 'select_games_help',
+            )}
           >
-            <Link
-              className="button"
-              to={data.login.user_id ? '/settings#mining' : '/settings#account'}
-            >
-              {data.login.user_id ? t('edit_priorities') : t('account')}
+            <Link className="button" to={data.login.user_id ? '/campaigns' : '/settings#account'}>
+              {data.login.user_id ? t('campaigns') : t('account')}
             </Link>
           </Empty>
         )}

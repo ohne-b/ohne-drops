@@ -344,7 +344,7 @@ class Twitch:
                         for drop in campaign.drops:
                             if drop.can_claim:
                                 await drop.claim()
-                # Saved games set priority; all discovered eligible games are included.
+                # Saved games are the explicit mining selection, in priority order.
                 self.wanted_games.clear()
                 games_to_watch: list[str] = self.settings.games_to_watch
                 next_hour: datetime = datetime.now(timezone.utc) + timedelta(hours=1)
