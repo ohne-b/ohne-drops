@@ -79,9 +79,6 @@ export interface Settings {
   mining_benefits: Record<string, boolean>;
   inventory_filters: Filters;
   inventory_list_view: boolean;
-  telegram_bot_token: string;
-  telegram_chat_id: string;
-  telegram_configured: boolean;
 }
 export interface OAuth {
   url: string;

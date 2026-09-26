@@ -40,7 +40,6 @@ dark surfaces, compact fields, and a thin custom native scrollbar. See the
 - **Optional dashboard password** — protects the web UI, API, and live connections with one password
 - **Drop history** — records every claimed drop locally (date, game, campaign, rewards)
   with a filterable **History** tab, aggregated stats, and one-click **Export CSV**
-- **Telegram notifications** — sends an alert when a drop is claimed, including claims found during startup and inventory refresh
 - **Headless deployment** — runs on your own home hardware, including Docker, without a desktop GUI
 - **Safe rendering** — React text rendering and validated external links; no injected HTML
 
@@ -210,21 +209,6 @@ CSV downloads support Unicode game names. Existing Twitch claims are not backfil
 **Clear local history** requires confirmation and deletes local history; this does not affect your
 Twitch account or already-claimed rewards.
 
-### Telegram notifications
-
-In **Settings → Telegram Notifications**, enter a bot token from
-[@BotFather](https://t.me/BotFather) and your chat ID. Start a conversation with your bot
-before testing. Select **Save changes**, then **Send test message**. Testing stays disabled
-while settings are unsaved. A failed test or save displays an error beside the action.
-
-The bot token is stored on the server and is never returned to the browser. Leave the token
-field blank to reuse it when testing or changing the chat ID. To disable notifications,
-clear the chat ID and save. Enter a new chat ID to enable notifications again.
-
-Notifications cover new successful claims from both live events and inventory checks.
-Repeated events for an already claimed drop do not send another alert. Telegram delivery
-failures do not undo a Twitch claim, and failed notifications are not retried.
-
 > [!NOTE]
 > Your Twitch account must be linked to the relevant game accounts. Review your
 > [Twitch Drops campaigns](https://www.twitch.tv/drops/campaigns) before mining.
@@ -348,18 +332,6 @@ endpoints. Vite generates content-hashed assets with immutable caching; HTML is 
 Source changes no longer need a manual browser cache-key bump. The existing release workflow
 still controls application versioning and image publication.
 
-Telegram regression coverage includes English controls, saved-token reuse,
-disabling notifications, failed saves, claim deduplication, and mocked Telegram transport
-errors. From the activated environment, run:
-
-```bash
-python -m pytest tests/test_telegram_api.py tests/test_telegram_integration.py
-cd frontend
-npm run test:browser
-```
-
-No real Telegram messages are sent by these tests.
-
 Games to Watch supports Enter to add an exact or unique partial match. Ambiguous
 searches ask for a more specific name. Manual names and Deselect All require a
 confirmation; Escape cancels and keyboard focus stays in the dialog. Select All
@@ -396,8 +368,10 @@ npm run test:browser
 
 Browser tests use the production build and a separate synthetic FastAPI/Socket.IO server
 on port 8765, temporary storage, and mocked services. They refuse to reuse an existing
-server and do not contact Twitch or send Telegram messages. CI also runs accessibility
+server and do not contact Twitch. CI also runs accessibility
 checks, release-script tests, and Docker builds for amd64 and arm64. See
 [CONTRIBUTING.md](./CONTRIBUTING.md) for the full workflow.
 
 The interface and miner messages use English only. Older saved language preferences are ignored.
+
+Notification integration has been removed. Obsolete notification credentials are discarded when settings are loaded and saved.

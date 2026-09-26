@@ -112,22 +112,22 @@ test('server rejects stale settings and keeps the dirty draft', async ({ page, r
   await page.getByRole('button', { name: 'Cancel', exact: true }).first().click();
   await expect(interval).toHaveValue('90');
 });
-test('Telegram never echoes a saved token and requires saving before test', async ({
+test('removed notifications have no controls, API or saved credentials', async ({
   page,
   request,
 }) => {
   await page.goto('/settings');
-  await page.getByLabel('Telegram Bot Token', { exact: true }).fill('fixture-token-not-real');
-  await page.getByLabel('Telegram Chat ID', { exact: true }).fill('123');
-  await expect(page.getByRole('button', { name: 'Send test message' })).toBeDisabled();
-  await page.getByRole('button', { name: 'Save changes', exact: true }).click();
-  await expect(page.getByLabel('Telegram Bot Token', { exact: true })).toHaveValue('');
-  expect(JSON.stringify(await (await request.get('/api/settings')).json())).not.toContain(
-    'fixture-token-not-real',
+  await expect(page.getByText('Telegram', { exact: false })).toHaveCount(0);
+  const result = await request.post('/api/settings', {
+    headers,
+    data: { telegram_bot_token: 'discard-me', telegram_chat_id: '123' },
+  });
+  expect(JSON.stringify(await result.json())).not.toContain('discard-me');
+  expect((await request.post('/api/settings/test-telegram', { headers, data: {} })).status()).toBe(
+    404,
   );
-  await page.getByRole('button', { name: 'Send test message' }).click();
-  await expect(page.getByText('Test message sent.', { exact: true })).toBeVisible();
 });
+
 test('history filters, export and confirmed clearing', async ({ page }) => {
   await page.goto('/history');
   await expect(page.getByText('Canvas pack', { exact: true }).first()).toBeVisible();
@@ -245,9 +245,9 @@ test('a failed initial auth status remains recoverable without a page reload', a
   await expect(page.getByRole('heading', { name: 'Overview', exact: true })).toBeVisible();
 });
 
-test('failed settings save retains input and keeps Telegram test disabled', async ({ page }) => {
+test('failed settings save retains input', async ({ page }) => {
   await page.goto('/settings');
-  await page.getByLabel('Telegram Chat ID', { exact: true }).fill('987');
+  await page.getByLabel('Proxy URL', { exact: true }).fill('http://127.0.0.1:9999');
   await page.route(
     '**/api/settings',
     (route) => route.fulfill({ status: 500, json: { detail: 'save_failed' } }),
@@ -255,8 +255,7 @@ test('failed settings save retains input and keeps Telegram test disabled', asyn
   );
   await page.getByRole('button', { name: 'Save changes', exact: true }).click();
   await expect(page.getByRole('alert')).toBeVisible();
-  await expect(page.getByLabel('Telegram Chat ID', { exact: true })).toHaveValue('987');
-  await expect(page.getByRole('button', { name: 'Send test message' })).toBeDisabled();
+  await expect(page.getByLabel('Proxy URL', { exact: true })).toHaveValue('http://127.0.0.1:9999');
   await expect(page.getByText('gui.auth.save_failed')).toHaveCount(0);
 });
 
