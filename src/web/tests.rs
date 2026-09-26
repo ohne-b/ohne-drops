@@ -168,6 +168,19 @@ async fn public_assets_and_spa_allowlist_preserve_private_api_boundaries() {
         headers[header::CACHE_CONTROL],
         "public, max-age=31536000, immutable"
     );
+    let logo = super::Assets::iter()
+        .find(|name| name.starts_with("assets/twitch-miner-logo-") && name.ends_with(".svg"))
+        .expect("Vite emits the shared logo as a hashed asset");
+    let (status, headers, body) = test
+        .call(Method::GET, &format!("/{logo}"), Value::Null, "", &[])
+        .await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(headers[header::CONTENT_TYPE], "image/svg+xml");
+    assert_eq!(
+        headers[header::CACHE_CONTROL],
+        "public, max-age=31536000, immutable"
+    );
+    assert!(String::from_utf8(body).unwrap().contains("<svg"));
     assert_eq!(
         test.call(Method::GET, "/healthz", Value::Null, "", &[])
             .await
