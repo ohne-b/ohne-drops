@@ -1,18 +1,20 @@
+"""Production HTML revalidates while content-hashed assets are reusable."""
 import asyncio
+import re
+from pathlib import Path
 
-from fastapi.responses import HTMLResponse
-
-from src.version import __version__
 from src.web.app import serve_index
 
 
-def test_index_revalidates_and_versions_local_assets():
+def test_index_revalidates_and_references_built_local_assets():
     response = asyncio.run(serve_index())
-
-    assert isinstance(response, HTMLResponse)
+    assert response.status_code == 200
     assert response.headers["cache-control"] == "no-cache"
-
     body = response.body.decode()
-    assert f'/static/styles.css?v={__version__}' in body
-    assert f'/static/app.js?v={__version__}' in body
-    assert "__APP_VERSION__" not in body
+    paths = re.findall(r'(?:src|href)="(/assets/[^\"]+)"', body)
+    assert any(path.endswith(".js") for path in paths)
+    assert any(path.endswith(".css") for path in paths)
+    for path in paths:
+        assert (Path("web") / path.lstrip("/")).is_file()
+    assert "cdn.socket.io" not in body
+    assert 'id="root"' in body

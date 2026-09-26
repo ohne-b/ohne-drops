@@ -54,7 +54,7 @@ def _make_cache_test_client() -> tuple[Any, dict[str, object], MagicMock, MagicM
             clear=MagicMock(name="channels_clear"),
             clear_watching=MagicMock(name="clear_watching"),
         ),
-        inv=SimpleNamespace(clear=MagicMock(name="inventory_clear")),
+        inv=SimpleNamespace(set_availability=MagicMock(), clear=MagicMock(name="inventory_clear")),
         progress=SimpleNamespace(stop_timer=MagicMock(name="stop_timer")),
     )
     twitch._watch_service = WatchService(twitch)
@@ -109,7 +109,8 @@ def test_clear_cached_state_discards_only_derived_runtime_state():
 
 
 @pytest.mark.asyncio
-async def test_inventory_replacement_removes_stale_campaign_lookup_entries():
+@pytest.mark.parametrize("catalog", [[], None])
+async def test_inventory_replacement_removes_stale_campaign_lookup_entries(catalog):
     twitch = SimpleNamespace(
         _drops={"stale-drop": object()},
         _campaigns={"stale-campaign": object()},
@@ -119,7 +120,7 @@ async def test_inventory_replacement_removes_stale_campaign_lookup_entries():
         _state=State.IDLE,
         gui=SimpleNamespace(
             status=SimpleNamespace(update=MagicMock()),
-            inv=SimpleNamespace(clear=MagicMock(), add_campaign=AsyncMock()),
+            inv=SimpleNamespace(set_availability=MagicMock(), clear=MagicMock(), add_campaign=AsyncMock()),
         ),
         gql_request=AsyncMock(
             side_effect=[
@@ -133,13 +134,14 @@ async def test_inventory_replacement_removes_stale_campaign_lookup_entries():
                         }
                     }
                 },
-                {"data": {"currentUser": {"dropCampaigns": []}}},
+                {"data": {"currentUser": {"dropCampaigns": catalog}}},
             ]
         ),
         _maintenance_service=SimpleNamespace(run_maintenance_task=AsyncMock()),
     )
 
     await InventoryService(cast(Twitch, twitch)).fetch_inventory()
+    twitch.gui.inv.set_availability.assert_called_once_with(catalog is not None)
     assert twitch._campaigns == {}
     assert twitch._drops == {}
     assert twitch.inventory == []

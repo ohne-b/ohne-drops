@@ -51,7 +51,7 @@ Twitch Drops Miner is a Python application that automatically mines timed Twitch
 **Key Characteristics:**
 
 - Python 3.12+ required
-- Web-based GUI using FastAPI and Socket.IO
+- React/TypeScript/Tailwind dashboard served by FastAPI with Socket.IO live state
 - Async/await architecture with asyncio
 - Session persistence via cookies
 - No stream video/audio download (bandwidth-efficient)
@@ -89,6 +89,28 @@ lang/                # Translation JSON files (20 languages)
 ├── Deutsch.json
 └── ...              # 16 more languages
 ```
+
+### React dashboard
+
+- `frontend/src` is the browser application source. Use strict TypeScript, React,
+  Tailwind theme tokens, individual MDI paths, and shared native controls in
+  `components/ui.tsx`. The dark theme, Manrope, compact fields and 3px WebKit
+  scrollbars follow `docs/plans/2026-09-26-design-spec.md`.
+- `web/` is ignored Vite output. Run `npm ci` and `npm run build` in `frontend/`
+  before starting Python or backend static-asset tests. Never edit output.
+- One typed provider handles complete snapshots and incremental events. Reconnect
+  hydrates a new snapshot; commands stay disabled until it arrives. Dirty settings
+  are separate from live state. Include the original revision in saves; HTTP409
+  keeps the draft. Lock fields during saves and preserve concurrent manual game edits.
+- Display confirmed minutes/timestamps separately from local estimates. Catalog null
+  means unavailable. Use the actual pending OAuth flow, not an invented reconnect API.
+- Render API/translated strings as React text; validate external links. Expand Twitch
+  art URL placeholders in Art. Preserve locale keys with English fallback. No injected
+  HTML or CDN scripts. Keep auth/status translations usable before authentication.
+- Vitest/Playwright replace tests that extracted app.js functions. The browser suite
+  starts `tests/dashboard_server.py` with synthetic data on port 8765 and temporary
+  storage, refuses server reuse, and verifies fixture readiness/reset. Never target a
+  live miner. Preserve Python domain/security tests and add backend contract regressions.
 
 ### Core Components
 
@@ -170,10 +192,10 @@ lang/                # Translation JSON files (20 languages)
 - The Settings **Clear All Cache** action discards local campaign, channel, and other
   derived miner state, preserves OAuth login and settings, and then reloads from Twitch.
   It is a recovery and diagnostic action, not a correction for Twitch campaign metadata.
-- `serve_index()` replaces the `__APP_VERSION__` placeholder in local CSS/JavaScript URLs
-  with the application version and serves `/` with `Cache-Control: no-cache`
-- Any `app.js` or `styles.css` change requires an application version bump through the release
-  workflow before deployment so existing clients receive a new asset cache key
+- Serve the SPA only at `/`, `/campaigns`, `/history`, `/activity`, `/settings`, and
+  `/login`. Preserve API/socket404s rather than adding a blanket fallback.
+- HTML uses `Cache-Control: no-cache`; Vite assets use content hashes and immutable
+  caching. Code/fonts are public for login; account data, APIs and Socket.IO stay protected.
 
 **src/websocket/pool.py** - WebSocket management:
 
@@ -189,10 +211,10 @@ lang/                # Translation JSON files (20 languages)
   unique partial matches resolve to available game names; ambiguous matches do not
   add a game. Confirmations support keyboard focus and Escape. Select All preserves
   priority order and manual entries, and manual confirmation uses current settings.
-- Games to Watch supports drag ordering and editable integer priority numbers. Clamp valid
+- Games to Watch supports up/down buttons and editable integer priority numbers. Clamp valid
   ranks to the list bounds; reject blank/fractional values without changing settings.
   Keep priority and remove-control labels translated and accessible. Regression tests in
-  `tests/test_game_priority.py` cover order, bounds, invalid inputs, and persistence calls.
+  `frontend/tests/` cover order, bounds, invalid inputs, and persistence calls.
 - Connection quality multiplier
 - Language selection
 - Proxy support (including verification)
@@ -219,7 +241,7 @@ lang/                # Translation JSON files (20 languages)
 - The Telegram form reuses the saved token when its input is blank. Clearing the chat ID
   and saving disables alerts. Test Connection waits for settings persistence before showing
   success; HTTP, network, and application save failures must remain visible as errors.
-- `tests/test_telegram_frontend.py`, `tests/test_telegram_api.py`, and
+- `frontend/tests/dashboard.spec.ts`, `tests/test_telegram_api.py`, and
   `tests/test_telegram_integration.py` cover translated Help rendering, stored credentials,
   failed saves, disabling, all shared claim paths, and transport failures without sending
   real Telegram messages. Keep Telegram UI result strings in every locale.
@@ -285,13 +307,11 @@ progress to an ignored drop while the miner intentionally targets another reward
 - `AuthSocketServer` rechecks authorization on events and broadcasts, disconnects revoked
   sessions, and schedules idle connections to close at expiry. Enabling auth must evict
   already connected anonymous clients before subsequent private broadcasts.
-- `web/static/auth.js` owns login/settings behavior and adds the same-origin write header.
-  A failed initial auth-status request must leave login available for retry without a
-  reload; settings controls stay disabled until auth state is known.
-  Keep all UI strings in `gui.auth` across all locales and render them using textContent.
-  Local auth assets use the release version cache key; bump through the release workflow
-  before deploying changes to existing auth assets, as with app.js and styles.css.
-- `tests/test_web_auth.py` and `tests/test_web_auth_frontend.py` cover access control,
+- React Login and Settings own dashboard auth controls; the shared fetch helper adds
+  the same-origin write header. Failed initial auth status leaves login/retry usable.
+  Preserve public auth translations and synchronize protection status across devices.
+  Keep auth strings in `gui.auth`, rendered as text with native password fields.
+- `tests/test_web_auth.py` and `frontend/tests/dashboard.spec.ts` cover access control,
   credential persistence, cookie lifetimes, CSRF, rate limiting, revocation, and UI errors.
   The idle socket-expiry regression controls the auth wall clock and captures the
   scheduled callback. Preserve its remaining-lifetime, disconnect, and cleanup assertions;
@@ -402,7 +422,8 @@ login_text = _.t["login"]["status"]["logged_in"]  # Returns "Logged in"
 - **src/version.py** - Version string
 - **src/web/app.py** - FastAPI application with REST API and Socket.IO
 - **src/web/managers/cache.py** - ImageCache for campaign artwork caching
-- **web/** - Frontend assets (index.html, static/app.js, static/styles.css)
+- **frontend/** - React/TypeScript sources, tests, build configuration and asset licenses
+- **web/** - Ignored compiled HTML and content-hashed assets served by Python
 
 ## Development Commands
 
@@ -437,7 +458,7 @@ The application requires:
 - Python 3.12+
 - Virtual environment at `env/` (must be activated before running commands)
 - Dependencies from `pyproject.toml` (includes FastAPI, uvicorn, Socket.IO)
-- Node.js 24 for frontend behavior tests
+- Node.js 24 for frontend builds, Vitest, and Playwright
 
 Docker deployment:
 
@@ -455,8 +476,12 @@ docker-compose up -d
 The project includes a test suite in the `tests/` directory:
 
 ```bash
-# Activate virtual environment and run tests
+# Build before testing static asset serving
+npm --prefix frontend ci
+npm --prefix frontend run build
 source env/bin/activate && python -m pytest tests/
+npm --prefix frontend test
+(cd frontend && npx playwright install chromium && npm run test:browser)
 ```
 
 The suite covers settings and proxy behavior, inventory-filter behavior, API filtering,
@@ -464,15 +489,13 @@ GraphQL watch events, batched channel discovery, full-locale translation schema 
 placeholder consistency, frontend DOM safety, case-insensitive channel filtering,
 watch-drop count and expiry semantics, immediate claim refresh behavior, consecutive
 no-campaign console collapsing, contributor README automation, and the claimed-drop
-history store with CSV export and API endpoints. Frontend behavior tests
-share their JavaScript extraction helper and use Node.js;
-the validation workflow provisions Node 24 before running pytest. It also runs the release
+history store with CSV export and API endpoints. Frontend tests use Vitest and Playwright,
+including axe accessibility checks; CI builds with Node24 before pytest. It also runs the release
 script contract tests under `.github/scripts/test/`. Ignore-list coverage includes
 normalization and settings persistence, dependency pruning, the combined expiry/ignore
 Wanted Queue guard, watch selection, truthful ignored/skipped inventory state, translated
-placeholder parity, and frontend rendering. Changes to `web/static/app.js` or
-`web/static/styles.css` still require the release workflow to bump the application version
-and asset cache key before deployment.
+placeholder parity, and frontend rendering. Vite generates asset hashes; release versioning
+remains owned by the existing workflow. Commit frontend sources and lockfile, not web output.
 
 `tests/test_special_game_watch.py` covers Special Events and IRL across streamed categories,
 missing category/drops flags, offline and nonparticipating channels, disabled or absent ACLs,
@@ -482,7 +505,8 @@ priority and failover. It uses mocked Twitch state and does not verify live Twit
 ### Continuous Integration
 
 - `.github/workflows/validation.yml` runs Ruff, Mypy, the Python test suite, language
-  JSON validation, `uv lock --check`, release-script tests, and Docker build validation
+  JSON validation, frontend build/format/unit/browser/accessibility checks,
+  `uv lock --check`, release-script tests, and Docker build validation
   for pull requests and pushes to `main`.
 - Docker validation and release workflows pin the Node-24-native Docker Buildx v4.3.0
   and Build Push v7.3.0 action commits. Update both workflows together when changing
@@ -526,11 +550,13 @@ The application uses a web-based interface accessible via browser:
 - Serves static web frontend from `web/` directory
 - Integrates with WebGUIManager via `set_managers()`
 
-**web/** - Frontend assets:
+**frontend/src/** - Browser application:
 
-- `index.html` - Single-page application layout with tabs (Main, Inventory, History, Settings, Help)
-- `static/app.js` - Socket.IO client, real-time UI updates, API calls, Inventory Filtering and Drop History logic
-- `static/styles.css` - Responsive design with dark mode support
+- `App.tsx` - Authentication gate, navigation and Overview/Campaigns/History/Activity/Settings routes
+- `lib/` - Typed API requests, DTOs, translations and Socket.IO state
+- `components/ui.tsx`, `components/Campaign.tsx` - Shared controls and reward rows
+- `pages/` - Route content, explicit settings drafts and login
+- `styles.css` - Tailwind tokens, shared fields, dark appearance and native scrollbar rules
 
 ### Communication Protocol
 
@@ -562,8 +588,9 @@ The application uses a web-based interface accessible via browser:
 
 **Dockerfile:**
 
-- Based on `python:3`
-- Installs dependencies from `pyproject.toml`
+- Node24 build stage compiles locked frontend dependencies; Python3.12 serves the output
+- Installs Python dependencies from `uv.lock` with pinned uv; no Node runtime service
+- Preserves MIT, MDI and Manrope license notices in the runtime image
 - Exposes port 8080
 - Health check on the public `/healthz` endpoint
 
@@ -577,7 +604,7 @@ The application uses a web-based interface accessible via browser:
 ### Key Design Decisions
 
 - **WebSocket for real-time** - Socket.IO chosen for reliability (fallback to polling)
-- **Single-page app** - Simpler than full framework (React/Vue), fast load times
+- **React single-page app** - Typed components and one live-state provider; no additional state/form framework
 - **Direct Docker support** - Environment detection, proper path handling
 - **OAuth device code flow** - Works great for web-based deployment
 

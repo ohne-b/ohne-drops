@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import logging
 from collections.abc import Iterable, Mapping
+from datetime import datetime, timezone
 from typing import TYPE_CHECKING, Any
 
 
@@ -29,6 +30,11 @@ class InventoryManager:
         self._cache = cache
         self._campaigns: dict[str, dict[str, Any]] = {}
         self._batch_mode: bool = False
+        self.availability: dict[str, Any] = {"available": True, "checked_at": None}
+
+    def set_availability(self, available: bool) -> None:
+        self.availability = {"available": available, "checked_at": datetime.now(timezone.utc).isoformat()}
+        asyncio.create_task(self._broadcaster.emit("inventory_status", self.availability))
 
     @staticmethod
     def _campaign_progress(
@@ -58,6 +64,8 @@ class InventoryManager:
             "id": drop.id,
             "name": drop.name,
             "current_minutes": drop.current_minutes,
+            "confirmed_minutes": drop.real_current_minutes,
+            "confirmed_at": drop.confirmed_at.isoformat() if getattr(drop, "confirmed_at", None) else None,
             "required_minutes": drop.required_minutes,
             "progress": drop.progress,
             "is_claimed": drop.is_claimed,

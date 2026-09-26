@@ -12,7 +12,7 @@ It is an asynchronous Python application with a FastAPI and Socket.IO web dashbo
 Twitch OAuth login, persistent local data, and Docker support.
 
 - Python 3.12 or newer; CI currently uses Python 3.12.
-- Node.js 24 for JavaScript behavior tests invoked by pytest.
+- Node.js 24 for the React/TypeScript build, Vitest, and Playwright.
 - `uv` for dependency management; dependencies are declared in `pyproject.toml` and
   locked in `uv.lock`.
 - The default branch and pull request target are `main`.
@@ -23,7 +23,8 @@ Twitch OAuth login, persistent local data, and Docker support.
 | --- | --- |
 | `src/models/`, `src/services/`, `src/core/` | Domain models, business logic, and miner state machine |
 | `src/api/`, `src/auth/`, `src/websocket/` | Twitch API, OAuth, and event connections |
-| `src/web/`, `web/` | Dashboard backend, optional dashboard authentication, and frontend |
+| `src/web/` | Dashboard backend and optional dashboard authentication |
+| `frontend/`, `web/` | React/TypeScript source and ignored compiled output |
 | `src/config/`, `src/utils/` | Configuration and shared utilities |
 | `src/drop_history.py` | Claimed-drop history, filtering, statistics, and export |
 | `src/i18n/`, `lang/` | Translation schema and locale files |
@@ -121,6 +122,7 @@ uv sync --active --extra dev --locked --python 3.12
 For an intentional dependency change, update `pyproject.toml`, run `uv lock`, review
 the lockfile diff, and sync again. Do not upgrade unrelated packages.
 
+Build first: `npm --prefix frontend ci` and `npm --prefix frontend run build`.
 From the activated environment, run `python main.py` and open
 <http://localhost:8080> for manual testing. `python main.py -vvv` enables verbose logs.
 Running the application can contact Twitch and claim rewards; use your own intended
@@ -179,14 +181,14 @@ exists; use closing keywords only when the PR fully resolves that issue.
   workflow changes.
 - For UI or console text changes, update the English source, every affected locale in
   `lang/`, and the TypedDict translation schema when keys change. Preserve key and
-  placeholder parity. Build translated UI using `textContent` and safe DOM APIs;
+  placeholder parity. Render translated UI as React text with validated links;
   allowlist intentional links and create link nodes explicitly.
 - Preserve account eligibility, campaign/drop timing, prerequisites, ignore rules,
   authentication boundaries, and credential redaction. Cache recovery must preserve
   credentials and settings. Consult the detailed contracts in the agent instructions.
-- Changes to cached frontend assets (`app.js`, `styles.css`, or existing auth assets)
-  require a version/cache-key bump through the release workflow before deployment.
-  Flag that requirement in the PR; coordinate the release with the maintainer.
+- Edit frontend sources in `frontend/`, never generated `web/`. Vite content hashes
+  handle asset invalidation; HTML remains revalidated. Keep application versioning
+  under the existing release workflow. Commit dependency lockfiles when applicable.
 
 ### 3. Test the change and protect against regressions
 
@@ -197,16 +199,23 @@ both normal and failure-path coverage, including relevant boundary cases.
 
 Use mocked Twitch/Telegram/network responses and temporary storage. Tests must not
 need real credentials, claim real drops, or send real notifications. Existing tests
-in `tests/` show the repository's conventions; frontend tests use Node.js through the
-shared `tests/javascript_helpers.py` helper.
+in `tests/` show the repository's conventions. Frontend logic uses Vitest; Playwright
+uses the real API/socket/auth boundary with synthetic data in `tests/dashboard_server.py`.
+Keep the fixture on port 8765, with fixture-only readiness and `reuseExistingServer: false`.
+Never reuse a running miner for browser tests.
 
 Run focused tests while developing, then run the code-change baseline from the
 activated environment before declaring a code PR ready:
 
 ```bash
+npm --prefix frontend ci
+npm --prefix frontend run format:check
+npm --prefix frontend test
+npm --prefix frontend run build
 python -m ruff check src/
 python -m mypy src/
 python -m pytest tests/
+(cd frontend && npx playwright install chromium && npm run test:browser)
 uv lock --check
 git diff --check
 ```
@@ -233,7 +242,7 @@ Select additional regression checks from the actual impact of the change:
 | --- | --- |
 | Mining, inventory, or channel selection | Eligibility and timing boundaries, prerequisites, ignored drops, claim behavior, and neighboring selection paths |
 | Settings or persistence | Save/reload round trips, defaults/migration, invalid input, and failure handling |
-| Dashboard or translations | Relevant Node/DOM tests, locale schema and placeholder checks, and a browser check of the affected flow |
+| Dashboard or translations | Typecheck/build, Vitest, Playwright/axe, locale schema and placeholders, desktop/phone browser checks |
 | Authentication or API access | Unauthorized requests, origin/CSRF handling, session expiry/revocation, and absence of leaked credentials |
 | Dependencies, Docker, or CI/release scripts | Lock/version consistency, relevant script tests, and Docker build/workflow validation |
 | Documentation only | Accurate commands and paths, working local links, Markdown structure, canonical agent guidance, and valid instruction symlinks |
@@ -244,7 +253,8 @@ check, state exactly what is missing and why. Mocked tests do not establish live
 progress; report live verification only if it was actually performed.
 
 The [validation workflow](./.github/workflows/validation.yml) runs Ruff, advisory Mypy,
-pytest, language JSON validation, lockfile checks, release-script tests, and Docker
+pytest, frontend build/format/unit/browser/accessibility checks, language JSON validation,
+lockfile checks, release-script tests, and Docker
 builds for both supported image architectures. Required CI must pass on the final PR
 revision before merge. After review fixes or main integration, rerun the checks affected
 by those changes; do not rely on results from a superseded revision.
