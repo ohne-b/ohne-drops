@@ -106,7 +106,6 @@ export default function Campaigns() {
     <div className="space-y-5">
       <div>
         <h1 className="text-[22px] font-semibold">{t('campaigns')}</h1>
-        <p className="mt-1 text-muted">{t('campaigns_description')}</p>
       </div>
       {data.inventory_status?.available === false && (
         <Notice error>{t('campaigns_unavailable')}</Notice>
