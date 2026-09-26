@@ -25,6 +25,7 @@ It is the repository's contribution policy, not optional background reading.
 ## Development Guidelines
 
 The sidebar footer shows the Twitch account ID and GitHub icon. Live connection status remains in Settings → Twitch account.
+The GitHub glyph is 24px, matching OhneGuessr; its size must override the shared 18px icon default.
 
 Shared Field controls use content-start so helper text does not stretch adjacent label rows.
 Avoid focus rings; retain a visible keyboard-focus background/border change and system focus in forced-colors mode.

@@ -80,7 +80,7 @@ function Shell({ auth, onLogout }: { auth: AuthStatus; onLogout: () => Promise<v
             aria-label="GitHub repository"
             title="GitHub"
           >
-            <Icon path={mdiGithub} className="size-5" />
+            <Icon path={mdiGithub} className="size-6!" />
           </a>
           {auth.enabled && (
             <Button
