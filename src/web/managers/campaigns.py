@@ -66,7 +66,7 @@ class CampaignProgressManager:
             "game_name": drop.campaign.game.name,
             "current_minutes": drop.current_minutes,
             "confirmed_minutes": drop.real_current_minutes,
-            "confirmed_at": drop.confirmed_at.isoformat() if getattr(drop, "confirmed_at", None) else None,
+            "confirmed_at": stamp.isoformat() if (stamp := getattr(drop, "confirmed_at", None)) else None,
             "required_minutes": drop.required_minutes,
             "progress": drop.progress,
             "remaining_seconds": self._remaining_seconds,

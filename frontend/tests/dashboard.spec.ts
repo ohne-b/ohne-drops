@@ -317,6 +317,32 @@ test('snapshot replaces stale entities and keeps settings draft', async ({ page,
   });
   await expect(interval).toHaveValue('45');
 });
+test('channel discovery reports partial coverage and unknown account linkage', async ({
+  page,
+  request,
+}) => {
+  await request.post('/__test/event', {
+    headers,
+    data: {
+      event: 'initial_state',
+      data: {
+        ...snapshot,
+        inventory_status: { available: false, recovered: 1, checked_at: null },
+        campaigns: snapshot.campaigns.map((campaign) => ({ ...campaign, linked: null })),
+      },
+    },
+  });
+  await expect(
+    page.getByText('Found 1 campaigns through live Twitch channels.', { exact: false }),
+  ).toBeVisible();
+  await page.getByRole('link', { name: 'Campaigns', exact: true }).click();
+  await expect(
+    page.getByText('Found 1 campaigns through live Twitch channels.', { exact: false }),
+  ).toBeVisible();
+  await expect(page.getByText('Account link unknown', { exact: true }).last()).toBeVisible();
+  await page.locator('summary').first().click();
+  await expect(page.getByRole('link', { name: 'Check account link' }).first()).toBeVisible();
+});
 test('dashboard password, login, logout and API guard', async ({ page, browser, request }) => {
   await page.goto('/settings');
   await page

@@ -233,7 +233,9 @@ class TimedDrop(BaseDrop):
         )
         self.required_minutes: int = data["requiredMinutesWatched"]
         self.extra_current_minutes: int = 0
-        self.confirmed_at = datetime.now(timezone.utc)
+        self.confirmed_at: datetime | None = (
+            datetime.now(timezone.utc) if "self" in data else None
+        )
         if self.is_claimed:
             # claimed drops may report inconsistent current minutes, so we need to overwrite them
             self.real_current_minutes = self.required_minutes

@@ -13,14 +13,19 @@ Dashboard password access, mining preferences and claimed history are retained.
 Twitch login uses the authorization code shown inside Settings. Browser session
 imports and Chromium renewal helpers are no longer used or required.
 
-If Twitch withholds the campaign catalog, the miner retains campaigns returned by
-your in-progress inventory and skips inaccessible campaign details without crashing.
-An unavailable or incomplete catalog is distinct from an empty one. Missing details
-also keep the warning visible until a complete fetch succeeds. Smart TV authorization can
-succeed while catalog access fails; logout or cache clearing is not a verified remedy.
-The [upstream investigation](https://github.com/rangermix/TwitchDropsMiner/issues/118)
-tracks an experimental browser export and server renewal helper. That unreleased
-authentication path is not included here; complete discovery is not guaranteed.
+When Twitch withholds its normal catalog or campaign details, discovery reads campaign
+metadata from Twitch's participating live channels using the same device login. It
+samples three Drops-enabled streams in each of 500 categories, plus up to 100 known or
+saved games, on inventory refresh. A scan has a 60-second limit. There is no browser
+helper or third-party catalog dependency.
+
+Your account inventory always takes precedence. Recovered campaigns retain their
+timing, prerequisites and channel restrictions, and are watched only on channels that
+advertised them. Account linkage stays unknown unless Twitch returns it; progress and
+claims still come from Twitch. The dashboard reports channel discovery as partial:
+campaigns without a sampled live channel, including upcoming ones, may be missing.
+A valid empty catalog does not trigger fallback. Clearing caches or logging out is
+unnecessary for this recovery.
 
 > Automatically mine timed Twitch Drops without streaming video or audio.
 

@@ -123,6 +123,18 @@ lang/                # English message catalog
   Missing details also mean incomplete discovery, even when summaries were returned.
   Smart TV catalog access is an upstream limitation; do not claim cache clearing,
   relogin or client-ID substitution repairs it.
+- `CampaignDiscovery` recovers missing metadata through Twitch's live-channel
+  `viewerDropCampaigns` resolver, with the existing authenticated/rate-limited GQL
+  client. Omit account `self` edges from that query: they can null the entire list.
+  Scan at most 500 categories/3 streams plus 100 known or saved game slugs, bounded
+  by 60 seconds. Cancellation must propagate on logout/shutdown. No external mirror.
+  Keep Inventory/detail records authoritative as whole records; when the normal
+  catalog exists, recover only IDs it lists as active/upcoming. A valid empty list
+  never triggers recovery. Preserve real ACLs, prerequisites and timing, and limit
+  recovered campaigns to `discovery_channels`. Do not treat these channels as a new
+  campaign ACL for special-category rules. Surface partial discovery via `recovered`
+  while keeping `available` false. Unknown linkage is null; unknown progress has no
+  confirmation timestamp. Retain the original device login and UI refinements.
 - Render API/translated strings as React text; validate external links. Expand Twitch
   art URL placeholders in Art. Keep the English message schema consistent. No injected
   HTML or CDN scripts. Keep auth/status translations usable before authentication.

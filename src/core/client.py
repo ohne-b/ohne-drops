@@ -456,7 +456,9 @@ class Twitch:
                 next_hour = datetime.now(timezone.utc) + timedelta(hours=1)
                 for campaign in self.inventory:
                     if campaign.game in self.wanted_games and campaign.can_earn_within(next_hour):
-                        if campaign.allowed_channels:
+                        if campaign.discovery_channels is not None:
+                            acl_channels.update(campaign.discovery_channels)
+                        elif campaign.allowed_channels:
                             acl_channels.update(campaign.allowed_channels)
                         else:
                             no_acl.add(campaign.game)

@@ -100,18 +100,13 @@ class GQLOperation(JsonType):
 
 
 class GQLQuery(JsonType):
-    """Raw GraphQL query operation with gzip/base64 encoded spade events."""
+    """Named GraphQL document with variables, without a persisted-query hash."""
 
-    def __init__(self, query: str, g64data: str):
+    def __init__(self, name: str, query: str, *, variables: JsonType | None = None):
         super().__init__(
+            operationName=name,
             query=query,
-            variables={
-                "input": {
-                    "data": g64data,
-                    "repository": "twilight",
-                    "encoding": "GZIP_B64",
-                }
-            },
+            variables=variables or {},
         )
 
 
