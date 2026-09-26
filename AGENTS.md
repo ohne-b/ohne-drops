@@ -1,687 +1,157 @@
-# Agent Instructions
+# Agent instructions
 
+This is the canonical repository harness. Read [CONTRIBUTING.md](CONTRIBUTING.md) before
+planning, editing, testing or reviewing. Its PR checklist is mandatory. The user removed
+the alternate agent instruction files; do not recreate copies or links.
 
-## Repository Instructions
+## Workflow
 
-This file is the canonical harness for AI agents working in this repository.
-`CLAUDE.md` and `GEMINI.md` are relative symbolic links to `AGENTS.md` so every agent
-reads the same guidance. Maintain all shared and agent-specific instructions here.
-
-## Mandatory Contribution Workflow
-
-Every coding agent MUST read [CONTRIBUTING.md](./CONTRIBUTING.md) before planning,
-editing, testing, or reviewing changes and MUST follow its applicable requirements.
-It is the repository's contribution policy, not optional background reading.
-
-- Use its PR checklist as completion criteria, including integration with current
-  `main` for PRs, unit and regression testing, and independent adversarial review.
-- Pass this policy to delegated implementation and review agents. For agent-authored
-  work, use a separate adversarial review agent when available, or an independent human.
-- Report actual validation and review results and any missing checks in the handoff
-  or PR. Never claim completion of checks that did not run or approval not received.
-- Do not declare a PR ready to merge while required checks or review are missing or
-  blocking findings remain. Document the gap and keep an incomplete PR in draft.
-
-## Development Guidelines
-
-The sidebar footer shows the Twitch account ID and GitHub icon. Live connection status remains in Settings → Twitch account.
-Label that transport status "Dashboard connected" to distinguish it from Twitch login.
-The GitHub glyph is 32px and sits above the Twitch account ID; its size must override the shared 18px icon default.
-Overview Channels and Up next share equal desktop widths and heights and stack on smaller screens.
-Keep watching information in the mining card and console messages on Activity; Overview has neither a status subtitle nor Recent activity.
-Show confirmed progress values and their timestamp without the redundant "Confirmed by Twitch" label.
-History entries may include image_url. Preserve old entries without artwork; use the
-matching live campaign/drop benefit as a display fallback and the shared safe Art control.
-
-Shared Field controls use content-start so helper text does not stretch adjacent label rows.
-Avoid focus rings; retain a visible keyboard-focus background/border change and system focus in forced-colors mode.
-Focus styles must outrank Tailwind component/utility layers; verify computed focus states for fields, primary/secondary buttons and native checkboxes.
-
-Use descriptive `feat/` or `fix/` branch names. Keep branch names, documentation, commits,
-and PR descriptions free of assistant branding. Changes to main go through a pull request.
-
-1. **Testing**:
-   - Always add unit tests for backend changes.
-   - Frontend changes should have tests if possible.
-
-2. **Code Style & Architecture**:
-   - **DRY (Don't Repeat Yourself)**: Codebase must follow DRY principle.
-   - **OOP (Object-Oriented Programming)**: Required for all backend code.
-
-3. **Refactoring**:
-   - You are authorized to refactor code to align with DRY/OOP principles.
-   - **Permission Required**: You MUST ask for user permission before significant refactoring.
-
-4. **Localization (i18n)**:
-   - Update lang/English.json if UI text or console messages change; no other locales or language settings are supported.
-   - Frontend translation rendering must use safe DOM construction. Do not inject translated strings with non-clearing `innerHTML`; allowlist any intentional links and build them as DOM nodes.
-
-5. **Documentation**:
-   - Always update `README.md` and `AGENTS.md` when making changes.
-   - Keep `CLAUDE.md` and `GEMINI.md` as relative symbolic links to `AGENTS.md`; do not replace them with duplicated text. Put any agent-specific instructions in clearly named sections of `AGENTS.md`.
-
-## Project Overview
-
-Twitch Drops Miner is a Python application that automatically mines timed Twitch drops without downloading stream data. It uses Twitch's GraphQL API and websocket connections to simulate watching streams while tracking drop progress.
-
-**Key Characteristics:**
-
-- Python 3.12+ required
-- React/TypeScript/Tailwind dashboard served by FastAPI with Socket.IO live state
-- Async/await architecture with asyncio
-- Session persistence via cookies
-- No stream video/audio download (bandwidth-efficient)
-- Docker-ready for easy deployment
+- Use descriptive `feat/` or `fix/` branches, conventional commits and PRs against
+  `ohne-b/twitch-miner:main`. Keep branches, commits and documentation free of assistant branding.
+- Preserve existing user changes, data, credentials, logs and backups. Ask before significant
+  refactoring unless the current task already authorizes it. A full rewrite authorization
+  covers its necessary cleanup. Never change a running deployment without authorization.
+- Use one implementation agent when requested. Required independent adversarial review uses
+  a separate read-only reviewer; the author cannot approve their own work.
+- Integrate current main before final validation/review and again before merge if it advances.
+  Keep incomplete PRs in draft. Record tested/reviewed revisions and actual results; never
+  describe unrun checks, live progress or review as successful.
+- Add backend unit/regression tests; cover frontend changes where practical. Always update
+  README and this harness when behavior/architecture changes. Update English messages for UI
+  or console changes. There are no other locales or language settings.
 
 ## Architecture
 
-
-The application now uses a clean `src/` package structure with clear separation of concerns.
-
-### Project Structure
-
-```text
-src/
-├── models/          # Domain models (Game, Channel, Campaign, Drop, Benefit)
-├── config/          # Configuration (constants, paths, operations, settings, client_info)
-├── utils/           # Pure utilities (string, JSON, async helpers, rate_limiter, backoff)
-├── i18n/            # Translation system (Translator class, TypedDict schemas)
-├── auth/            # Authentication (auth_state for OAuth and token management)
-├── api/             # External API (HTTP client, GraphQL client)
-├── websocket/       # Real-time updates (websocket connection, pool)
-├── web/             # Web GUI (app, gui_manager, api/)
-│   └── managers/    # Individual UI managers (status, console, channels, campaigns, inventory, login, settings, cache, broadcaster)
-├── services/        # Business logic services (channel, inventory, watch, maintenance, message_handlers)
-├── core/            # Core client (Twitch client)
-├── drop_history.py  # Claimed drop history store (JSON persistence + CSV/JSON export)
-├── exceptions.py    # Custom exceptions
-├── version.py       # Version string
-└── __main__.py      # Entry point
-
-lang/                # English message catalog
-└── English.json
-```
-
-### React dashboard
-
-- Channel viewer counts are nullable for offline streams. Preserve that API type,
-  render unknown counts as a dash, and sort them after known counts within watching priority.
-
-- `frontend/src` is the browser application source. Use strict TypeScript, React,
-  Tailwind theme tokens, individual MDI paths, and shared native controls in
-  `components/ui.tsx`. The dark theme, Manrope, compact fields and 3px WebKit
-  scrollbars follow `docs/plans/2026-09-26-design-spec.md`.
-- `web/` is ignored Vite output. Run `npm ci` and `npm run build` in `frontend/`
-  before starting Python or backend static-asset tests. Never edit output.
-- One typed provider handles complete snapshots and incremental events. Reconnect
-  hydrates a new snapshot; commands stay disabled until it arrives. Pending settings
-  edits are separate from live state. Include the original revision in autosaves;
-  HTTP409 keeps the draft for Retry. Keep fields editable while serializing writes.
-- Display confirmed minutes/timestamps separately from local estimates. Catalog null
-  means unavailable. Use the actual pending OAuth flow, not an invented reconnect API.
-- Null campaign details must be skipped together with their incomplete summary while
-  preserving independent in-progress Inventory entries. Null catalogs must not print
-  a definitive no-campaign diagnosis. A later valid catalog clears the warning.
-  Missing details also mean incomplete discovery, even when summaries were returned.
-  Smart TV catalog access is an upstream limitation; do not claim cache clearing,
-  relogin or client-ID substitution repairs it.
-- `CampaignDiscovery` recovers missing metadata through Twitch's live-channel
-  `viewerDropCampaigns` resolver, with the existing authenticated/rate-limited GQL
-  client. Omit account `self` edges from that query: they can null the entire list.
-  Scan at most 500 categories/3 streams plus 100 known or saved game slugs, bounded
-  by 60 seconds. Cancellation must propagate on logout/shutdown. No external mirror.
-  Keep Inventory/detail records authoritative as whole records; when the normal
-  catalog exists, recover only IDs it lists as active/upcoming. A valid empty list
-  never triggers recovery. Preserve real ACLs, prerequisites and timing, and limit
-  recovered campaigns to `discovery_channels`. Do not treat these channels as a new
-  campaign ACL for special-category rules. Surface partial discovery via `recovered`
-  while keeping `available` false. Unknown linkage is null; unknown progress has no
-  confirmation timestamp. Retain the original device login and UI refinements.
-  Require account evidence for every benefit before inferring a claim without a self
-  edge. Skip nullable directory/channel entries without discarding valid neighbors.
-  Discovery may handle GQL failures, but must propagate login and exit requests.
-- Render API/translated strings as React text; validate external links. Expand Twitch
-  art URL placeholders in Art. Keep the English message schema consistent. No injected
-  HTML or CDN scripts. Keep auth/status translations usable before authentication.
-- Vitest/Playwright replace tests that extracted app.js functions. The browser suite
-  starts `tests/dashboard_server.py` with synthetic data on port 8765 and temporary
-  storage, refuses server reuse, and verifies fixture readiness/reset. Never target a
-  live miner. Preserve Python domain/security tests and add backend contract regressions.
-
-### Core Components
-
-**main.py** - Simple launcher:
-
-- Runs the `src` package as a module using `runpy.run_module("src")`
-- All application logic is now in `src/__main__.py`
-
-**src/__main__.py** - Entry point:
-
-- Parses command-line arguments
-- Initializes Settings, Twitch client, and WebGUIManager
-- Starts the FastAPI web server (uvicorn on port 8080)
-- Runs the main asyncio event loop
-- Handles signals (SIGINT, SIGTERM on Linux) and exit codes
-
-**src/core/client.py** - Central client (`Twitch` class):
-
-- State machine: IDLE, INVENTORY_FETCH, GAMES_UPDATE, CHANNELS_CLEANUP, CHANNELS_FETCH, CHANNEL_SWITCH, EXIT
-- Composes `_AuthState`, `HTTPClient`, and `GQLClient`
-- Delegates to service layer for business logic
-- Drop progress monitoring via periodic "watch" payloads
-- Manages WebsocketPool and maintenance tasks
-
-**src/services/** - Business logic layer (fully implemented):
-
-- `ChannelService`: Channel management and selection logic
-- `InventoryService`: Campaign and drop inventory operations
-- `WatchService`: Drop mining watch payload logic
-- `MaintenanceService`: Periodic maintenance tasks
-- `MessageHandlerService`: Websocket message routing and handling
-
-
-**src/models/channel.py** - Channel and Stream:
-
-- `Channel` class: Twitch channel with online/offline status
-- `Stream` class: Active stream with game, viewers, drop status
-- Stream URL fetching and validation
-- ACL-based vs directory channels
-
-**src/models/campaign.py** - Drop campaigns:
-
-- `DropsCampaign`: Campaign with game, timeframe, allowed channels
-- Time-based eligibility and progress tracking
-- Special Events (`509663`) and IRL (`509672`) are identified by `Game.is_special()`.
-  Their campaigns can progress across categories only on live channels in a non-empty,
-  enabled ACL. Without an ACL, the streamed category must still match. Explicit
-  `ignore_channel_status=True` checks retain their discovery-only status bypass.
-- `WatchService.can_watch()` requires the campaign's game in `wanted_games`, a live
-  channel, and `campaign.can_earn(channel)`. Special categories bypass the channel's
-  drops-enabled flag; regular campaigns still require it. Campaign and drop timing, prerequisites, claims, and ignore rules remain enforced.
-- Channel priority still uses the streamed category; channels outside `wanted_games`
-  retain `MAX_INT` fallback priority. Preserve special-category eligibility when changing
-  watch selection; do not reintroduce an unconditional campaign/channel game equality gate.
-- `WatchService.should_switch()` allows replacement of an unwatchable current channel
-  before comparing priorities. Healthy streams keep the existing priority rules; tied
-  `MAX_INT` participants must still take over after an offline or ineligible stream.
-
-**src/models/drop.py** - Drop types:
-
-- `TimedDrop`: Drops with minute requirements and progress
-- `BaseDrop`: Base class with claim logic
-- Precondition chains for sequential drops
-
-**src/web/gui_manager.py** - Web GUI:
-
-- `WebGUIManager`: Main GUI coordinator
-- Composes individual managers for different UI concerns (status, console, channels, campaigns, inventory, login, settings, cache)
-- Uses `WebSocketBroadcaster` for real-time Socket.IO updates
-- Pure asyncio, no tkinter dependency
-
-**src/web/app.py** - FastAPI application:
-
-- REST API endpoints: `/api/status`, `/api/channels`, `/api/campaigns`, `/api/settings`, `/api/login`, `/api/oauth/confirm`, `/api/reload`, `/api/cache/clear`, `/api/close`, `/api/version`, `/api/history`, `/api/history/export.csv`, `/api/history/stats`
-- Socket.IO server for real-time bi-directional communication
-- Serves static web frontend from `web/` directory
-- Integrates with WebGUIManager via `set_managers()`
-- The Settings **Clear All Cache** action discards local campaign, channel, and other
-  derived miner state, preserves OAuth login and settings, and then reloads from Twitch.
-  It is a recovery and diagnostic action, not a correction for Twitch campaign metadata.
-- Serve the SPA only at `/`, `/campaigns`, `/history`, `/activity`, `/settings`, and
-  `/login`. Preserve API/socket404s rather than adding a blanket fallback.
-- HTML uses `Cache-Control: no-cache`; Vite assets use content hashes and immutable
-  caching. Code/fonts are public for login; account data, APIs and Socket.IO stay protected.
-
-**src/websocket/pool.py** - WebSocket management:
-
-- Sharded connections (up to 50 topics per socket, max 199 channels)
-- Topics: User.Drops, User.Notifications, Channel.StreamState, Channel.StreamUpdate
-- Automatic reconnection with exponential backoff
-- Message routing to registered callbacks
-
-**src/config/settings.py** - Application settings:
-
-- Games to watch is the explicit mining allowlist, in priority order. Never add discovered games automatically.
-- Games can also be added manually from the web settings search box. Exact and
-  unique partial matches resolve to available game names; ambiguous matches do not
-  add a game. Confirmations support keyboard focus and Escape; manual confirmation uses current settings.
-- Game priorities show Twitch box artwork with an icon fallback. Do not show numeric rank fields.
-- Connection quality multiplier
-- Proxy support (including verification)
-- Logging and dump flags from command-line arguments
-- Persistence to JSON file (`settings.json`) in DATA_DIR
-- Drop-name ignore list (`drop_name_blacklist`), empty by default. Entries are literal,
-  case-insensitive substrings entered one per line; whitespace and blanks are removed and
-  duplicates are casefolded while preserving the first spelling/order.
-- Inventory filters (Status, Benefit Type, Game Search); Active/Upcoming/Expired use
-  OR semantics; Not Linked narrows the result. Finished is a separate completed-campaign tab.
-  Zero-minute subscription rewards are omitted from Inventory and Wanted Drops Queue;
-  individually expired and non-mineable rewards are omitted from the queue without hiding
-  upcoming or sequential rewards; successful claims refresh the queue immediately; the
-  actively watched channel remains visible while game settings are changing
-- Consecutive identical no-active-campaign console prompts are collapsed until another
-  console message appears
-Drop-name ignore policy is dependency-aware: a matching unclaimed drop and its dependent
-branches are ignored dynamically. Prerequisite-only branches with no mineable reward are
-skipped, while shared prerequisites required by an allowed reward remain mineable. Ignored
-and skipped drops are never counted as claimed. Twitch can still award simultaneous
-progress to an ignored drop while the miner intentionally targets another reward.
-
-### State Machine Flow
-
-1. **IDLE** - Waiting for campaigns or user action
-2. **INVENTORY_FETCH** - Fetch campaigns from GraphQL, claim completed drops
-3. **GAMES_UPDATE** - Determine wanted games based on priority/exclude lists
-4. **CHANNELS_CLEANUP** - Remove channels not streaming wanted games
-5. **CHANNELS_FETCH** - Discover channels via ACL lists or game directories
-6. **CHANNEL_SWITCH** - Select best channel to watch based on priority/ACL
-7. Loop between CHANNEL_SWITCH and periodic INVENTORY_FETCH (hourly)
-
-### Authentication
-
-- Use the in-app device-code flow only. Browser session import routes, credentials,
-  helper containers and renewal services have been removed. Retain credential-safe
-  HTTP/websocket logging and report device authorization failures by status code.
-  Keep retired session-export and renewal-state ignore patterns: upgrades may still
-  have old credential files even though their consuming feature has been removed.
-
-- `/api/twitch/logout` is separate from dashboard logout. The session owner cancels
-  and drains inventory/channel batches, watch/maintenance work, delayed channel
-  tasks and active/retiring websocket callbacks before deleting saved cookies.
-  Keep the dashboard alive for a fresh OAuth flow. Preserve settings/history.
-  Concurrent logout requests coalesce; shutdown must not interrupt task drainage.
-  Mypy targets Python3.12, matching the required runtime and asyncio cancellation APIs.
-
-- Uses OAuth device code flow (user enters code at twitch.tv/activate)
-- Managed by `src/auth/auth_state.py` (`_AuthState` class)
-- Access tokens stored in `cookies.jar` in DATA_DIR
-- Device ID from Twitch's `unique_id` cookie
-- Session ID generated per run
-- Client info defined in `src/config/client_info.py`; `Twitch` defaults to `ClientType.SMARTBOX`
-  for OAuth, HTTP, and GraphQL. Twitch rejects the former Android app device-code client.
-- Keep `Channel.url` on `ClientType.WEB.CLIENT_URL`: the Smart TV app shell lacks the
-  beacon/settings fields required by `get_spade_url()` and would prevent watch events.
-- Existing Android sessions may require one new device authorization. Tests in
-  `tests/test_twitch_auth.py` cover fresh login, token polling, expired tokens, old-cookie
-  migration, consistent client IDs, and restart persistence using temporary cookie jars.
-  `tests/test_spade_discovery.py` covers both beacon-discovery formats through actual
-  `send_watch()` calls with mocked responses; these tests do not prove live drop progress.
-
-### Dashboard authentication
-
-- `src/web/auth.py` owns optional password-only dashboard protection, separate from Twitch
-  OAuth and ordinary settings. It defaults off and stores a salted scrypt hash and SHA-256
-  session-token digests in `data/web_auth.json` using atomic replacement; corrupt state must
-  fail closed. Never expose these credentials in settings, broadcasts, validation errors,
-  logs, or cache operations. Use one miner process per data directory.
-- `AuthMiddleware` guards FastAPI and the outer Socket.IO ASGI app. Only login resources,
-  auth status, and `/healthz` are public when enabled. Unsafe HTTP requests require
-  `X-TDM-Request: 1`; writes and Socket.IO reject foreign origins. `DashboardOrigin` in
-  `src/web/origin.py` owns the optional `PUBLIC_BASE_URL` startup configuration: one
-  absolute HTTP(S) root URL supplies the allowed browser origin and cookie scheme even
-  behind an HTTP backend or rewritten Host. Normalize host/scheme/default ports and IP
-  serialization to browser origins; reject ambiguous short/octal/hex IPv4 forms and
-  credentials, paths, queries, fragments, wildcard/list origins, and malformed values
-  without echoing them. Unset/empty preserves request-derived behavior. This configuration
-  must not change ASGI scheme/client or trust forwarded headers; client-IP forwarding
-  still requires explicit trusted proxies. HTTPS public URLs enable Secure cookies on
-  set and delete. Preserve CSRF, Fetch Metadata, session/revocation, and rate-limit checks.
-  `tests/test_web_public_url.py` covers both Socket.IO transports, production environment
-  wiring, cookie lifecycles, hostile origins, and separate proxy-IP trust.
-- Default cookies are HttpOnly, SameSite=Strict session cookies. Remember me adds a fixed
-  30-day Max-Age; server sessions also expire after 30 days and survive restarts. Logout
-  revokes the current session; password changes require the current password and revoke
-  other sessions. Disabling auth requires the current password and clears all credentials.
-- `AuthSocketServer` rechecks authorization on events and broadcasts, disconnects revoked
-  sessions, and schedules idle connections to close at expiry. Enabling auth must evict
-  already connected anonymous clients before subsequent private broadcasts.
-- React Login and Settings own dashboard auth controls; the shared fetch helper adds
-  the same-origin write header. Failed initial auth status leaves login/retry usable.
-  Preserve public auth translations and synchronize protection status across devices.
-  Keep English auth strings in `gui.auth`, rendered as text with native password fields.
-- `tests/test_web_auth.py` and `frontend/tests/dashboard.spec.ts` cover access control,
-  credential persistence, cookie lifetimes, CSRF, rate limiting, revocation, and UI errors.
-  The idle socket-expiry regression controls the auth wall clock and captures the
-  scheduled callback. Preserve its remaining-lifetime, disconnect, and cleanup assertions;
-  do not replace them with millisecond session lifetimes or fixed wall-clock sleeps.
-  Docker checks `/healthz`, not the protected `/api/status`. Recovery is local: stop the
-  miner, restrict access, remove only `data/web_auth.json`, restart and set a new password.
-
-### Drop Mining Mechanism
-
-The application sends periodic "watch" payloads through Twitch GraphQL `sendSpadeEvents`:
-
-- Payload contains gzip/base64-encoded minute-watched events with channel/broadcast IDs
-- Twitch reports progress via websocket (User.Drops topic)
-- If websocket updates stop, fallback to GQL CurrentDrop query
-- Extrapolation via "bump minutes" when no updates received
-
-### GraphQL Operations
-
-Persisted operations are defined in `src/config/operations.py` as `GQL_OPERATIONS`; raw GraphQL payloads such as `sendSpadeEvents` use `GQLQuery`:
-
-- **Inventory** - Fetch in-progress campaigns and claimed benefits
-- **Campaigns** - List available active/upcoming campaigns
-- **CampaignDetails** - Detailed drop info for a campaign
-- **GameDirectory** - Find live streams for a game with drops enabled
-- **GetStreamInfo** - Check if channel is online and get stream details
-- **CurrentDrop** - Query currently mined drop progress
-- **ClaimDrop** - Claim a completed drop
-- **AvailableDrops** - Check which campaigns a channel qualifies for (badge validation)
-- **NotificationsDelete** - Delete Twitch notifications
-
-### Channel Selection Priority
-
-1. Selected channel (if user clicked one)
-2. ACL-based channels over directory channels
-3. Game priority order (from settings)
-4. Viewer count (descending)
-5. Maximum 199 channels tracked simultaneously
-
-### Maintenance Task
-
-Runs in background to trigger:
-
-- Channel cleanup when drops start/end (based on time_triggers)
-- Inventory reload every ~60 minutes
-
-### English messages
-
-`lang/English.json` contains all interface and miner messages. Its TypedDict schema
-lives in `src/i18n/translator.py`; the singleton `_` exposes `_.t`. The frontend
-bundles this one catalog. There are no locale selection, loading or switching APIs.
-
-## Key Files
-
-- **src/config/constants.py** - Core enums (State, WebsocketTopic), logging config, type aliases
-- **src/config/operations.py** - GraphQL operation definitions (GQL_OPERATIONS)
-- **src/config/paths.py** - Path management and Docker environment detection
-- **src/config/client_info.py** - Twitch client info (Client-Id, User-Agent)
-- **src/config/settings.py** - Application settings with JSON persistence
-- **src/exceptions.py** - Custom exceptions (MinerException, ExitRequest, RequestException, RequestInvalid, WebsocketClosed, LoginException, CaptchaRequired, GQLException)
-- **src/drop_history.py** - Claimed-drop history store (`DropHistory`) with atomic JSON
-  persistence, filtering, stats, and CSV export; recorded on every successful drop claim
-- **src/utils/** - Helper utilities (string_utils, json_utils, async_helpers, rate_limiter, backoff)
-- **src/i18n/** - Internationalization package with TypedDict schema and Translator class
-  - **translator.py** - Translator class with typed translation schema (Translation TypedDict)
-  - **__init__.py** - Exports translation types and `_` (Translator instance)
-- **lang/** - English.json message catalog
-- **src/version.py** - Version string
-- **src/web/app.py** - FastAPI application with REST API and Socket.IO
-- **src/web/managers/cache.py** - ImageCache for campaign artwork caching
-- **frontend/** - React/TypeScript sources, tests, build configuration and asset licenses
-- **web/** - Ignored compiled HTML and content-hashed assets served by Python
-
-## Development Commands
-
-**IMPORTANT: Always activate the virtual environment first!**
-
-The project uses a virtual environment located at `env/`. All Python commands must be run within this environment:
-
-```bash
-# Activate the virtual environment (required before any Python commands)
-source env/bin/activate
-```
-
-### Running the Application
-
-```bash
-# Run from source (remember to activate venv first!)
-source env/bin/activate && python main.py
-
-# With verbose logging (stackable: -vv, -vvv)
-source env/bin/activate && python main.py -v
-
-# Create data dump for debugging
-source env/bin/activate && python main.py --dump
-
-# Access the web interface at http://localhost:8080
-```
-
-### Development Setup
-
-The application requires:
-
-- Python 3.12+
-- Virtual environment at `env/` (must be activated before running commands)
-- Dependencies from `pyproject.toml` (includes FastAPI, uvicorn, Socket.IO)
-- Node.js 24 for frontend builds, Vitest, and Playwright
-
-Docker deployment:
-
-```bash
-# Build and run with docker-compose
-docker-compose up -d
-
-# Access at http://localhost:8080
-```
-
-## Testing
-
-### Automated Tests
-
-The project includes a test suite in the `tests/` directory:
-
-```bash
-# Build before testing static asset serving
-npm --prefix frontend ci
-npm --prefix frontend run build
-source env/bin/activate && python -m pytest tests/
-npm --prefix frontend test
-(cd frontend && npx playwright install chromium && npm run test:browser)
-```
-
-The suite covers settings and proxy behavior, inventory-filter behavior, API filtering,
-GraphQL watch events, batched channel discovery, English message schema and
-placeholder consistency, frontend DOM safety, case-insensitive channel filtering,
-watch-drop count and expiry semantics, immediate claim refresh behavior, consecutive
-no-campaign console collapsing, contributor README automation, and the claimed-drop
-history store with CSV export and API endpoints. Frontend tests use Vitest and Playwright,
-including axe accessibility checks; CI builds with Node24 before pytest. It also runs the release
-script contract tests under `.github/scripts/test/`. Ignore-list coverage includes
-normalization and settings persistence, dependency pruning, the combined expiry/ignore
-Wanted Queue guard, watch selection, truthful ignored/skipped inventory state, translated
-placeholder parity, and frontend rendering. Vite generates asset hashes; release versioning
-remains owned by the existing workflow. Commit frontend sources and lockfile, not web output.
-
-`tests/test_special_game_watch.py` covers Special Events and IRL across streamed categories,
-missing category/drops flags, offline and nonparticipating channels, disabled or absent ACLs,
-Games to Watch selection, campaign/drop eligibility, active-campaign selection, and fallback
-priority and failover. It uses mocked Twitch state and does not verify live Twitch progress.
-
-### Continuous Integration
-
-- `.github/workflows/validation.yml` runs Ruff, Mypy, the Python test suite, language
-  JSON validation, frontend build/format/unit/browser/accessibility checks,
-  `uv lock --check`, release-script tests, and Docker build validation
-  for pull requests and pushes to `main`.
-- Docker validation and release workflows pin the Node-24-native Docker Buildx v4.3.0
-  and Build Push v7.3.0 action commits. Update both workflows together when changing
-  either action so validation and release builds use the same trusted versions.
-- `.github/workflows/contributors.yml` credits the human author of each pull request
-  merged into `main`, including linked pull request numbers in the alphabetically sorted
-  Contributors table in `README.md`.
-- The contributor workflow runs with write access through `pull_request_target`. It must
-  only check out and execute trusted code from the default branch; never fetch or run
-  pull request head code in that workflow.
-- Keep the contributor table header and the `<!-- contributors:start -->` and
-  `<!-- contributors:end -->` markers in `README.md`; the updater fails closed if the
-  table header or either marker is missing, duplicated, or malformed.
-- `.github/workflows/version-release.yml` is the release entry point. It must provision
-  `uv`, update `src/version.py`, `pyproject.toml`, and `uv.lock` together, and validate all
-  three before creating a release branch or tag.
-
-
-### Manual Testing
-
-1. Run with `-vvv` for maximum verbosity (levels: -v, -vv, -vvv, -vvvv)
-2. Check log files in `./logs/` directory
-3. Monitor web GUI console output and browser developer tools
-
-## Web GUI Architecture
-
-The application uses a web-based interface accessible via browser:
-
-### Web GUI Components
-
-**src/web/gui_manager.py** - WebGUIManager class:
-
-- Managers: StatusManager, ConsoleOutputManager, ChannelListManager, CampaignProgressManager, InventoryManager, LoginFormManager, SettingsManager, CacheManager
-- Uses WebSocketBroadcaster to push real-time updates to connected clients via Socket.IO
-- Pure async/await implementation
-
-**src/web/app.py** - FastAPI application:
-
-- REST API endpoints: `/api/status`, `/api/channels`, `/api/campaigns`, `/api/settings`, `/api/login`, `/api/oauth/confirm`, `/api/reload`, `/api/cache/clear`, `/api/close`, `/api/version`, `/api/history`, `/api/history/export.csv`, `/api/history/stats`
-- Socket.IO server for real-time bi-directional communication
-- Serves static web frontend from `web/` directory
-- Integrates with WebGUIManager via `set_managers()`
-
-**frontend/src/** - Browser application:
-
-- `App.tsx` - Authentication gate, navigation and Overview/Campaigns/History/Activity/Settings routes
-- `lib/` - Typed API requests, DTOs, translations and Socket.IO state
-- `components/ui.tsx`, `components/Campaign.tsx` - Shared controls and reward rows
-- `pages/` - Route content, explicit settings drafts and login
-- `styles.css` - Tailwind tokens, shared fields, dark appearance and native scrollbar rules
-
-### Communication Protocol
-
-**Server → Client (Socket.IO events):**
-
-- `initial_state` - Full state on connect
-- `status_update` - Status bar changes
-- `console_output` - New log lines
-- `channel_add/update/remove` - Channel list changes
-- `drop_progress` - Drop mining progress
-- `campaign_add` - New campaign added
-- `login_required` - Prompt for credentials
-- `settings_updated` - Settings changed
-
-**Client → Server:**
-
-- REST API for actions (login, settings, channel selection)
-- Socket.IO for connection management
-
-### Docker Integration
-
-**src/config/paths.py:**
-
-- Detects Docker environment via `DOCKER_ENV` env var or `/.dockerenv` file
-- Docker: Uses `/app` for code, `/app/data` for persistent storage
-- Development: Uses `<project_root>/data` for persistent storage
-- All user data (cookies, settings, cache, logs) stored in DATA_DIR
-- Provides `_resource_path()` helper for locating bundled resources
-
-**Dockerfile:**
-
-- Node24 build stage compiles locked frontend dependencies; Python3.12 serves the output
-- Installs Python dependencies from `uv.lock` with pinned uv; no Node runtime service
-- Preserves MIT, MDI and Manrope license notices in the runtime image
-- Exposes port 8080
-- Health check on the public `/healthz` endpoint
-
-**docker-compose.yml:**
-
-- Volume mounts `./data:/app/data` for persistence
-- Port mapping `8080:8080`
-- Auto-restart policy
-- Timezone configuration
-
-### Key Design Decisions
-
-- **WebSocket for real-time** - Socket.IO chosen for reliability (fallback to polling)
-- **React single-page app** - Typed components and one live-state provider; no additional state/form framework
-- **Direct Docker support** - Environment detection, proper path handling
-- **OAuth device code flow** - Works great for web-based deployment
-
-## Project Scope
-
-This is a hobby project for personal use on the user's own hardware and home network.
-Support is limited to that setup and is provided on a best-effort basis. VPS, cloud,
-other third-party hosting environments, and services operated for other users are
-outside the support scope. Remote dashboard access and Docker support do not expand
-that deployment scope. Keep the README disclaimer and contribution guidance consistent
-with this policy when reviewing proposals or documenting deployment options.
-
-**Supported:**
-
-- ✅ Web GUI - browser-based interface with advanced filtering
-- ✅ Docker deployment - containerized on the user's own home hardware
-- ✅ Remote access - access to the user's home-hosted instance
-- ✅ Headless operation - no display server required
-
-**NOT supported:**
-
-- Multi-account support
-- Channel points mining
-- Desktop GUI
-
-### Claimed Drop History
-
-`DropHistory` records successful claims locally in `data/drop_history.json`, deduplicated
-by drop ID. The History tab provides game/date filters, pagination, statistics, CSV export,
-and confirmed local deletion. Date-only filters mean midnight UTC; aware timestamps
-preserve their instant. CSV attachment names use UTF-8 percent encoding with an ASCII
-fallback. History text is defined in the English `gui.history` catalog and rendered as text.
-Tests cover persistence, filtering, Unicode exports, offsets, and translated UI behavior.
-
-English is the only language. The settings loader discards old language preferences; do not reintroduce locale APIs, selection controls, or language broadcasts.
-
-Telegram claim notifications are optional. Preserve `telegram_bot_token` and
-`telegram_chat_id` in settings; blank or masked tokens keep the saved credential and
-clearing the chat ID disables alerts. `SettingsManager.get_settings()` masks tokens for
-both HTTP and Socket.IO. Never log tokens, request URLs, response bodies or exception
-details from Telegram; redact settings validation errors too. Settings → Telegram has
-explicit Save and Test buttons: testing uses drafts and saves only after successful
-delivery. Preserve newer edits and revision conflicts; Retry patches only Telegram fields.
-The test endpoint retains dashboard auth/origin/CSRF guards. Use the fixed HTTPS Telegram
-API with redirects disabled, a 10-second timeout and no retry. The shared successful claim
-transition sends one alert; persist timed-drop history before cancellable notification I/O.
-Tests must mock Telegram transport (including the browser fixture), never send real alerts.
-Keep setup links as explicit safe DOM nodes and Telegram HTML fields escaped.
-
-Game-account linking is display metadata, not a local earning gate. Include unlinked item campaigns while retaining timing, channel ACL, prerequisites, benefit types, ignore rules and server-confirmed progress. Twitch still controls reward delivery.
-
-StreamSelector includes only saved selected games, case-insensitively deduplicated. Empty selection mines nothing.
-Campaign Mine/Stop mining toggles its game through provider-owned autosave; all eligible campaigns for that game participate.
-Settings never appends discovery results to the selected list, and every selected game can be removed.
-Overview prompts for a mining choice when the selection is empty. Campaign visibility is independent of selection.
-
-Keep page introductions compact: no redundant subtitles for Settings, Campaigns, History or Activity, no fixed-dark appearance description, and no generic mining instructions.
-
-Settings autosave lives in MinerProvider so route changes cannot discard pending writes. Debounce and serialize PATCH-like setting updates with revision checks. Retain newer edits during in-flight requests and failed/conflicting input until Retry; never restore whole stale snapshots over other devices.
-
-Game priorities use pointer dragging with the OhneGuessr six-dot handle, pointer capture for touch, Escape/pointer-cancel rollback, and keyboard arrow keys with live announcements. Persist only on drop; cancel if external game priorities change during a drag. No visible arrow buttons or numeric ranks.
-
-Campaigns shows active and upcoming rewards by default, with active confirmed progress first.
-Only the legacy upcoming-only default preset is migrated; custom filters are preserved.
-The visible count and Clear filters control expose hidden results. Ignored/skipped rewards
-are not completed campaigns, and missing artwork must not remove benefit metadata.
-Overview and Campaigns omit the recovered-campaign count banner, but retain the warning
-when the catalog is unavailable and no campaigns were recovered. Preserve availability
-metadata, discovery diagnostics and unknown link status; removing a banner does not make
-partial catalog coverage complete.
-
-CampaignHistory stores completed UI snapshots separately in `data/completed_campaigns.json`,
-using atomic replacement. Inventory clear/batch/refresh and startup snapshots retain these
-records; the archive never enters the mining inventory. Only all-claimed watch rewards mean
-completed, never expired/ignored/skipped. Preserve corrupt archives without overwriting them.
-Legacy claim history without campaign totals is displayed separately as completion unverified.
-
-Overview Channels and Up next share the remaining viewport height on desktop, with
-independently scrolling lists below fixed headers. Retain a 240px minimum panel height
-and normal page overflow for short windows; never hide content to suppress scrolling.
-Overview's wrapper must grow to its intrinsic minimum so the sidebar's sticky containing
-block encloses the content. Size containment on the panel grid excludes long lists from
-that minimum; test the sidebar after scrolling short windows, not just panel visibility.
-Stacked layouts cap each list at 440px.
-Each queue reward includes item artwork; missing, unsafe, or failed images use the shared Art fallback.
-
-Mine controls remain outside expandable campaign summaries for keyboard/screen-reader access.
-An empty game selection reports that selection is needed, not that Twitch has no campaigns.
-
-New account evidence of unclaimed rewards or a changed reward set invalidates a stale
-completion snapshot durably; metadata-only recovery retains proven completion. Finished
-filters by game/search, including older records. Clearing claim history keeps completed
-campaign snapshots, as its confirmation states. Game matching uses consistent casefolding.
+One Rust Cargo package owns the backend. Use concrete structs with methods and composition
+for domain/services (the repository's OOP requirement), typed enums and DRY shared policies.
+Do not add forwarding hierarchies or speculative traits with one implementation.
+
+| Module | Responsibility |
+| --- | --- |
+| `main.rs` | CLI/env, credential-safe logging, owned shutdown, healthcheck |
+| `config.rs`, `dto.rs` | Typed settings, compatible migration, API snapshots |
+| `domain.rs`, `policy.rs` | Campaign/drop/channel eligibility and dependency-aware ignores |
+| `store.rs` | Exclusive data directory, atomic settings/history/archive/claim journal |
+| `auth.rs`, `origin.rs` | Dashboard passwords/sessions, origin and cookie policy |
+| `twitch/` | OAuth, bounded HTTP/GQL, inventory recovery, beacon watch, PubSub shards |
+| `miner.rs` | Session supervisor and owned mining jobs, scheduling and reconciliation |
+| `web/` | Axum HTTP, Socketioxide, protected snapshots and embedded frontend |
+| `fixture.rs`, `bin/dashboard-fixture.rs` | Feature-gated offline browser fixture |
+| `frontend/`, `lang/English.json` | React/TypeScript/Tailwind and one message catalog |
+
+Build frontend assets before backend/static tests. `web/` is ignored output. Release binaries
+embed it and run without a build tool/runtime companion. Production builds never enable
+`dashboard-fixture`; fixture routes must return 404 in production.
+
+## Mining contracts
+
+- Discovery does not select games. `games_to_watch` is the ordered Unicode-casefolded
+  allowlist. Empty means no watch events. Mine selects a game across eligible campaigns.
+- Preserve campaign/drop timing, prerequisites, claim state, benefit filters and ignore rules.
+  Literal ignore substrings cascade through dependents while retaining shared prerequisites.
+  Zero-minute subscription rewards are omitted from Campaigns/Up next; expired drops leave
+  the queue without hiding upcoming or sequential rewards. Ignore/skip is never completion.
+- Active campaigns with existing progress appear first. Finished requires all watch rewards
+  claimed; expiry alone never qualifies. Persistent completion archives are display-only,
+  survive cache clears, and can be invalidated by newer contradictory account evidence or
+  changed rewards. Older claim-only history remains completion-unverified.
+- Inventory/details win over metadata recovery as whole records. Preserve independent
+  in-progress records when details are null. Valid empty catalogs never trigger recovery.
+  With a valid catalog, recovery is restricted to its active/upcoming IDs.
+- Recovery uses authenticated `viewerDropCampaigns` without `self` edges: at most 500
+  categories × 3 streams, 100 known/saved slugs, and 60 seconds. Propagate logout/auth failures.
+  Skip nullable neighbors individually. Partial coverage stays partial; no false diagnostics
+  that relogin, cache clearing or client substitution repairs an upstream catalog restriction.
+- Unknown linkage is null and unknown progress has no confirmed timestamp. Infer claims from
+  awards only when every benefit has evidence in the drop's time window and no explicit
+  account record contradicts it. Recovered channels constrain eligibility but are not a real ACL.
+- Special Events (`509663`) and IRL (`509672`) cross categories only with a nonempty enabled
+  actual ACL. Regular drops need matching category and drops-enabled status; all need live
+  channels, selected games and eligible rewards. Offline/ineligible streams yield even at tied
+  fallback priority. Preserve nullable viewer counts and the watching row during rebuilds.
+- Watch events use validated Twitch beacon URLs and a base64 minute-watched payload every
+  59 seconds. No playlists/video/audio downloads. Confirm via PubSub or CurrentDrop, distinguish
+  estimates, and recover at 15 unconfirmed estimates. Only currently eligible drop progress
+  suppresses fallback. Late request results cannot overwrite newer account/stream events.
+- Claims require account-issued instance IDs, skip upcoming campaigns and stop at the strict
+  campaign-end + 24-hour deadline. Earned claims are independent of mining/ignore selection.
+  Persist the account-scoped intent before RPC, then its success receipt and history. Keep the
+  receipt until the owner acknowledges domain state and archives completion; reconcile after
+  restart even without catalog metadata. Never retire it before durable history/archive writes.
+- Every session/job/socket task is owned and drained. Logout coalesces and removes only Twitch
+  credentials after drainage; concurrent shutdown cannot interrupt removal in either queue order.
+  Hourly validation/network reconfiguration preserves eligible manual selection and queues
+  new channel choices until fresh channel eligibility is available. Cache clear
+  preserves settings, credentials, claim history and completed campaigns.
+- Requests use bounded concurrency/rate, retries and cancellation. Quality 1..6 controls connect
+  timeout 5×quality and total 10×quality seconds; the saved refresh interval actually schedules
+  inventory work. Slow discovery must not block watch cadence. Duplicate idle prompts collapse.
+
+## Authentication and storage
+
+- Original in-app device code only, Smart TV client identity, `twitch_oauth2` types/requests.
+  Keep explicit empty scopes, pending/slow-down/expiry/denial handling and token validation.
+  Channel pages use the web client URL. No browser-import or browser-renewal code/services.
+- New sessions use `twitch_session.json`; keep old credentials/backups untouched for rollback.
+  Invalid new sessions are preserved separately before reauthorization. Never log OAuth tokens,
+  device secrets, proxy credentials, cookie values or raw authenticated transport frames.
+- Existing settings, version-1 history, completion and dashboard-auth formats remain compatible.
+  Atomic replacement commits before memory/publication. Corrupt auth fails closed; corrupt
+  history/archive are preserved read-only; unreadable settings never silently reset. One miner
+  process per data directory. Keep retired credential filenames ignored to protect old installs.
+- Optional password-only dashboard auth uses compatible scrypt and SHA-256 token digests,
+  fixed 30-day sessions, HttpOnly/SameSite=Strict cookies and Secure on HTTPS. Password change
+  revokes other sessions; disable requires current password. Twitch logout is separate.
+- Outer middleware protects HTTP and both Socket.IO transports. Writes require `X-TDM-Request: 1`,
+  same-origin/Fetch Metadata checks and bounded bodies. Rate-limit hashing by peer and globally.
+  Recheck socket authorization for events/broadcasts and expire idle sessions. Enabling auth
+  evicts anonymous sockets before private publication. Detached password/settings writes are owned.
+- `PUBLIC_BASE_URL` is one normalized HTTP(S) root origin. Reject credentials, paths, queries,
+  fragments, lists/wildcards and ambiguous numeric IPv4 forms. It controls browser origin/cookie
+  scheme, not forwarded client-IP trust. Do not trust proxy headers implicitly.
+- Serve SPA only on explicit dashboard routes. Preserve API/socket 404s. Public login code/fonts
+  do not make account data public. HTML revalidates; hashed assets are immutable; private data
+  is no-store. Dashboard protection recovery removes only web_auth.json while stopped/restricted.
+
+## Dashboard design and contracts
+
+- Keep the subtle charcoal/Manrope design, individual MDI paths and shared native controls.
+  Render strings as React text, validate external links/artwork, expand Twitch image placeholders.
+  No injected HTML or CDN scripts. Art provides safe missing/broken-image fallbacks.
+- Sidebar: enlarged GitHub glyph above Twitch account ID, overriding shared icon sizing.
+  Connection status lives in Settings and is labeled Dashboard connected, separate from Twitch.
+- Overview: watching information only in Mining, no status subtitle or Recent activity. Channels
+  and Up next have equal desktop dimensions and internal scrolling; stack on narrow screens and
+  preserve access on short windows. Show confirmed values/timestamps without redundant labels.
+- History artwork is optional; retain old rows and use matching live benefits as display fallback.
+  No Telegram controls/API/credentials in responses and no dashboard updater.
+- Shared Field content starts at the top; helper text cannot stretch neighboring label rows.
+  No focus rings, but visible keyboard background/border changes must outrank utility layers;
+  keep system focus in forced colors. Verify computed field/button/checkbox focus and axe checks.
+- One typed provider hydrates complete snapshots and incremental events. Commands stay disabled
+  until reconnect hydration. Editable settings drafts are separate from live data; serialize
+  autosaves with original revisions. HTTP409 preserves edits for Retry and only changes touched fields.
+
+## Validation and release
+
+Use the complete commands in CONTRIBUTING. Rust tests use temporary files and mock transports;
+Playwright starts its own loopback:8765 fixture, verifies readiness/reset, and refuses reuse.
+Never use live credentials, a live miner or real notifications for automated checks.
+
+CI requires Rust fmt/Clippy/tests, frontend format/type/build/unit/browser/axe, automation
+contracts, version/lock agreement, and amd64/arm64 production image builds plus isolated health.
+Preserve license notices, 1000:1000 ownership, mounts and port. Health does not prove earning.
+
+Cargo manifest/lock own the version. Prepare release opens a draft PR; publish is manual from
+validated main and uses GitHub-generated notes/GHCR. Accept exact-commit push or manual
+validation; contributor-token commits do not automatically trigger push workflows.
+Keep Buildx/Build Push action pins identical
+between validation and release. Contributor credit runs on trusted default-branch code only
+under pull_request_target; never execute a PR head with its write token. Preserve exactly one
+README contributor marker pair/header and fail closed on malformed tables. No ordinary code
+merge may publish a release or bypass independent review/checks.
+
+For home-server work, inspect the current checkout/Compose/image before assumptions. Ask before
+changing the running deployment. Build while it runs, back up data and Compose before replacement,
+retain rollback, and require interactive sudo in the user's terminal. Always provide the actual
+PowerShell update command in the handoff; never ask for a sudo password in chat.

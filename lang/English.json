@@ -1,9 +1,6 @@
 {
     "status": {
-        "terminated": "\nApplication Terminated.\nClose the window to exit the application.",
         "watching": "Watching: {channel}",
-        "goes_online": "{channel} goes ONLINE, switching...",
-        "goes_offline": "{channel} goes OFFLINE, switching...",
         "claimed_drop": "Claimed drop: {drop}",
         "no_channel": "No available channels to watch. Waiting for an ONLINE channel...",
         "no_campaign": "No active campaigns to mine drops for. Waiting for an active campaign...",
@@ -11,25 +8,12 @@
         "no_selection": "No games selected for mining. Choose Mine in Campaigns to start."
     },
     "login": {
-        "unexpected_content": "Unexpected content type returned, usually due to being redirected. Do you need to login for internet access?",
-        "error_code": "Login error code: {error_code}",
-        "incorrect_login_pass": "Incorrect username or password.",
-        "incorrect_email_code": "Incorrect email code.",
-        "incorrect_twofa_code": "Incorrect 2FA code.",
-        "email_code_required": "Email code required. Check your email.",
-        "twofa_code_required": "2FA token required.",
         "status": {
             "logged_in": "Logged in",
             "logged_out": "Logged out",
-            "logging_in": "Logging in...",
             "required": "Login required",
             "waiting_auth": "Waiting for authentication..."
         }
-    },
-    "error": {
-        "captcha": "Your login attempt was denied by CAPTCHA.\nPlease try again in 12+ hours.",
-        "site_down": "Twitch is down, retrying in {seconds} seconds...",
-        "no_connection": "Cannot connect to Twitch, retrying in {seconds} seconds..."
     },
     "gui": {
         "auth": {
@@ -58,193 +42,62 @@
             "invalid_request": "Invalid request.",
             "request_failed": "Request failed. Try again."
         },
-        "output": "Output",
         "status": {
-            "name": "Status",
-            "idle": "Idle",
-            "ready": "Ready",
-            "exiting": "Exiting...",
-            "terminated": "Terminated",
-            "cleanup": "Cleaning up channels...",
             "gathering": "Gathering channels...",
-            "switching": "Switching the channel...",
-            "fetching_inventory": "Fetching inventory...",
-            "fetching_campaigns": "Fetching campaigns...",
-            "adding_campaigns": "Adding campaigns to inventory... {counter}"
+            "fetching_inventory": "Fetching inventory..."
         },
         "tabs": {
-            "main": "Main",
-            "inventory": "Inventory",
             "settings": "Settings",
-            "help": "Help",
             "history": "History"
         },
         "login": {
-            "name": "Login Form",
-            "labels": "Status:\nUser ID:",
-            "request": "Please log in to continue.",
-            "username": "Username",
-            "password": "Password",
-            "twofa_code": "2FA code (optional)",
-            "button": "Login",
             "oauth_prompt": "Enter this code at:",
             "oauth_activate": "Twitch Activate",
             "oauth_confirm": "I've entered the code"
         },
-        "websocket": {
-            "name": "Websocket Status",
-            "websocket": "Websocket #{id}:",
-            "initializing": "Initializing...",
-            "connected": "Connected",
-            "disconnected": "Disconnected",
-            "connecting": "Connecting...",
-            "disconnecting": "Disconnecting...",
-            "reconnecting": "Reconnecting..."
-        },
         "progress": {
-            "name": "Campaign Progress",
-            "drop": "Drop:",
-            "game": "Game:",
-            "campaign": "Campaign:",
-            "remaining": "{time} remaining",
-            "drop_progress": "Progress:",
-            "campaign_progress": "Progress:",
             "no_drop": "No active drop",
-            "return_to_auto": "Return to Auto Mode",
-            "manual_mode_info": "Manual Mode: Mining"
+            "return_to_auto": "Return to Auto Mode"
         },
         "channels": {
             "name": "Channels",
-            "online": "ONLINE  ✔",
-            "pending": "OFFLINE ⏳",
-            "offline": "OFFLINE ❌",
             "no_channels": "No channels tracked yet...",
-            "no_channels_for_games": "No channels found for selected games...",
-            "channel_count": "channel",
-            "channel_count_plural": "channels",
             "viewers": "viewers"
         },
         "settings": {
-            "general": {
-                "name": "General",
-                "dark_mode": "Dark Mode"
-            },
             "mining_benefits": "Mining Benefits",
-            "mining_benefits_help": "Select which types of drops you want to mine.",
-            "reload": "Reload Campaigns",
-            "reload_campaigns": "Reload Campaigns",
             "drop_name_blacklist": "Ignored Drop Keywords",
             "drop_name_blacklist_help": "Enter one keyword per line. Matching is a case-insensitive literal substring. Matching drops and their dependent branches are ignored; prerequisite-only branches are skipped while shared prerequisites remain mineable.",
-            "drop_name_blacklist_placeholder": "(JP)\n[KR]\nJapan",
             "clear_all_cache": "Clear All Cache",
-            "clear_all_cache_help": "Clears local campaign, channel, and derived miner state; keeps your login and settings, then reloads from Twitch.",
-            "games_to_watch": "Games to Watch",
-            "games_help": "Only selected games are mined. Drag to set priority; remove a game to stop mining it.",
             "search_games": "Search games...",
             "add_game": "Add Game",
-            "add_game_hint": " Click \"Add Game\" to add it manually.",
-            "available_games": "Available Games",
-            "no_games_match": "No games match your search.",
-            "actions": "Actions",
             "connection_quality": "Connection Quality:",
             "minimum_refresh": "Minimum Refresh Interval (minutes):",
             "multiple_games_found": "Multiple games found for your search. Please be more specific.",
             "manual_game_warning": "\"{game}\" is not in the available campaign list. Add it to Games to Watch anyway?",
             "confirm_btn": "Confirm",
-            "cancel_btn": "Cancel",
-            "remove_game": "Remove {game}",
-            "telegram": {
-                "name": "Telegram Notifications",
-                "description": "Receive a message when a drop is claimed.",
-                "bot_token": "Telegram Bot Token",
-                "chat_id": "Telegram Chat ID",
-                "save_settings": "Save Settings",
-                "test_connection": "Test Connection",
-                "credentials_help": "Leave the token blank to keep the saved token. To disable notifications, clear the Chat ID and save.",
-                "configured": "A bot token is saved.",
-                "not_configured": "No bot token is saved.",
-                "how_to_setup": "How to Set Up",
-                "setup_bot": "Create a bot with /newbot and copy its token.",
-                "setup_start": "Open your bot in Telegram and send /start.",
-                "setup_chat": "Open https://api.telegram.org/botTOKEN/getUpdates with your token in place of TOKEN. Use the chat.id from your message, then enter the token and Chat ID above. Test Connection sends a test message and saves only after success.",
-                "success": "Telegram connection successful. Settings saved.",
-                "saved": "Telegram settings saved.",
-                "error": "Telegram connection failed. Check the bot token and Chat ID, and start a conversation with your bot.",
-                "claim_message": "🎮 <b>Drop Claimed!</b>\n<b>Campaign:</b> {campaign}\n<b>Game:</b> {game}\n<b>Drop:</b> {drop}\n<b>Reward:</b> {rewards}",
-                "test_message": "✅ Telegram notification test successful!",
-                "delivery_failed": "Telegram notification could not be delivered."
-            }
+            "remove_game": "Remove {game}"
         },
         "help": {
             "about": "About Twitch Drops Miner",
-            "about_text": "This application automatically mines timed Twitch drops without downloading stream data.",
-            "how_to_use": "How to Use",
-            "how_to_use_items": [
-                "Login using your Twitch account (OAuth device code flow)",
-                "Link your accounts at <a href=\"https://www.twitch.tv/drops/campaigns\" target=\"_blank\">twitch.tv/drops/campaigns</a>",
-                "Discovered campaigns appear in Campaigns; select Mine to opt into a game",
-                "Reorder or remove selected games in Settings",
-                "Monitor progress in the Main and Inventory tabs"
-            ],
-            "features": "Features",
-            "features_items": [
-                "Stream-less drop mining - saves bandwidth",
-                "Game priority and exclusion lists",
-                "Tracks up to 199 channels simultaneously",
-                "Automatic channel switching",
-                "Real-time progress tracking"
-            ],
-            "important_notes": "Important Notes",
-            "important_notes_items": [
-                "Do not watch streams on the same account while mining",
-                "Keep your cookies.jar file secure",
-                "Requires linked game accounts for drops"
-            ],
-            "github_repo": "GitHub Repository"
-        },
-        "header": {
-            "title": "Twitch Drops Miner",
-            "initializing": "Initializing...",
-            "auto_mode": "AUTO",
-            "manual_mode": "MANUAL",
-            "connected": "Connected",
-            "disconnected": "Disconnected"
-        },
-        "footer": {
-            "version": "Version:",
-            "loading": "Loading...",
-            "update_available": "Update Available:"
-        },
-        "badges": {
-            "manual": {
-                "title": "Manual mode active - watching specific game"
-            },
-            "auto": {
-                "title": "Automatic mode - following game priority"
-            },
-            "proxy": {
-                "title": "Proxy connection active"
-            }
+            "about_text": "This application automatically mines timed Twitch drops without downloading stream data."
         },
         "wanted": {
-            "name": "Wanted Drops Queue",
             "none": "No wanted drops queued..."
         },
         "inventory": {
             "no_campaigns": "No campaigns loaded yet...",
             "status": {
-                "active": "Active ✔",
-                "upcoming": "Upcoming ⏳",
-                "expired": "Expired ❌",
-                "claimed": "Claimed ✔",
+                "active": "Active",
+                "upcoming": "Upcoming",
+                "expired": "Expired",
+                "claimed": "Claimed",
                 "ignored": "Ignored",
                 "skipped": "Skipped"
             },
             "starts": "Starts: {time}",
             "ends": "Ends: {time}",
             "claimed_drops": "claimed",
-            "ignored_drops": "{count} ignored",
-            "skipped_drops": "{count} skipped",
             "ignored_keyword_reason": "Ignored by keyword: {keyword}",
             "ignored_precondition_reason": "Ignored because it depends on {drop}",
             "skipped_branch_reason": "Skipped because no mineable reward depends on this drop.",
@@ -263,33 +116,17 @@
             }
         },
         "history": {
-            "title": "Drop History",
-            "filter_game": "Filter by game…",
-            "since": "Claimed on or after (UTC)",
-            "apply": "Apply",
-            "export": "Export CSV",
-            "stats": "Stats",
             "clear": "Clear",
-            "total": "Total drops claimed",
-            "claimed_at": "Date & Time",
-            "game": "Game",
-            "campaign": "Campaign",
-            "drop": "Drop",
-            "rewards": "Rewards",
             "minutes": "Minutes",
             "loading": "Loading history…",
             "empty": "No drops match these filters.",
-            "count": "Total drops: {total}",
             "filtered_count": "Showing {shown} of {total} recorded drops",
-            "load_error": "Error loading history: {error}",
             "previous": "Previous",
             "next": "Next",
             "by_game": "By game",
             "by_month": "By month",
             "clear_confirm": "Delete the locally recorded claim list? Completed campaign snapshots in Finished are kept. This cannot be undone.",
-            "cleared": "History cleared.",
-            "clear_error": "Failed to clear history: {error}",
-            "stats_error": "Failed to load statistics: {error}"
+            "cleared": "History cleared."
         },
         "redesign": {
             "overview": "Overview",
@@ -320,7 +157,6 @@
             "last_confirmed": "Last confirmed: {time}",
             "connect_help": "Authorize your Twitch account to load campaigns.",
             "waiting_help": "Waiting for an eligible reward and live channel. The miner checks automatically.",
-            "edit_priorities": "Edit priorities",
             "search_channels": "Search channels",
             "unknown_game": "Unknown game",
             "no_matches": "No matching results",
@@ -351,7 +187,6 @@
             "skip_content": "Skip to content",
             "connected": "Dashboard connected",
             "connecting": "Connecting to server…",
-            "account_not_connected": "Twitch not connected",
             "disconnected_help": "Connection lost. Showing the last known state; controls will resume after synchronization.",
             "not_found": "Page not found",
             "server_unavailable": "The dashboard server is unavailable. Check the connection and try again.",
@@ -398,6 +233,15 @@
             "historical_claims_help": "These campaigns are no longer in the catalog. Their recorded claims are preserved, but older history does not contain the total reward count needed to verify full completion.",
             "completion_unknown": "Completion unverified",
             "view_claim_history": "View claim history"
+        },
+        "backend": {
+            "proxy_empty": "Proxy URL is empty.",
+            "proxy_connected": "Connected.",
+            "proxy_failed": "Proxy connection failed.",
+            "session_storage": "The saved Twitch session could not be removed. Check the data directory permissions.",
+            "twitch_error": "Twitch operation failed: {error}. Retrying...",
+            "worker_failed": "The mining task stopped unexpectedly. Shutting down safely.",
+            "drop_claimed": "Drop claimed"
         }
     }
 }

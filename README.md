@@ -1,276 +1,80 @@
 # Twitch Drops Miner
 
-The desktop sidebar shows a 32px GitHub link above your signed-in Twitch account ID.
-Overview gives Channels and Up next equal width and height on desktop, stacking them on smaller screens.
-Watching information appears in the mining card; console messages are available on Activity.
-Mining progress keeps the latest confirmed minutes and timestamp without an extra confirmation label.
-History saves reward thumbnails with new claims. Older entries use available campaign
-artwork, or a placeholder when the original image is unavailable.
+Mine timed Twitch Drops from a quiet, self-hosted dashboard without downloading stream
+video or audio. Rust backend, React/TypeScript frontend, Docker support.
 
-Settings → Twitch account provides **Log out of Twitch**. It stops account work and
-forgets the server's saved Twitch login, then offers a fresh authorization code.
-Dashboard password access, mining preferences and claimed history are retained.
-
-Twitch login uses the authorization code shown inside Settings. Browser session
-imports and Chromium renewal helpers are no longer used or required.
-Any old session export files remain excluded from Git and Docker build contexts.
-"Dashboard connected" reports the connection to your server; the separate Twitch
-status and authorization code show whether your account is signed in.
-
-When Twitch withholds its normal catalog or campaign details, discovery reads campaign
-metadata from Twitch's participating live channels using the same device login. It
-samples three Drops-enabled streams in each of 500 categories, plus up to 100 known or
-saved games, on inventory refresh. A scan has a 60-second limit. There is no browser
-helper or third-party catalog dependency.
-
-Your account inventory always takes precedence. Recovered campaigns retain their
-timing, prerequisites and channel restrictions, and are watched only on channels that
-advertised them. Account linkage stays unknown unless Twitch returns it; progress and
-claims still come from Twitch. The dashboard reports channel discovery as partial:
-campaigns without a sampled live channel, including upcoming ones, may be missing.
-A valid empty catalog does not trigger fallback. Clearing caches or logging out is
-unnecessary for this recovery.
-Without a drop-specific claim record, previously awarded rewards only count as claimed
-when your account inventory includes every benefit within that drop's active dates.
-
-> Automatically mine timed Twitch Drops without streaming video or audio.
-
-<p align="center">
-  <a href="https://github.com/rangermix/TwitchDropsMiner/stargazers"><img src="https://img.shields.io/github/stars/rangermix/TwitchDropsMiner?style=for-the-badge&color=yellow" alt="GitHub stars"></a>
-  <a href="https://github.com/rangermix/TwitchDropsMiner/releases"><img src="https://img.shields.io/github/v/release/rangermix/TwitchDropsMiner?style=for-the-badge&color=brightgreen" alt="Latest release"></a>
-  <a href="https://hub.docker.com/r/rangermix/twitch-drops-miner"><img src="https://img.shields.io/docker/pulls/rangermix/twitch-drops-miner?style=for-the-badge&color=blue" alt="Docker pulls"></a>
-  <a href="https://github.com/rangermix/TwitchDropsMiner/blob/main/LICENSE"><img src="https://img.shields.io/github/license/rangermix/TwitchDropsMiner?style=for-the-badge&color=orange" alt="License"></a>
-  <a href="https://www.python.org/downloads/"><img src="https://img.shields.io/badge/Python-3.12+-blue?style=for-the-badge&logo=python" alt="Python 3.12 or newer"></a>
-</p>
-
-Twitch Drops Miner is a low-bandwidth, headless application that discovers eligible
-campaigns, selects an appropriate live channel, and tracks drop progress from a web
-dashboard. It sends Twitch watch events without downloading the stream itself.
-
-> [!IMPORTANT]
-> **This is a hobby project for personal use on your own hardware and home network.**
-> Support is limited to that setup. VPS, cloud, and other third-party hosting environments,
-> as well as services operated for other users, are outside the project's support scope.
-> Maintenance and support are provided on a best-effort basis; continued compatibility
-> with Twitch is not guaranteed.
-
-![Dark React dashboard with current progress, channels, and reward queue; synthetic sample data](./screenshot.png)
-
-This fork keeps the Python miner and replaces the complete dashboard with React, strict
-TypeScript, Tailwind CSS, MDI icons, and locally served Manrope. The interface uses neutral
-dark surfaces, compact fields, and a thin custom native scrollbar. See the
-[architecture plan](./docs/plans/2026-09-26-redesign.md) and
-[design specification](./docs/plans/2026-09-26-design-spec.md).
-
-## Features
-
-- **Low-bandwidth mining** — progresses timed drops without downloading video or audio
-- **Automatic campaign discovery** — detects active and upcoming drop campaigns
-- **Smart channel selection** — prioritizes eligible channels, preferred games, and viewers
-- **Drop-name ignore rules** — excludes unwanted reward names and dependent branches
-- **Persistent sessions** — saves OAuth login state between runs
-- **Web dashboard** — manages campaigns, channels, inventory, settings, and login status
-- **Optional dashboard password** — protects the web UI, API, and live connections with one password
-- **Drop history** — records every claimed drop locally (date, game, campaign, rewards)
-  with a filterable **History** tab, aggregated stats, and one-click **Export CSV**
-- **Headless deployment** — runs on your own home hardware, including Docker, without a desktop GUI
-- **Safe rendering** — React text rendering and validated external links; no injected HTML
-
-## Quick start
-
-### Docker (recommended)
-
-Build this fork from source to get the redesigned dashboard. The upstream prebuilt image
-contains its own interface. From this checkout:
+## Getting started
 
 ```bash
+mkdir -p data logs
 docker compose up -d --build
 ```
 
-Open <http://localhost:8080>. The multi-stage build compiles the dashboard and copies it
-into the Python image. Node is only needed during build. The existing data and log mounts
-stay compatible; there is no account or database migration. Keep your previous image and
-back up persistent data before a future deployment. This source rewrite does not deploy itself.
+Open <http://127.0.0.1:8080>. In **Settings > Twitch account**, authorize the displayed
+Twitch device code and confirm in the dashboard. Choose **Mine** on a campaign to start.
+**Only games you select are mined.** Reorder them in Settings to set priority.
 
-### From source
+The container runs as UID/GID `1000:1000`; its data/log directories must be writable by
+that user. Compose binds to loopback by default. For LAN access, set an explicit LAN
+address in the port mapping and enable the dashboard password in Settings.
 
-Source installations require Python 3.12+, [uv](https://docs.astral.sh/uv/), and Node.js 24.
-From the repository root:
+## Dashboard
+
+- **Overview:** current progress, live channels and the next rewards.
+- **Campaigns:** discovered campaigns, filters and Mine/Stop mining controls. Active
+  campaigns with progress appear first. Clear filters if fewer results appear than expected.
+- **Finished:** completed campaigns retained across restarts and refreshes. Expired
+  campaigns remain distinct; older incomplete records are labeled completion unverified.
+- **History:** claimed rewards, filters, statistics and CSV/JSON export.
+- **Activity and Settings:** diagnostics, game priorities, ignore rules, account and access controls.
+
+Twitch may withhold part of its campaign catalog. Live-channel discovery improves coverage,
+but cannot guarantee every campaign appears. Progress confirmed by Twitch is distinguished
+from local estimates. A healthy dashboard does not prove live earning.
+
+## Updates and data
+
+Back up `data/` and your Compose file before upgrading. For a source checkout:
 
 ```bash
-uv venv env --python 3.12
-source env/bin/activate
-uv sync --active --locked --python 3.12
-cd frontend
-npm ci
-npm run build
-cd ..
-python main.py
+git pull --ff-only
+docker compose build
+docker compose up -d --force-recreate
 ```
 
-On Windows, activate `env\Scripts\Activate.ps1` instead; if PowerShell blocks npm's
-script launcher, use `npm.cmd`. Build before starting Python, then open
-<http://localhost:8080>. Rebuild after changing frontend code or bundled English strings.
-`web/` is generated and ignored by Git; do not edit it directly.
+Restarting alone does not install new code. Preserve your existing Compose mounts, network
+binding and ownership. There is no in-dashboard updater.
 
-For frontend development, start Python in one terminal and run `npm run dev` in
-`frontend/` in another. Vite serves the UI at <http://localhost:5173> and proxies HTTP
-and Socket.IO to Python on port 8080. Leave `PUBLIC_BASE_URL` unset for this local setup.
-Use the compiled build for deployment.
+The Rust version reads existing settings, mining selections, history, completed campaigns
+and dashboard protection. **One new Twitch device-code login is required.** Existing
+credential files stay untouched for rollback; live progress is restored from Twitch.
+Telegram is removed. See [operations and migration details](docs/operations.md) for data
+files, reverse-proxy configuration and password recovery.
 
-## Using the web app
+## Run from source
 
-Offline channels can have an unknown viewer count, displayed as a dash in Overview.
+Install [Rust through rustup](https://rustup.rs/) and Node.js 24. Windows also needs the
+Visual Studio C++ build tools. The repository pins the Rust toolchain and dependency locks.
 
-1. Log in with your Twitch account through the OAuth device flow.
-2. Wait for the miner to discover available campaigns.
-3. In **Campaigns**, select **Mine** to mine that game across its eligible campaigns.
-   You can also use **Add Game** in Settings. Discovery never selects games for you.
-4. Leave the miner running while it selects eligible channels and tracks drop progress.
+```bash
+npm --prefix frontend ci
+npm --prefix frontend run build
+cargo run --locked -- --host 127.0.0.1
+```
 
-Twitch login uses the Smart TV device authorization flow. This fixes the
-`KeyError: 'device_code'` startup failure caused by Twitch rejecting the Android app
-client. After upgrading from 1.3.0 or earlier, you may need to authorize the miner
-once more at `twitch.tv/activate`; the new session is saved for later runs. Channel
-pages still use the public Twitch website to discover the watch-event endpoint.
+`cargo build --release --locked --bin twitch-miner` builds a standalone executable with
+the dashboard embedded. Use `--help` for host/port/data/log options. Docker images support
+amd64 and arm64 and run without Node or a second backend runtime.
 
-In **Settings → Mining**, game artwork replaces numeric priority fields. Drag the subtle six-dot handle to reorder. Keyboard users can focus the handle and
-press the up/down arrow keys. The first game has the highest priority; changes save automatically.
+[CONTRIBUTING.md](CONTRIBUTING.md) covers development, testing and releases.
+[AGENTS.md](AGENTS.md) records the architecture and behavior contracts.
 
-**Special Events** and **IRL** campaigns can be mined on their listed participating
-channels even when those channels stream another category or lack a drops-enabled flag.
-Select these categories to mine their campaigns. Channels must be live and eligible;
-campaigns without an enabled participating-channel list still require a matching category.
-Channels streaming categories outside Games to Watch retain the lowest automatic priority.
-When the watched channel goes offline or becomes ineligible, another eligible participant
-can replace it even at that same fallback priority.
+## License and contributors
 
-Inventory filters combine **Active**, **Upcoming**, and **Expired** as alternatives.
-**Not Linked** narrows that status result. **Finished** is a separate Campaigns tab for
-campaigns whose watch rewards are all claimed; expiry alone is not completion. Zero-minute subscription rewards are omitted from the
-Inventory and Wanted Drops Queue because they cannot be earned by watching. Individually
-expired and non-mineable rewards are also omitted from the queue, while upcoming and
-sequential rewards remain visible; successful claims refresh the queue immediately. The
-channel list matches game names case-insensitively and keeps the actively watched channel
-visible while game settings are changing. Campaign totals and claim messages count only
-rewards that can be earned by watching. Consecutive identical no-active-campaign console
-prompts are collapsed until another console message appears.
-
-**Ignored Drop Keywords** in Settings is empty by default. Enter one literal substring per
-line; surrounding whitespace and blank lines are removed, and duplicates are collapsed
-case-insensitively while preserving the first spelling. Matching is also case-insensitive.
-A matching drop and every unclaimed branch that depends on it are ignored dynamically.
-Prerequisite-only branches with no remaining mineable reward are shown as skipped, while a
-prerequisite shared by an allowed reward remains mineable. Ignored and skipped drops are
-never reported as claimed. This controls what the miner intentionally targets, but Twitch
-may still grant simultaneous progress to an ignored reward while another reward advances.
-
-In **Settings**, **Clear All Cache** calls `POST /api/cache/clear` to discard local
-campaign, channel, and other derived miner state while preserving your OAuth login and
-settings, then reloads the data from Twitch. This is a recovery and diagnostic action;
-it cannot correct inaccurate campaign metadata returned by Twitch.
-
-### Dashboard password
-
-Password protection is **off by default**. In **Settings → Dashboard password**, enter
-and confirm a password (8–1024 characters), then select **Enable password protection**.
-This password is separate from your Twitch account; no username is needed. Enabling it
-immediately locks out other browsers. Mining continues while the dashboard is locked.
-
-If the login page shows a temporary request error, you can still enter your password
-and select **Log in** to retry without reloading the page.
-
-- Login uses an HttpOnly, SameSite=Strict **session cookie** by default. Select
-  **Remember me for 30 days** for a persistent cookie with a fixed 30-day expiry.
-  Sessions survive miner restarts, and all sessions have a maximum server lifetime of
-  30 days. Browser session-restore features may preserve session cookies; use **Log out**
-  to explicitly revoke a session on shared devices.
-- **Change password** requires the current password and signs out all other sessions.
-  The browser making the change receives a new session cookie.
-- **Disable protection and clear password** also requires the current password. It
-  deletes the stored password hash and all sessions, making the dashboard public again.
-- Passwords are salted and hashed with scrypt; only digests of random session tokens
-  are stored. Login and password-setting attempts are rate limited (5 per minute per
-  client IP, 30 per minute overall). Auth credentials never enter normal settings or logs.
-- The UI, application API, and Socket.IO are protected. `/healthz` stays public and
-  returns only a health flag for Docker checks. Login resources and auth status are public.
-  API writes require `X-TDM-Request: 1`; browser clients send it automatically. Cross-origin
-  writes and Socket.IO connections are rejected.
-
-**Remote access to your home-hosted instance:** use HTTPS through a reverse proxy to encrypt passwords and cookies.
-Set the miner's `PUBLIC_BASE_URL` environment variable to the exact address you open in
-your browser, for example `PUBLIC_BASE_URL=https://drops.example.com`. The included
-Compose file has a commented example; uncomment it, replace the hostname, and recreate
-the container with `docker compose up -d --build` after updating the source.
-
-The setting accepts one absolute `http://` or `https://` root URL with an optional port
-and trailing slash. Credentials, subpaths, query strings, fragments, wildcard hosts, and
-multiple URLs are rejected at startup. Use a hostname, dotted-decimal IPv4 address, or
-bracketed IPv6 address; legacy short/octal/hexadecimal IPv4 forms are rejected. The setting
-controls the allowed origin for API writes and Socket.IO connections. HTTPS public URLs
-give session cookies the Secure flag even
-when the proxy connects to the miner over HTTP or rewrites Host. Continue opening the
-dashboard at that configured URL; browser writes/connections from another address are
-rejected. It does not provide TLS or add support for hosting under a subpath.
-
-Leaving `PUBLIC_BASE_URL` unset or empty keeps request-derived origin and cookie behavior.
-For that setup, preserve the original Host header and configure Uvicorn to trust forwarded
-protocol/IP headers **only from your proxy**, for example with `FORWARDED_ALLOW_IPS` set to
-its exact IP or dedicated proxy subnet. Do not use `*` as a default. `PUBLIC_BASE_URL` does
-not trust forwarded headers or restore client IPs: a proxy that hides them shares the
-per-IP login limit unless client-IP forwarding is separately configured with trusted peers.
-Keep `X-TDM-Request: 1` on API writes; Socket.IO does not require that marker.
-Configure protection on a trusted network before making the dashboard publicly reachable.
-Run one miner process per data directory.
-
-**Forgotten password:** stop the miner, restrict network access to its port, delete only
-`data/web_auth.json` (Docker: `/app/data/web_auth.json` in the mounted data directory),
-then restart and set a new password in Settings before restoring remote access. This
-resets dashboard authentication without deleting Twitch cookies or other settings.
-Keep the data directory private. A malformed auth file stops startup rather than silently
-turning off protection. **Clear All Cache** preserves dashboard authentication.
-
-### Drop history
-
-The **History** tab logs every successfully claimed drop to `data/drop_history.json`.
-Filter the table by game name or "claimed on or after" date, view per-game and per-month
-stats, or download the current view as a CSV file (UTF-8 BOM so Excel opens it cleanly).
-The interface uses English. The date filter starts at
-midnight UTC on the selected date; displayed claim times use your browser’s local timezone.
-CSV downloads support Unicode game names. Existing Twitch claims are not backfilled.
-**Clear local history** requires confirmation and deletes local history; this does not affect your
-Twitch account or already-claimed rewards.
-
-> [!NOTE]
-> Unlinked game accounts are included in mining. Twitch may require linking before
-> a reward can be delivered. Check the campaign’s account-link requirement.
-
-## Important notes
-
-> [!WARNING]
-> Avoid watching Twitch manually with the same account while the miner is running.
-> Simultaneous viewing can cause drop-progress desynchronization.
-
-- Docker data is stored inside the container at `/app/data`; the examples persist it
-  to `./data` on the host.
-- Source installations store persistent data in the repository's `data/` directory.
-- Logs can be persisted separately by mounting `./logs:/app/logs`.
-
-## Contributing
-
-Use descriptive `feat/` or `fix/` branches and merge changes through a pull request.
-See [CONTRIBUTING.md](./CONTRIBUTING.md) for issue reporting, development setup,
-pull requests, required unit and regression checks, and independent adversarial review.
-Coding agents must follow the mandatory workflow in [AGENTS.md](./AGENTS.md), also
-available through the `CLAUDE.md` and `GEMINI.md` symlinks. The pull request template
-records validation and review evidence.
-
-Dashboard session-expiry tests use a controlled clock and scheduled callbacks to check
-idle socket disconnection without depending on short wall-clock sleeps.
-
-## Contributors
-
-Contributors are credited automatically when their pull requests are merged into `main`.
+[MIT](LICENSE). Based on [rangermix/TwitchDropsMiner](https://github.com/rangermix/TwitchDropsMiner)
+and its upstream contributors. Font/icon licenses are in
+[frontend/public/assets/licenses](frontend/public/assets/licenses).
+This hobby project supports personal use on your own hardware and home network.
 
 <!-- contributors:start -->
 | Contributor | Merged pull requests |
@@ -288,177 +92,3 @@ Contributors are credited automatically when their pull requests are merged into
 | [@Stein-N](https://github.com/Stein-N) | [#71](https://github.com/rangermix/TwitchDropsMiner/pull/71) |
 | [@vurmil](https://github.com/vurmil) | [#12](https://github.com/rangermix/TwitchDropsMiner/pull/12) · [#17](https://github.com/rangermix/TwitchDropsMiner/pull/17) · [#18](https://github.com/rangermix/TwitchDropsMiner/pull/18) · [#100](https://github.com/rangermix/TwitchDropsMiner/pull/100) |
 <!-- contributors:end -->
-
-## Support
-
-If Twitch Drops Miner saves you time or bandwidth, you can support the project by:
-
-- [starring the repository](https://github.com/rangermix/TwitchDropsMiner)
-- [reporting an issue](https://github.com/rangermix/TwitchDropsMiner/issues) or
-  [submitting a pull request](https://github.com/rangermix/TwitchDropsMiner/pulls)
-- [buying the maintainer a coffee](https://buymeacoffee.com/rangermix)
-
-## Credits
-
-This project is a modern fork of
-[DevilXD/TwitchDropsMiner](https://github.com/DevilXD/TwitchDropsMiner), created by
-[@DevilXD](https://github.com/DevilXD). You can support the original author through
-[Buy Me a Coffee](https://www.buymeacoffee.com/DevilXD) or
-[Patreon](https://www.patreon.com/bePatron?u=26937862).
-
-<details>
-<summary>Original project and translation credits</summary>
-
-### Original project contributions
-
-- [@guihkx](https://github.com/guihkx) — CI scripts, CI maintenance, and Linux builds
-- [@kWAYTV](https://github.com/kWAYTV) — dark mode theme
-
-### Translation credits
-
-- **Arabic** — [@Bamboozul](https://github.com/Bamboozul)
-- **Chinese (Simplified)** — [@Suz1e](https://github.com/Suz1e),
-  [@wwj010](https://github.com/wwj010), and
-  [@zhangminghao1989](https://github.com/zhangminghao1989)
-- **Chinese (Traditional)** — [@Ricky103403](https://github.com/Ricky103403) and
-  [@LusTerCsI](https://github.com/LusTerCsI)
-- **Czech** — [@nwvh](https://github.com/nwvh)
-- **Danish** — [@Kjerne](https://github.com/Kjerne)
-- **French** — [@roobini-gamer](https://github.com/roobini-gamer) and
-  [@Calvineries](https://github.com/Calvineries)
-- **German** — [@ThisIsCyreX](https://github.com/ThisIsCyreX)
-- **Hungarian** — [@centipederat](https://github.com/centipederat)
-- **Indonesian** — [@Eriza-Z](https://github.com/Eriza-Z)
-- **Italian** — [@casungo](https://github.com/casungo)
-- **Japanese** — [@ShimadaNanaki](https://github.com/ShimadaNanaki)
-- **Polish** — [@Patriot99](https://github.com/Patriot99), co-authored with
-  [@DevilXD](https://github.com/DevilXD)
-- **Portuguese** — [@zarigata](https://github.com/zarigata)
-- **Russian** — [@Sergo1217](https://github.com/Sergo1217) and
-  [@kilroy98](https://github.com/kilroy98)
-- **Spanish** — [@Shofuu](https://github.com/Shofuu)
-- **Turkish** — [@alikdb](https://github.com/alikdb)
-- **Ukrainian** — [@Nollasko](https://github.com/Nollasko) and
-  [@kilroy98](https://github.com/kilroy98)
-
-</details>
-
-## Development disclosure
-
-Repository instructions for all coding agents live in [AGENTS.md](./AGENTS.md).
-`CLAUDE.md` and `GEMINI.md` are relative symlinks to that file; edit `AGENTS.md` to
-update the shared guidance.
-
-This fork is maintained with AI-assisted development tools. Changes are validated through
-automated tests and code-quality checks, but users should still review updates before
-deploying them. The validation suite includes GraphQL watch events and batched channel
-discovery, alongside settings, English message schema and placeholder checks,
-and frontend safety checks. Use the software
-responsibly. Release automation verifies that the runtime, package, and lockfile versions
-match before publishing tags and Docker images. Docker validation and release jobs use
-the same pinned, Node-24-native Buildx and image-build action releases.
-The suite also covers ignored-keyword normalization, dependency branches, the combined
-expiry/ignore Wanted Queue guard, watch selection, API persistence, English placeholder
-parity, frontend rendering, and the claimed-drop history store with CSV export and API
-endpoints. Vite generates content-hashed assets with immutable caching; HTML is revalidated.
-Source changes no longer need a manual browser cache-key bump. The existing release workflow
-still controls application versioning and image publication.
-
-Game priorities support Enter to add an exact or unique partial match. Ambiguous
-searches ask for a more specific name. Manual names require confirmation; Escape
-cancels and keyboard focus stays in the dialog. All discovered games are included.
-
-## Dashboard development and checks
-
-The frontend source is in `frontend/src`; shared controls, theme tokens, HTTP helpers,
-and the Socket.IO state provider serve Overview, Campaigns, History, Activity, Settings,
-and Login. Python owns mining, storage, secrets, and access control. The API includes
-confirmed minutes/timestamps, unavailable-catalog status, and settings revisions so a
-stale browser cannot overwrite a newer save. Proxy credentials are masked in logs.
-
-History shows 25 records per page while preserving full filtered exports. Activity retains
-at most 1,000 lines and follows new messages only while the view is at the bottom. Dirty
-settings survive reconnects and navigation; saves are serialized while fields stay editable.
-A failed or conflicting save keeps the draft and offers Retry. All UI copy is English.
-
-Install development dependencies with `uv sync --active --extra dev --locked --python 3.12`
-in the activated environment. Then:
-
-```bash
-npm --prefix frontend ci
-npm --prefix frontend run format:check
-npm --prefix frontend test
-npm --prefix frontend run build
-python -m ruff check src/
-python -m mypy src/
-python -m pytest tests/
-cd frontend
-npx playwright install chromium
-npm run test:browser
-```
-
-Browser tests use the production build and a separate synthetic FastAPI/Socket.IO server
-on port 8765, temporary storage, and mocked services. They refuse to reuse an existing
-server and do not contact Twitch. CI also runs accessibility
-checks, release-script tests, and Docker builds for amd64 and arm64. See
-[CONTRIBUTING.md](./CONTRIBUTING.md) for the full workflow.
-
-The interface and miner messages use English only. Older saved language preferences are ignored.
-
-Field labels and controls stay aligned when only one field has helper text.
-Keyboard focus uses subtle control/background changes without a surrounding ring.
-Native checkboxes highlight their label, and forced-colors mode retains system focus outlines.
-
-### Telegram notifications
-
-In Settings → Telegram Notifications, enter a token from [@BotFather](https://t.me/BotFather)
-and a chat ID. The setup instructions are in that section. Send `/start` to your bot first.
-**Save Settings** saves without sending a message. **Test Connection** sends a test message
-and saves the entered credentials only after success. Failed saves retain your edits;
-Retry after a settings conflict applies only the Telegram fields.
-
-Leave the token blank to reuse the saved token. Clearing the chat ID and saving disables
-notifications. Tokens are stored in `data/settings.json` and masked in API/socket responses;
-keep this file private. Credentials still present in older settings are preserved, but
-credentials already discarded by a previous version must be entered again.
-
-Alerts include the campaign, game, drop and reward names for new successful claims from
-live events and inventory/startup checks. Repeated claim events do not notify again;
-existing historical claims are not resent. Delivery is best effort with a 10-second
-timeout and no retry. Delivery failures do not undo claims, and claim history is recorded
-before sending. Tests use mocked Telegram transport; no live delivery is claimed.
-
-Only games explicitly selected with **Mine** or **Add Game** are mined. An empty list mines nothing.
-**Stop mining** or removing a game in Settings leaves its campaigns visible and preserves progress.
-Existing saved game choices and their order are retained; review them if you previously saved automatic priorities.
-
-Page headings stand on their own; repeated descriptive and appearance copy has been removed.
-Connection status lives under Settings → Twitch account; the sidebar footer links to GitHub.
-
-Settings save automatically after a short pause. Pending edits survive navigation; failed or conflicting saves retain input and offer Retry. Only changed fields are submitted, so other preferences are preserved.
-
-Campaigns shows active and upcoming rewards by default, with active confirmed progress first.
-Only the legacy upcoming-only default preset is migrated; custom filters are preserved.
-The visible count and Clear filters control expose hidden results. Ignored/skipped rewards
-are not completed campaigns, and missing artwork must not remove benefit metadata.
-Overview and Campaigns omit the live-channel discovery count banner. The unavailable-catalog
-warning remains when discovery recovers no campaigns; recovered coverage is still partial.
-
-Completed campaign snapshots are saved atomically in `data/completed_campaigns.json`.
-They survive restarts, catalog refreshes, and Clear All Cache, and are display history only.
-Finished also groups older recorded rewards when campaign metadata is gone, clearly marked
-**Completion unverified**: legacy drop history has no total reward count. Existing
-`drop_history.json`, credentials, settings, and server-confirmed progress are preserved.
-
-Overview Channels and Up next share the remaining viewport height on desktop, with
-independently scrolling lists below their headers. Short windows retain page scrolling
-so content remains accessible and the sidebar stays in view. Stacked layouts cap each list at 440px.
-Each queue reward includes item artwork; missing, unsafe, or failed images use the shared Art fallback.
-
-Mine controls remain outside expandable campaign summaries for keyboard/screen-reader access.
-An empty game selection reports that selection is needed, not that Twitch has no campaigns.
-
-New account evidence of unclaimed rewards or a changed reward set invalidates a stale
-completion snapshot durably; metadata-only recovery retains proven completion. Finished
-filters by game/search, including older records. Clearing claim history keeps completed
-campaign snapshots, as its confirmation states. Game matching uses consistent casefolding.

@@ -101,14 +101,10 @@
   ],
   "settings": {
     "revision": "fixture",
-    "dark_mode": true,
     "games_to_watch": ["Rust", "Sea of Thieves"],
     "games_available": ["Rust", "Sea of Thieves", "The Elder Scrolls Online"],
     "drop_name_blacklist": [],
     "proxy": "",
-    "telegram_bot_token": "",
-    "telegram_chat_id": "",
-    "telegram_configured": false,
     "connection_quality": 1,
     "minimum_refresh_interval_minutes": 30,
     "mining_benefits": {
