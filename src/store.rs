@@ -259,6 +259,7 @@ pub struct PendingClaim {
     pub ends_at: DateTime<Utc>,
     pub retry_until: DateTime<Utc>,
     pub completed_campaign: Option<CampaignView>,
+    pub confirmed: bool,
 }
 
 impl PendingClaim {
@@ -281,6 +282,7 @@ impl PendingClaim {
             ends_at: drop.ends_at,
             retry_until: campaign.ends_at + chrono::Duration::hours(24),
             completed_campaign: completed.finished.then_some(completed),
+            confirmed: false,
         }
     }
 
@@ -339,6 +341,17 @@ impl ClaimJournal {
         atomic_json(&self.path, &entries)?;
         self.entries = entries;
         Ok(claim)
+    }
+    pub fn confirm(&mut self, user_id: u64, id: &str) -> Result<()> {
+        let mut entries = self.entries.clone();
+        let entry = entries
+            .iter_mut()
+            .find(|p| p.user_id == user_id && p.entry.id == id)
+            .context("claim intent is missing")?;
+        entry.confirmed = true;
+        atomic_json(&self.path, &entries)?;
+        self.entries = entries;
+        Ok(())
     }
     pub fn finish(&mut self, user_id: u64, id: &str) -> Result<()> {
         let entries: Vec<_> = self
