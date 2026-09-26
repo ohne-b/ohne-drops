@@ -126,6 +126,9 @@ def test_discovery_does_not_select_games_and_explicit_choices_are_deduplicated()
     settings.games_to_watch = ["beta", "BETA"]
     assert [g.name for g in selector.get_wanted_games(settings, [a, b])] == ["Beta"]
     assert settings.games_to_watch == ["beta", "BETA"]
+    a.game = Game({"id": "1", "name": "Fußball Manager"})
+    settings.games_to_watch = ["Fußball Manager"]
+    assert [g.name for g in selector.get_wanted_games(settings, [a])] == ["Fußball Manager"]
 
 
 def test_queue_uses_reward_art_and_allows_missing_art():

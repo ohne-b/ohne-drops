@@ -42,7 +42,7 @@ export function matchesCampaign(
     )
   )
     return false;
-  if (filters.show_only_not_linked && campaign.linked !== false) return false;
+  if (!finished && filters.show_only_not_linked && campaign.linked !== false) return false;
   if (
     filters.game_name_search.length &&
     !filters.game_name_search.some(
@@ -51,10 +51,11 @@ export function matchesCampaign(
   )
     return false;
   if (
-    filters.show_benefit_badge &&
-    filters.show_benefit_emote &&
-    filters.show_benefit_item &&
-    filters.show_benefit_other
+    finished ||
+    (filters.show_benefit_badge &&
+      filters.show_benefit_emote &&
+      filters.show_benefit_item &&
+      filters.show_benefit_other)
   )
     return true;
   const types: Record<string, boolean> = {
@@ -86,6 +87,7 @@ export default function Campaigns() {
   const t = useT();
   const [params, setParams] = useSearchParams();
   const [showFilters, setShowFilters] = useState(false);
+  const [historicalGames, setHistoricalGames] = useState<string[]>([]);
   const action = useAction();
   const [pendingFilters, setPendingFilters] = useState<Filters | null>(null);
   useEffect(() => setPendingFilters(null), [data?.settings.revision]);
@@ -110,6 +112,7 @@ export default function Campaigns() {
   const games = [
     ...new Set([
       ...data.campaigns.map((campaign) => campaign.game_name),
+      ...(finished ? historicalGames : []),
       ...filters.game_name_search,
     ]),
   ].sort();
@@ -180,10 +183,7 @@ export default function Campaigns() {
         <div className="panel space-y-4 p-4">
           <div className="grid grid-cols-2 gap-x-6 gap-y-1 md:grid-cols-3">
             {filterOptions
-              .filter(
-                ([key]) =>
-                  !finished || !['show_active', 'show_upcoming', 'show_expired'].includes(key),
-              )
+              .filter(() => !finished)
               .map(([key, name]) => (
                 <Check
                   key={key}
@@ -291,9 +291,7 @@ export default function Campaigns() {
                         : 'mine_game',
                       { game: campaign.game_name },
                     )}
-                    onClick={(event) => {
-                      event.preventDefault();
-                      event.stopPropagation();
+                    onClick={() => {
                       autosave.change('games_to_watch', (games) =>
                         games.some(
                           (game) => game.toLowerCase() === campaign.game_name.toLowerCase(),
@@ -329,14 +327,28 @@ export default function Campaigns() {
         <HistoricalClaims
           knownIds={data.campaigns.map((campaign) => campaign.id)}
           search={search}
+          games={filters.game_name_search}
+          setGames={setHistoricalGames}
         />
       )}
     </div>
   );
 }
 
-function HistoricalClaims({ knownIds, search }: { knownIds: string[]; search: string }) {
+function HistoricalClaims({
+  knownIds,
+  search,
+  games,
+  setGames,
+}: {
+  knownIds: string[];
+  search: string;
+  games: string[];
+  setGames: (games: string[]) => void;
+}) {
   const t = useT();
+  const { connected, data } = useMiner();
+  const claimed = data?.campaigns.reduce((sum, campaign) => sum + campaign.claimed_drops, 0);
   const [entries, setEntries] = useState<HistoryEntry[]>([]);
   const [failed, setFailed] = useState(false);
   const [loading, setLoading] = useState(true);
@@ -347,7 +359,10 @@ function HistoricalClaims({ knownIds, search }: { knownIds: string[]; search: st
     setLoading(true);
     request<{ entries: HistoryEntry[] }>('/api/history', undefined, 'GET', controller.signal)
       .then((result) => {
-        if (!controller.signal.aborted) setEntries(result.entries);
+        if (!controller.signal.aborted) {
+          setEntries(result.entries);
+          setGames([...new Set(result.entries.map((entry) => entry.game))]);
+        }
       })
       .catch(() => {
         if (!controller.signal.aborted) setFailed(true);
@@ -356,7 +371,7 @@ function HistoricalClaims({ knownIds, search }: { knownIds: string[]; search: st
         if (!controller.signal.aborted) setLoading(false);
       });
     return () => controller.abort();
-  }, [retry]);
+  }, [retry, connected, claimed, setGames]);
   const groups = new Map<string, HistoryEntry[]>();
   for (const entry of entries) {
     if (knownIds.includes(entry.campaign_id)) continue;
@@ -371,22 +386,24 @@ function HistoricalClaims({ knownIds, search }: { knownIds: string[]; search: st
       {loading && <p className="muted">{t('loading')}</p>}
       {failed && (
         <Notice error>
-          {t('gui.history.load_error')}{' '}
-          <Button onClick={() => setRetry(retry + 1)}>{t('retry')}</Button>
+          {t('history_error')} <Button onClick={() => setRetry(retry + 1)}>{t('retry')}</Button>
         </Notice>
       )}
       {[...groups.entries()]
         .filter(([, group]) =>
-          group.some((entry) =>
-            `${entry.game} ${entry.campaign} ${entry.drop_name}`
-              .toLowerCase()
-              .includes(search.toLowerCase()),
+          group.some(
+            (entry) =>
+              (!games.length ||
+                games.some((game) => game.toLowerCase() === entry.game.toLowerCase())) &&
+              `${entry.game} ${entry.campaign} ${entry.drop_name}`
+                .toLowerCase()
+                .includes(search.toLowerCase()),
           ),
         )
         .map(([id, group]) => (
           <details className="panel" key={id}>
             <summary className="cursor-pointer p-4 text-[13px]">
-              {group[0]!.campaign} ? {group[0]!.game}
+              {group[0]!.campaign} · {group[0]!.game}
               <span className="muted ms-2">{t('completion_unknown')}</span>
             </summary>
             <div className="border-t border-divider px-4">

@@ -123,7 +123,7 @@ class InventoryManager:
             "drops": drops_data,
         }
         if self._history is not None:
-            self._history.record(data)
+            data = self._history.record(data)
         return data
 
     def clear(self):
@@ -229,4 +229,4 @@ class InventoryManager:
             List of campaign data dictionaries
         """
         archived = self._history.get_campaigns() if self._history is not None else {}
-        return list((archived | self._campaigns).values())
+        return list((self._campaigns | archived).values())

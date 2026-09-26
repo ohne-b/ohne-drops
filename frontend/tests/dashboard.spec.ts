@@ -268,6 +268,11 @@ test('Finished separates completed, expired, ignored, and unverifiable historica
   await expect(page.getByText('Expired campaign', { exact: true })).toHaveCount(0);
   await expect(page.getByText('Ignored campaign', { exact: true })).toHaveCount(0);
   await expect(page.getByText('Completion unverified', { exact: true })).toBeVisible();
+  await page.getByRole('button', { name: 'Filters', exact: true }).click();
+  await expect(page.getByRole('checkbox', { name: 'Item', exact: true })).toHaveCount(0);
+  await page.getByRole('checkbox', { name: 'Rust', exact: true }).check();
+  await expect(page.getByText('Completion unverified', { exact: true })).toBeVisible();
+  await page.getByRole('button', { name: 'All games', exact: true }).click();
   await page.getByRole('searchbox', { name: 'Search campaigns and rewards' }).fill('Completed');
   await expect(page.getByRole('link', { name: 'Finished', exact: true })).toHaveAttribute(
     'aria-current',
@@ -275,6 +280,39 @@ test('Finished separates completed, expired, ignored, and unverifiable historica
   );
   await expect(page.getByText('Completed campaign', { exact: true })).toBeVisible();
   await page.screenshot({ path: '../artifacts/campaigns-finished.png', fullPage: true });
+});
+test('Finished historical claims honor game filters and retry failed loading', async ({ page }) => {
+  await page.route('**/api/history', (route) => route.fulfill({ status: 500, json: {} }), {
+    times: 1,
+  });
+  await page.goto('/campaigns?tab=finished');
+  await expect(page.getByRole('alert')).toContainText('Could not load history. Try again.');
+  await page.route('**/api/history', (route) =>
+    route.fulfill({
+      json: {
+        entries: [
+          {
+            id: 'legacy',
+            campaign_id: 'old',
+            game: 'Old game',
+            campaign: 'Historical campaign',
+            drop_name: 'Old reward',
+            required_minutes: 30,
+            benefits: ['Old reward'],
+            claimed_at: '2025-01-01T00:00:00Z',
+          },
+        ],
+      },
+    }),
+  );
+  await page.getByRole('button', { name: 'Try again', exact: true }).click();
+  await expect(page.getByText('Completion unverified', { exact: true })).toBeVisible();
+  await page.getByRole('button', { name: 'Filters', exact: true }).click();
+  await expect(page.getByRole('checkbox', { name: 'Old game', exact: true })).toBeVisible();
+  await page.getByRole('checkbox', { name: 'Rust', exact: true }).check();
+  await expect(page.getByText('Completion unverified', { exact: true })).toHaveCount(0);
+  await page.getByRole('checkbox', { name: 'Old game', exact: true }).check();
+  await expect(page.getByText('Completion unverified', { exact: true })).toBeVisible();
 });
 test('discovery stays visible without mining until Mine is explicitly selected', async ({
   page,
@@ -861,6 +899,7 @@ test('phone campaign rows retain status and claimed counts', async ({ page }) =>
   await page.goto('/campaigns');
   await expect(page.getByText('0 / 2 claimed · Active', { exact: true })).toBeVisible();
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+  await page.screenshot({ path: '../artifacts/campaigns-phone.png', fullPage: true });
 });
 
 test('long international labels remain usable at phone, tablet and zoom-equivalent widths', async ({
