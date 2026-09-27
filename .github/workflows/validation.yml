@@ -73,30 +73,30 @@ jobs:
           context: .
           platforms: linux/${{ matrix.arch }}
           load: true
-          tags: twitch-miner:test
+          tags: ohne-drops:test
           cache-from: type=gha,scope=miner-${{ matrix.arch }}
           cache-to: type=gha,scope=miner-${{ matrix.arch }},mode=max
       - name: Check runtime, ownership and health without network access
         env:
           PLATFORM: linux/${{ matrix.arch }}
         run: |
-          docker run --rm --platform "$PLATFORM" --network none twitch-miner:test --version
-          docker run --rm --platform "$PLATFORM" --network none --entrypoint sh twitch-miner:test -ec '
+          docker run --rm --platform "$PLATFORM" --network none ohne-drops:test --version
+          docker run --rm --platform "$PLATFORM" --network none --entrypoint sh ohne-drops:test -ec '
             test "$(id -u):$(id -g)" = "1000:1000"
-            test -r /usr/share/licenses/twitch-miner/LICENSE
-            test -r /usr/share/licenses/twitch-miner/NOTICE.md
-            grep -Fq "Copyright (c) 2026 ohne-b (OhneB)" /usr/share/licenses/twitch-miner/LICENSE
-            grep -Fq "Copyright (c) 2024 DevilXD" /usr/share/licenses/twitch-miner/NOTICE.md
-            test -r /usr/share/licenses/twitch-miner/dashboard/manrope.txt
+            test -r /usr/share/licenses/ohne-drops/LICENSE
+            test -r /usr/share/licenses/ohne-drops/NOTICE.md
+            grep -Fq "Copyright (c) 2026 ohne-b (OhneB)" /usr/share/licenses/ohne-drops/LICENSE
+            grep -Fq "Copyright (c) 2024 DevilXD" /usr/share/licenses/ohne-drops/NOTICE.md
+            test -r /usr/share/licenses/ohne-drops/dashboard/manrope.txt
             test ! -e /app/src
             ! command -v python
             ! command -v node
           '
           container=$(docker run -d --platform "$PLATFORM" --network none --read-only \
-            --tmpfs /app/data:uid=1000,gid=1000 --tmpfs /app/logs:uid=1000,gid=1000 twitch-miner:test)
+            --tmpfs /app/data:uid=1000,gid=1000 --tmpfs /app/logs:uid=1000,gid=1000 ohne-drops:test)
           trap 'docker logs "$container"; docker rm -f "$container" >/dev/null' EXIT
           for attempt in $(seq 1 20); do
-            if docker exec "$container" /usr/local/bin/twitch-miner healthcheck; then exit 0; fi
+            if docker exec "$container" /usr/local/bin/ohne-drops healthcheck; then exit 0; fi
             sleep 1
           done
           exit 1

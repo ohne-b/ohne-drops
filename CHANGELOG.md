@@ -1,6 +1,6 @@
 # Changelog
 
-## [v0.1.0](https://github.com/ohne-b/twitch-miner/releases/tag/v0.1.0) — 2026-09-26
+## [v0.1.0](https://github.com/ohne-b/ohne-drops/releases/tag/v0.1.0) — 2026-09-26
 
 - introduce the standalone Rust backend with the React dashboard and original Twitch device-code login
 - keep mining opt-in, order active campaigns with progress first, and retain completed campaigns in Finished

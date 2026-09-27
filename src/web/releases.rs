@@ -6,9 +6,8 @@ use serde::{Deserialize, Serialize};
 use tokio::{sync::Mutex, time::Instant};
 use tokio_util::sync::CancellationToken;
 
-const RELEASES: &str = "https://github.com/ohne-b/twitch-miner/releases";
-const MANIFEST: &str =
-    "https://github.com/ohne-b/twitch-miner/releases/latest/download/latest.json";
+const RELEASES: &str = "https://github.com/ohne-b/ohne-drops/releases";
+const MANIFEST: &str = "https://github.com/ohne-b/ohne-drops/releases/latest/download/latest.json";
 const MAX_MANIFEST: usize = 64 * 1024;
 const CHECK_INTERVAL: Duration = Duration::from_secs(30);
 
@@ -48,7 +47,7 @@ impl Releases {
         Ok(Self {
             client: Client::builder()
                 .no_proxy()
-                .user_agent("twitch-miner")
+                .user_agent("ohne-drops")
                 .timeout(Duration::from_secs(5))
                 .redirect(reqwest::redirect::Policy::limited(3))
                 .build()?,
@@ -130,7 +129,12 @@ mod tests {
             Mock::given(path("/latest.json"))
                 .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
                     "schemaVersion": 1, "version": version,
-                    "notes":"<script>bad</script>", "release_url":"https://evil.test"
+                    "notes": if version == stable.to_string() {
+                        "[Release notes](https://github.com/ohne-b/twitch-miner/releases/tag/v0.1.0)"
+                    } else {
+                        "<script>bad</script>"
+                    },
+                    "release_url":"https://evil.test"
                 })))
                 .expect(1)
                 .mount(&server)
