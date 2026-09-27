@@ -43,8 +43,15 @@ export function InventoryRefreshButton() {
         path={failed ? mdiAlertCircleOutline : done ? mdiCheck : mdiRefresh}
         className={busy ? 'animate-spin motion-reduce:animate-none' : ''}
       />
-      <span aria-live="polite">
-        {t(busy ? 'refreshing' : failed ? 'refresh_failed' : done ? 'refreshed' : 'refresh')}
+      <span className="grid" aria-live="polite">
+        {['refresh', 'refreshing', 'refreshed', 'refresh_failed'].map((key) => (
+          <span key={key} className="invisible col-start-1 row-start-1" aria-hidden="true">
+            {t(key)}
+          </span>
+        ))}
+        <span className="col-start-1 row-start-1">
+          {t(busy ? 'refreshing' : failed ? 'refresh_failed' : done ? 'refreshed' : 'refresh')}
+        </span>
       </span>
     </Button>
   );
