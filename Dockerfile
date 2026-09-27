@@ -47,7 +47,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates
     && mkdir -p /app/data /app/logs \
     && chown 1000:1000 /app/data /app/logs
 COPY --from=build /twitch-drops-miner /usr/local/bin/twitch-drops-miner
-COPY LICENSE NOTICE.md /usr/share/licenses/twitch-drops-miner/
+COPY LICENSE.md NOTICE.md /usr/share/licenses/twitch-drops-miner/
 COPY frontend/public/assets/licenses/ /usr/share/licenses/twitch-drops-miner/dashboard/
 WORKDIR /app
 ENV HOST=0.0.0.0 PORT=8080 DATA_DIR=/app/data LOG_DIR=/app/logs

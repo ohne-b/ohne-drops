@@ -7,12 +7,14 @@
 <p align="center">Mine timed Twitch Drops without streaming video or audio.</p>
 
 <p align="center">
-  <a href="LICENSE"><img src="https://img.shields.io/badge/license-PolyForm_Strict-9146ff" alt="License: PolyForm Strict"></a>
+  <a href="https://github.com/ohne-b/twitch-drops-miner?tab=License-1-ov-file"><img src="https://img.shields.io/badge/license-PolyForm_Strict-9146ff" alt="License: PolyForm Strict"></a>
 </p>
 
 Twitch Drops Miner runs on your own hardware and manages one Twitch account through a
 web dashboard. It discovers campaigns, watches eligible live channels through Twitch
 watch events, and claims earned rewards. The Rust executable includes the React dashboard.
+
+![Drops Miner dashboard showing mining progress, live channels and upcoming rewards](.github/assets/dashboard-overview.webp)
 
 > [!NOTE]
 > This is a hobby project for personal use on your own hardware and home network.
@@ -33,9 +35,7 @@ watch events, and claims earned rewards. The Rust executable includes the React 
 
 ### Docker Compose
 
-> [!NOTE]
-> The new image address below is reserved for a future release and is not published yet.
-> [Build from a checkout](#build-from-a-checkout) to run the current changes.
+Version 1.0.0 and later use `ghcr.io/ohne-b/twitch-drops-miner`.
 
 Install Docker with Compose support. In a new directory, save this as `compose.yaml`:
 
@@ -64,7 +64,7 @@ Open <http://127.0.0.1:8080> and follow [First login](#first-login).
 The port mapping limits access to the local machine. For LAN access, bind an explicit
 LAN address and enable [dashboard protection](#dashboard-password-and-remote-access).
 
-Future releases will use GitHub Container Registry at `ghcr.io/ohne-b/twitch-drops-miner`.
+Release images use GitHub Container Registry at `ghcr.io/ohne-b/twitch-drops-miner`.
 `latest` follows stable releases; use an explicit version tag to pin a release.
 The historical 0.1.0 image remains at `ghcr.io/ohne-b/twitch-miner:0.1.0` for rollback.
 Renaming the GitHub repository does not rename that old package or its pull command.
@@ -353,7 +353,7 @@ device codes, or a data directory.
 
 ## License and credits
 
-[PolyForm Strict 1.0.0](LICENSE), copyright 2026 ohne-b (OhneB).
+[PolyForm Strict 1.0.0](https://github.com/ohne-b/twitch-drops-miner?tab=License-1-ov-file), copyright 2026 ohne-b (OhneB).
 This is source-available software for noncommercial use. The license does not grant
 permission to modify or redistribute the software; those uses need separate permission.
 Previously published copies retain their original license terms. Third-party components

@@ -83,10 +83,10 @@ jobs:
           docker run --rm --platform "$PLATFORM" --network none twitch-drops-miner:test --version
           docker run --rm --platform "$PLATFORM" --network none --entrypoint sh twitch-drops-miner:test -ec '
             test "$(id -u):$(id -g)" = "1000:1000"
-            test -r /usr/share/licenses/twitch-drops-miner/LICENSE
+            test -r /usr/share/licenses/twitch-drops-miner/LICENSE.md
             test -r /usr/share/licenses/twitch-drops-miner/NOTICE.md
-            grep -Fq "Copyright (c) 2026 ohne-b (OhneB)" /usr/share/licenses/twitch-drops-miner/LICENSE
-            grep -Fxq "# PolyForm Strict License 1.0.0" /usr/share/licenses/twitch-drops-miner/LICENSE
+            grep -Fq "Copyright (c) 2026 ohne-b (OhneB)" /usr/share/licenses/twitch-drops-miner/LICENSE.md
+            grep -Fxq "# PolyForm Strict License 1.0.0" /usr/share/licenses/twitch-drops-miner/LICENSE.md
             grep -Fq "Copyright (c) 2024 DevilXD" /usr/share/licenses/twitch-drops-miner/NOTICE.md
             test -r /usr/share/licenses/twitch-drops-miner/dashboard/manrope.txt
             test ! -e /app/src
