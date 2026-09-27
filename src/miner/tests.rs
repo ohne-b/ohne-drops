@@ -62,6 +62,112 @@ async fn finish_job(mining: &mut Mining, pool: &PubSub) {
     mining.complete(completed.job, pool).await.unwrap();
 }
 
+#[tokio::test]
+async fn refresh_finishes_after_publication_and_partial_or_failed_requests_keep_known_campaigns() {
+    let server = MockServer::start().await;
+    gql_mock(&server, |q| match q["operationName"].as_str().unwrap() {
+        "Inventory" => json!({"data":{"currentUser":{"inventory":{"dropCampaignsInProgress":[campaign_json("one")],"gameEventDrops":[]}}}}),
+        "ViewerDropsDashboard" => json!({"data":{"currentUser":{"dropCampaigns":[]}}}),
+        other => panic!("unexpected operation {other}"),
+    }).await;
+    let (_dir, mut miner, intent, mut pool) = miner(&server).await;
+    intent.send_modify(|v| v.refresh += 1);
+    miner.apply_intent(&pool).await;
+    miner.schedule(&Settings::default()).await;
+    assert_eq!(
+        miner.app.snapshot.read().await.inventory_refresh.state,
+        RefreshState::Refreshing
+    );
+    intent.send_modify(|v| v.refresh += 1);
+    miner.apply_intent(&pool).await;
+    assert!(
+        !miner.refresh,
+        "a repeated request should join the in-flight inventory job"
+    );
+    finish_job(&mut miner, &pool).await;
+    {
+        let state = miner.app.snapshot.read().await;
+        assert_eq!(state.inventory_refresh.state, RefreshState::Refreshed);
+        assert!(state.campaigns.iter().any(|c| c.id == "one"));
+    }
+    let (sequence, _) = miner.app.begin_inventory_refresh().await;
+    miner
+        .complete(
+            Job::Inventory {
+                result: Ok(Inventory {
+                    campaigns: vec![],
+                    status: InventoryStatus {
+                        available: false,
+                        checked_at: Some(Utc::now()),
+                    },
+                    awards: HashMap::new(),
+                }),
+                requested_at: Utc::now(),
+                refresh_sequence: sequence,
+            },
+            &pool,
+        )
+        .await
+        .unwrap();
+    assert_eq!(
+        miner.app.snapshot.read().await.inventory_refresh.state,
+        RefreshState::Failed
+    );
+    assert_eq!(
+        miner.campaigns.len(),
+        1,
+        "partial responses must not erase still-active metadata"
+    );
+    let (sequence, _) = miner.app.begin_inventory_refresh().await;
+    miner
+        .complete(
+            Job::Inventory {
+                result: Err(TwitchError::Network),
+                requested_at: Utc::now(),
+                refresh_sequence: sequence,
+            },
+            &pool,
+        )
+        .await
+        .unwrap();
+    assert_eq!(
+        miner.app.snapshot.read().await.inventory_refresh.state,
+        RefreshState::Failed
+    );
+    assert_eq!(miner.campaigns.len(), 1);
+    let (sequence, _) = miner.app.begin_inventory_refresh().await;
+    miner
+        .complete(
+            Job::Inventory {
+                result: Ok(Inventory {
+                    campaigns: vec![],
+                    status: InventoryStatus {
+                        available: true,
+                        checked_at: Some(Utc::now()),
+                    },
+                    awards: HashMap::new(),
+                }),
+                requested_at: Utc::now(),
+                refresh_sequence: sequence,
+            },
+            &pool,
+        )
+        .await
+        .unwrap();
+    assert!(
+        miner.campaigns.is_empty(),
+        "a complete empty result is authoritative"
+    );
+    let (sequence, _) = miner.app.begin_inventory_refresh().await;
+    reset_session(&miner.app).await;
+    miner.app.finish_inventory_refresh(sequence, None).await;
+    assert_eq!(
+        miner.app.snapshot.read().await.inventory_refresh.state,
+        RefreshState::Idle
+    );
+    pool.close().await;
+}
+
 #[tokio::test(start_paused = true)]
 async fn unknown_progress_requests_inventory_without_fabricating_rewards_or_repeated_scans() {
     let server = MockServer::start().await;
@@ -317,6 +423,7 @@ async fn inventory_refresh_cannot_replace_progress_confirmed_after_the_request_s
     miner
         .complete(
             Job::Inventory {
+                refresh_sequence: 0,
                 result: Ok(inventory),
                 requested_at: before,
             },
@@ -709,6 +816,7 @@ async fn manual_channel_preserves_settings_and_survives_catalog_rebuilds() {
     miner
         .complete(
             Job::Inventory {
+                refresh_sequence: 0,
                 requested_at: Utc::now(),
                 result: Ok(Inventory {
                     campaigns: inventory,
@@ -1221,6 +1329,7 @@ async fn claim_ready_event_survives_an_older_inventory_request() {
     miner
         .complete(
             Job::Inventory {
+                refresh_sequence: 0,
                 result: Ok(inventory),
                 requested_at,
             },

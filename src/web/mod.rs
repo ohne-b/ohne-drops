@@ -32,7 +32,7 @@ use crate::{
         AuthAction, AuthError, AuthSettingsRequest, LoginRequest, WebAuth, random_hex,
         session_cookie, token_from_headers, unix_now,
     },
-    dto::{SettingsView, Snapshot},
+    dto::{RefreshState, SettingsView, Snapshot},
     origin::DashboardOrigin,
     store::{CampaignArchive, DataDirectory, History, HistoryFilter},
 };
@@ -143,6 +143,69 @@ impl App {
             .await
             .map_err(|_| ApiError::unavailable())?
             .map_err(|_| ApiError::unavailable())
+    }
+
+    // Repeated refresh requests join the current work, including work queued by the UI.
+    pub async fn begin_inventory_refresh(&self) -> (u64, bool) {
+        let refresh = {
+            let mut snapshot = self.snapshot.write().await;
+            let refresh = &mut snapshot.inventory_refresh;
+            if refresh.state == RefreshState::Refreshing {
+                return (refresh.sequence, false);
+            }
+            refresh.sequence += 1;
+            refresh.state = RefreshState::Refreshing;
+            refresh.error = None;
+            refresh.clone()
+        };
+        self.sockets.emit("inventory_refresh", &refresh).await;
+        (refresh.sequence, true)
+    }
+
+    pub async fn finish_inventory_refresh(&self, sequence: u64, error: Option<String>) {
+        let refresh = {
+            let mut snapshot = self.snapshot.write().await;
+            let refresh = &mut snapshot.inventory_refresh;
+            if refresh.sequence != sequence || refresh.state != RefreshState::Refreshing {
+                return;
+            }
+            refresh.sequence += 1;
+            refresh.state = if error.is_some() {
+                RefreshState::Failed
+            } else {
+                RefreshState::Refreshed
+            };
+            refresh.error = error;
+            refresh.clone()
+        };
+        self.sockets.emit("inventory_refresh", &refresh).await;
+    }
+
+    pub async fn refresh_inventory(self: &Arc<Self>) -> Result<(), ApiError> {
+        // Keep accepted work owned if the browser disconnects before the acknowledgement.
+        let owned = self.clone();
+        self.writes
+            .spawn(async move {
+                if owned.snapshot.read().await.login.user_id.is_none() {
+                    return Err(ApiError(StatusCode::CONFLICT, "twitch_login_required"));
+                }
+                let (sequence, started) = owned.begin_inventory_refresh().await;
+                if started {
+                    let result = owned.command(Command::Refresh { clear_cache: false }).await;
+                    if result.is_err() {
+                        owned
+                            .finish_inventory_refresh(
+                                sequence,
+                                Some(message("gui.auth.request_failed", &[])),
+                            )
+                            .await;
+                    }
+                    result?;
+                }
+                Ok(())
+            })
+            .await
+            .map_err(|_| ApiError::unavailable())?
     }
 
     pub async fn console(&self, text: String) {
@@ -685,7 +748,8 @@ async fn run_command(app: &App, command: Command) -> Result<Json<Value>, ApiErro
     Ok(Json(json!({"success":true})))
 }
 async fn reload(State(app): State<Arc<App>>) -> Result<Json<Value>, ApiError> {
-    run_command(&app, Command::Refresh { clear_cache: false }).await
+    app.refresh_inventory().await?;
+    Ok(Json(json!({"success":true})))
 }
 async fn clear_cache(State(app): State<Arc<App>>) -> Result<Json<Value>, ApiError> {
     run_command(&app, Command::Refresh { clear_cache: true }).await

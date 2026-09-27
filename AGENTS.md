@@ -152,6 +152,10 @@ embed it and run without a build tool/runtime companion. Production builds never
   Keep expanded channel-entry controls and feedback inside the scrollable list body.
   Channel name/URL and optional timer use accessible input placeholders. Settings autosave
   has no saving/saved notices; preserve errors, edits and Retry.
+- Overview and Maintenance share inventory refresh feedback inside the button. Track queued
+  and running work through publication, coalesce requests, preserve state on reconnect and
+  ignore stale completion events. An acknowledgement is not completion. Keep request errors
+  and partial-catalog failures retryable without clearing previous results or adding notices.
 - History artwork is optional; retain old rows and use matching live benefits as display fallback.
   No Telegram controls/API/credentials in responses and no dashboard updater.
 - Maintenance checks the latest stable release's `latest.json`, compares SemVer precedence

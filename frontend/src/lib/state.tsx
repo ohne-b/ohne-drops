@@ -98,6 +98,13 @@ export function MinerProvider({ children }: { children: ReactNode }) {
     socket.on('inventory_status', (value) =>
       update((state) => ({ ...state, inventory_status: value })),
     );
+    socket.on('inventory_refresh', (value) =>
+      update((state) =>
+        value.sequence >= (state.inventory_refresh?.sequence ?? 0)
+          ? { ...state, inventory_refresh: value }
+          : state,
+      ),
+    );
     socket.on('drop_update', (value) =>
       update((state) => ({
         ...state,

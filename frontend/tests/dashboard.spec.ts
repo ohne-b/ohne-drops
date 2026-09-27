@@ -5,6 +5,77 @@ import type { Snapshot } from '../src/lib/types';
 const snapshot: Snapshot = fixture;
 const headers = { 'X-TDM-Request': '1' };
 
+test('refresh button tracks completion, failures, stale events and reconnects without notices', async ({
+  page,
+  request,
+}) => {
+  const refresh = page.getByRole('button', { name: 'Refresh inventory', exact: true });
+  await refresh.click();
+  await expect(page.getByRole('button', { name: 'Refreshing...', exact: true })).toBeDisabled();
+  await page.reload();
+  await expect(page.getByRole('button', { name: 'Refreshing...', exact: true })).toBeDisabled();
+  await page.goto('/settings#maintenance');
+  await expect(page.getByRole('button', { name: 'Refreshing...', exact: true })).toBeDisabled();
+  await page.goto('/');
+  await request.post('/__test/event', {
+    headers,
+    data: { event: 'inventory_refresh', data: { sequence: 2, state: 'refreshed', error: null } },
+  });
+  await expect(page.getByRole('button', { name: 'Refreshed', exact: true })).toBeEnabled();
+  await request.post('/__test/event', {
+    headers,
+    data: { event: 'inventory_refresh', data: { sequence: 1, state: 'refreshing', error: null } },
+  });
+  await expect(page.getByRole('button', { name: 'Refreshed', exact: true })).toBeEnabled();
+  await expect(page.getByText('Inventory refresh requested.', { exact: true })).toHaveCount(0);
+  await expect(refresh).toBeVisible({ timeout: 6000 });
+  await refresh.click();
+  await expect(page.getByRole('button', { name: 'Refreshing...', exact: true })).toBeDisabled();
+  await request.post('/__test/event', {
+    headers,
+    data: {
+      event: 'inventory_refresh',
+      data: {
+        sequence: 4,
+        state: 'failed',
+        error: 'Twitch did not provide the complete campaign catalog.',
+      },
+    },
+  });
+  const retry = page.getByRole('button', { name: 'Refresh failed - Retry', exact: true });
+  await expect(retry).toBeEnabled();
+  await expect(retry).toHaveAttribute(
+    'title',
+    'Twitch did not provide the complete campaign catalog.',
+  );
+  await expect(page.getByRole('alert')).toHaveCount(0);
+  await page.screenshot({ path: '../artifacts/refresh-button-failure.png' });
+  expect((await new AxeBuilder({ page }).include('main').analyze()).violations).toEqual([]);
+  await retry.click();
+  await expect(page.getByRole('button', { name: 'Refreshing...', exact: true })).toBeDisabled();
+});
+
+test('refresh request errors stay in the button and require a connected Twitch account', async ({
+  page,
+  request,
+}) => {
+  await page.route('**/api/reload', (route) =>
+    route.fulfill({ status: 503, json: { detail: 'request_failed' } }),
+  );
+  await page.getByRole('button', { name: 'Refresh inventory', exact: true }).click();
+  await expect(
+    page.getByRole('button', { name: 'Refresh failed - Retry', exact: true }),
+  ).toBeEnabled();
+  await expect(page.getByRole('alert')).toHaveCount(0);
+  await request.post('/__test/event', {
+    headers,
+    data: { event: 'login_status', data: { status: 'Logged out', user_id: null } },
+  });
+  await expect(
+    page.getByRole('button', { name: 'Refresh failed - Retry', exact: true }),
+  ).toBeDisabled();
+});
+
 test('Maintenance shows a release notice and notes link without installing anything', async ({
   page,
 }) => {
@@ -695,6 +766,7 @@ test('catalog restrictions and hostile strings remain explicit and inert', async
       data: { available: false, checked_at: new Date().toISOString() },
     },
   });
+  await expect(page.getByRole('alert')).toHaveCount(0);
   await page.getByRole('link', { name: 'Campaigns', exact: true }).click();
   await expect(page.getByRole('alert')).toContainText(
     'Twitch did not provide the complete campaign catalog',

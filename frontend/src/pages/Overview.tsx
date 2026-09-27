@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { Link } from 'react-router';
-import { mdiRefresh, mdiPlayOutline } from '@mdi/js';
+import { mdiPlayOutline } from '@mdi/js';
+import { InventoryRefreshButton } from '../components/InventoryRefreshButton';
 import { useMiner } from '../lib/state';
 import { useT } from '../lib/i18n';
 import { request, safeUrl } from '../lib/api';
@@ -43,18 +44,9 @@ export default function Overview() {
     <div className="flex flex-col gap-6 xl:flex-1">
       <div className="flex shrink-0 flex-wrap items-start justify-between gap-3">
         <h1 className="text-[22px] font-semibold">{t('overview')}</h1>
-        <Button
-          disabled={!connected || action.busy}
-          onClick={() => void action.run(() => request('/api/reload', {}), t('refresh_requested'))}
-        >
-          <Icon path={mdiRefresh} />
-          {t('refresh')}
-        </Button>
+        <InventoryRefreshButton />
       </div>
       <ActionResult action={action} />
-      {data.inventory_status?.available === false && data.inventory_status.checked_at && (
-        <Notice error>{t('campaigns_unavailable')}</Notice>
-      )}
       <section className="panel shrink-0 p-5 md:p-6" aria-labelledby="mining-heading">
         <div className="mb-5 flex items-center justify-between gap-3">
           <h2 id="mining-heading" className="section-title">
