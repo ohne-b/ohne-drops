@@ -126,9 +126,10 @@ Use `--help` for host, port, data directory, and log directory options.
    eligible live channel and claims rewards when Twitch makes them available.
 
 > [!IMPORTANT]
-> Only selected games are mined. Discovering a campaign does not select its game, and
-> an empty game list sends no watch events. **Stop mining** removes the entire game
-> from that list. Already-earned rewards can still be claimed.
+> Automatic mining only watches selected games. Discovery does not select games, and
+> an empty game list pauses automatic watching. An explicit **Mine channel** request
+> temporarily overrides this list. **Stop mining** removes a game from the automatic
+> list. Already-earned rewards can still be claimed.
 
 Login uses Twitch's Smart TV device authorization flow. The saved session survives
 restarts; enter your Twitch password only on Twitch's authorization page.
@@ -140,16 +141,21 @@ restarts; enter your Twitch password only on Twitch's authorization page.
 ## Using the dashboard
 
 **Overview > Channels** shows live streams currently eligible for your selected games and
-rewards. Special-event campaigns can include other categories when their actual channel
-restriction allows it. Channel changes pause watching until eligibility is refreshed.
+rewards, plus your manually selected channel. Special-event campaigns can include other
+categories when their actual channel restriction allows it. Channel changes pause watching
+until fresh stream information is available.
 
 Use **Mine channel** to enter a Twitch login or a direct channel URL, including streams
-missing from the list. This checks that channel against the current campaign catalog and
-adds its eligible game to your mining list. Reward filters, prerequisites and campaign
-channel restrictions still apply. Offline channels and channels without eligible known
-rewards are reported without changing your selection. Manual selection falls back within
-its game if another eligible channel is needed; **Return to Auto Mode** restores game
-priority selection. The game stays selected until you remove it.
+missing from the list or campaign catalog. A live channel can be watched even when no
+reward is discovered; this does not add games to your saved list. Twitch still determines
+whether any rewards accrue. Manual mode shows a known reward only after Twitch reports
+its progress, and never invents progress for unknown rewards.
+
+Optionally enter **Auto mode after** in minutes (1–1440). The timer starts when the channel
+is selected and continues through dashboard reconnects and connection renewal. Leave it
+blank to watch until **Return to Auto Mode**. If the channel goes offline, manual mode
+waits for it to return; the timer continues. Logout, cache clearing or a process restart
+also ends manual mode. Automatic selection resumes using your saved games and filters.
 
 | Page                     | What it shows                                                                             |
 | ------------------------ | ----------------------------------------------------------------------------------------- |
@@ -163,7 +169,7 @@ priority selection. The game stays selected until you remove it.
 ### Games, filters, and ignored rewards
 
 In **Game priorities**, drag games into order or focus a drag handle and use the arrow
-keys. The first game has the highest priority. Settings save automatically; if a save
+keys. The first game has the highest priority. Settings save silently; if a save
 fails or another browser changes the same settings, your edits stay available for **Retry**.
 
 Campaign status filters combine **Active**, **Upcoming**, and **Expired**; **Not linked**

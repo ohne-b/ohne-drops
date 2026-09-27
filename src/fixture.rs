@@ -61,6 +61,7 @@ pub fn routes(router: Router<Arc<App>>) -> Router<Arc<App>> {
         .route("/__test/reconnect", post(reconnect))
 }
 async fn reset(State(app): State<Arc<App>>) -> Result<Json<Value>, crate::web::ApiError> {
+    app.command(Command::ExitManual).await?;
     reset_state(&app).await.map_err(|_| {
         crate::web::ApiError(
             axum::http::StatusCode::INTERNAL_SERVER_ERROR,
@@ -85,13 +86,19 @@ async fn reconnect(State(app): State<Arc<App>>) -> Json<Value> {
 }
 
 async fn commands(app: Arc<App>, mut receiver: mpsc::Receiver<CommandRequest>) {
+    let mut manual_until: Option<tokio::time::Instant> = None;
     loop {
         let request = tokio::select! {
             _ = app.shutdown.cancelled()=>break,
-            request = receiver.recv()=>{ let Some(request)=request else{break};request }
+            request = receiver.recv()=>{ let Some(request)=request else{break};Some(request) },
+            _ = tokio::time::sleep_until(manual_until.unwrap_or_else(tokio::time::Instant::now)), if manual_until.is_some() => None,
         };
-        match request.command {
-            Command::SelectChannel(id) => {
+        match request
+            .as_ref()
+            .map_or(Command::ExitManual, |r| r.command.clone())
+        {
+            Command::SelectChannel(id, duration) => {
+                manual_until = duration.map(|duration| tokio::time::Instant::now() + duration);
                 let mode = {
                     let mut state = app.snapshot.write().await;
                     for channel in &mut state.channels {
@@ -101,6 +108,9 @@ async fn commands(app: Arc<App>, mut receiver: mpsc::Receiver<CommandRequest>) {
                         active: true,
                         game_name: Some("Rust".into()),
                         channel_name: Some("harbor".into()),
+                        expires_at: duration.map(|duration| {
+                            chrono::Utc::now() + chrono::Duration::from_std(duration).unwrap()
+                        }),
                         ..ManualMode::default()
                     };
                     state.manual_mode.clone()
@@ -111,31 +121,34 @@ async fn commands(app: Arc<App>, mut receiver: mpsc::Receiver<CommandRequest>) {
                 app.sockets.emit("manual_mode_update", &mode).await;
             }
             Command::ExitManual => {
+                manual_until = None;
                 let mode = ManualMode::default();
                 app.snapshot.write().await.manual_mode = mode.clone();
                 app.sockets.emit("manual_mode_update", &mode).await;
             }
-            Command::MineChannel(login) => {
+            Command::MineChannel(login, duration) => {
                 let mode = if login == "missing" {
                     ManualMode {
                         error: Some(crate::web::message("gui.channels.not_found", &[])),
                         ..ManualMode::default()
                     }
                 } else {
-                    let _ = app.select_game("Rust", |_| true).await;
+                    manual_until = duration.map(|duration| tokio::time::Instant::now() + duration);
                     let channels = {
                         let mut state = app.snapshot.write().await;
                         for c in &mut state.channels {
                             c.watching = false;
                         }
+                        state.current_drop = None;
+                        state.channels.retain(|c| c.id != 999);
                         state.channels.push(crate::dto::ChannelView {
                             id: 999,
                             login: login.clone(),
                             name: login.clone(),
-                            game: Some("Rust".into()),
-                            game_id: Some(1),
+                            game: Some("Other category".into()),
+                            game_id: Some(999),
                             online: true,
-                            drops_enabled: true,
+                            drops_enabled: false,
                             watching: true,
                             ..Default::default()
                         });
@@ -144,10 +157,14 @@ async fn commands(app: Arc<App>, mut receiver: mpsc::Receiver<CommandRequest>) {
                     app.sockets
                         .emit("channels_batch_update", &json!({"channels":channels}))
                         .await;
+                    app.sockets.emit("drop_progress_stop", &json!({})).await;
                     ManualMode {
                         active: true,
-                        game_name: Some("Rust".into()),
+                        game_name: Some("Other category".into()),
                         channel_name: Some(login),
+                        expires_at: duration.map(|duration| {
+                            chrono::Utc::now() + chrono::Duration::from_std(duration).unwrap()
+                        }),
                         ..ManualMode::default()
                     }
                 };
@@ -155,6 +172,7 @@ async fn commands(app: Arc<App>, mut receiver: mpsc::Receiver<CommandRequest>) {
                 app.sockets.emit("manual_mode_update", &mode).await;
             }
             Command::Logout => {
+                manual_until = None;
                 let login = Login {
                     status: "Logged out".into(),
                     user_id: None,
@@ -171,6 +189,8 @@ async fn commands(app: Arc<App>, mut receiver: mpsc::Receiver<CommandRequest>) {
             | Command::Refresh { .. }
             | Command::Shutdown => {}
         }
-        let _ = request.complete.send(Ok(()));
+        if let Some(request) = request {
+            let _ = request.complete.send(Ok(()));
+        }
     }
 }

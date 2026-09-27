@@ -23,6 +23,7 @@ export default function Overview() {
   const t = useT();
   const [search, setSearch] = useState('');
   const [channelInput, setChannelInput] = useState('');
+  const [manualMinutes, setManualMinutes] = useState('');
   const [enterChannel, setEnterChannel] = useState(false);
   const action = useAction();
   if (!data) return <Empty title={t('loading')} />;
@@ -102,6 +103,14 @@ export default function Overview() {
               )}
             </div>
           </>
+        ) : data.manual_mode.active ? (
+          <p className="font-medium">
+            {watching
+              ? t('watching', { channel: watching.name })
+              : t('gui.channels.waiting_for_live', {
+                  channel: data.manual_mode.channel_name ?? '',
+                })}
+          </p>
         ) : (
           <Empty
             title={t('gui.progress.no_drop')}
@@ -126,6 +135,11 @@ export default function Overview() {
           >
             {t('gui.progress.return_to_auto')}
           </Button>
+        )}
+        {data.manual_mode.expires_at && (
+          <p className="muted mt-2">
+            {t('gui.channels.auto_at', { time: dateTime(data.manual_mode.expires_at) })}
+          </p>
         )}
       </section>
       {/* Long lists must not contribute to the page's intrinsic minimum height. */}
@@ -159,17 +173,18 @@ export default function Overview() {
                     onSubmit={(event) => {
                       event.preventDefault();
                       void action.run(() =>
-                        request('/api/channels/select', { channel: channelInput }),
+                        request('/api/channels/select', {
+                          channel: channelInput,
+                          duration_minutes: manualMinutes ? Number(manualMinutes) : null,
+                        }),
                       );
                     }}
                   >
-                    <label htmlFor="manual-channel" className="text-[13px] font-medium">
-                      {t('gui.channels.channel_input')}
-                    </label>
                     <div className="flex gap-2">
                       <Input
                         id="manual-channel"
-                        aria-describedby="manual-channel-help"
+                        aria-label={t('gui.channels.channel_input')}
+                        placeholder={t('gui.channels.channel_input')}
                         value={channelInput}
                         maxLength={256}
                         onChange={(event) => setChannelInput(event.target.value)}
@@ -187,9 +202,16 @@ export default function Overview() {
                         {t('mine')}
                       </Button>
                     </div>
-                    <p id="manual-channel-help" className="muted">
-                      {t('gui.channels.manual_help')}
-                    </p>
+                    <Input
+                      type="number"
+                      min={1}
+                      max={1440}
+                      step={1}
+                      aria-label={t('gui.channels.manual_timer')}
+                      placeholder={t('gui.channels.manual_timer')}
+                      value={manualMinutes}
+                      onChange={(event) => setManualMinutes(event.target.value)}
+                    />
                   </form>
                 )}
                 {data.manual_mode.pending_channel && (
