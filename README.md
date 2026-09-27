@@ -134,6 +134,19 @@ Use `--help` for host, port, data directory, and log directory options.
 Login uses Twitch's Smart TV device authorization flow. The saved session survives
 restarts; enter your Twitch password only on Twitch's authorization page.
 
+Campaign discovery uses the [SunkwiBOT public catalog](https://github.com/SunkwiBOT/twitch-drops-api).
+It supplies game/reward metadata, dates, prerequisites and participating channels. Account
+progress, linkage and claims come from Twitch through your device-code session; Twitch
+credentials and identifiers are never sent to the catalog service. Discovery never selects
+games automatically. The miner does not query Twitch's gated catalog/detail endpoints or
+scan live channels to reconstruct the catalog.
+
+The public feed is a third-party dependency, and its coverage can vary or lag Twitch,
+including upcoming or account-specific campaigns. Refresh rejects feed timestamps older
+than 30 minutes or over 5 minutes in the future. Failed, stale or malformed responses keep
+known active/upcoming campaigns in memory while preserving fresh Twitch inventory. A
+restart still needs the feed to rediscover campaigns outside your Twitch inventory.
+
 > [!WARNING]
 > Avoid watching Twitch manually with the same account while mining. Simultaneous
 > viewing can interfere with drop progress.
@@ -161,6 +174,7 @@ also ends manual mode. Automatic selection resumes using your saved games and fi
 stays busy until the refreshed data is published, then briefly shows **Refreshed**, or
 **Refresh failed - Retry** with the reason on hover. Repeated requests share the same
 refresh; reconnecting the dashboard keeps its current status.
+The button's tooltip also shows when the public catalog was last updated.
 
 | Page                     | What it shows                                                                             |
 | ------------------------ | ----------------------------------------------------------------------------------------- |
@@ -310,11 +324,11 @@ development builds labeled `1.3.2`.
 
 ## Troubleshooting
 
-- **No campaigns appear:** clear the campaign filters and check **Activity**. Twitch can
-  withhold the complete catalog from device-code sessions. In-progress rewards remain
-  available; the miner does not scan unrelated live channels to assemble a partial catalog.
-  A partial refresh keeps previously known active campaigns. Clearing cache or logging in
-  again cannot repair an upstream catalog restriction. Manual watching still works.
+- **No campaigns appear:** clear the campaign filters and check **Activity**. The public
+  catalog can be unavailable, stale or incomplete; **Refresh inventory** reports a failed
+  or partial refresh in its button. Previously known active campaigns stay available during
+  a partial refresh, and manual watching still works. Reauthorizing Twitch or clearing cache
+  cannot repair a catalog-service outage or add campaigns missing from its feed.
 - **Mining is idle:** select a game, check account linking, campaign dates, prerequisites,
   reward filters, and ignore rules. Progress requires an eligible live channel.
 - **Progress seems stuck:** compare Twitch's inventory with the dashboard's confirmed

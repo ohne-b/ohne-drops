@@ -4,7 +4,7 @@
         "claimed_drop": "Claimed drop: {drop}",
         "no_channel": "No available channels to watch. Waiting for an ONLINE channel...",
         "no_campaign": "No active campaigns to mine drops for. Waiting for an active campaign...",
-        "catalog_unavailable": "Twitch did not provide the complete campaign catalog. Waiting for available inventory...",
+        "catalog_unavailable": "Campaign data is incomplete. Waiting for available rewards...",
         "no_selection": "No games selected for mining. Choose Mine in Campaigns to start."
     },
     "login": {
@@ -160,7 +160,8 @@
             "refreshing": "Refreshing...",
             "refreshed": "Refreshed",
             "refresh_failed": "Refresh failed - Retry",
-            "refresh_failed_detail": "Could not refresh inventory from Twitch. Your previous results are kept. Try again.",
+            "refresh_failed_detail": "Could not refresh campaign data. Your previous results are kept. Try again.",
+            "catalog_updated": "Campaign catalog: SunkwiBOT. Updated {time}.",
             "automatic": "Automatic selection",
             "manual": "Manual selection",
             "watching": "Watching {channel}",
@@ -176,7 +177,7 @@
             "no_matches": "No matching results",
             "up_next": "Up next",
             "edit": "Edit",
-            "campaigns_unavailable": "Twitch did not provide the complete campaign catalog. In-progress rewards remain available, and manual channels can still be watched.",
+            "campaigns_unavailable": "Campaign data is incomplete or the public catalog is unavailable or stale. Previously known rewards are kept, and manual channels can still be watched.",
             "account_link_unknown": "Account link unknown",
             "check_account_link": "Check account link",
             "search_campaigns": "Search campaigns and rewards",

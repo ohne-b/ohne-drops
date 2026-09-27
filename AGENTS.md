@@ -61,14 +61,20 @@ embed it and run without a build tool/runtime companion. Production builds never
   claimed; expiry alone never qualifies. Persistent completion archives are display-only,
   survive cache clears, and can be invalidated by newer contradictory account evidence or
   changed rewards. Older claim-only history remains completion-unverified.
-- Fetch account Inventory and the campaign catalog independently; inventory account records
-  win over details. Fetch all active/upcoming catalog IDs in bounded batches. Preserve
-  independent in-progress records when the catalog/details are null or fail. Keep previously
-  known active/upcoming records on partial refresh; a valid empty catalog is authoritative.
-  Do not discover campaigns by scanning live channels or game directories. Propagate auth
-  and cancellation failures; skip nullable neighbors individually. Partial coverage stays
-  partial; never claim relogin/cache clearing/client substitution repairs upstream restrictions.
-  Unknown PubSub/CurrentDrop progress queues inventory refresh at most once per minute.
+- Fetch Twitch account Inventory and `https://twitch-drops-api.sunkwi.com/v2/drops` concurrently.
+  SunkwiBOT is the catalog source; remove Twitch catalog/detail operations and live-channel
+  campaign scans. Inventory wins as whole records, including explicit unclaimed evidence;
+  malformed account records must not fall back to public account assumptions. Public HTTP
+  uses an isolated client with no Twitch credentials, cookies or identifiers, no redirects,
+  the configured proxy/timeouts, and bounded retries within 30 seconds. Cap bodies at 16 MiB
+  and campaigns at 2000. Reject timestamps older than 30 minutes or over 5 minutes ahead.
+  Strip public campaign/drop `self` records; preserve real ACLs, dependencies and timing.
+  Missing restrictions/dependencies, malformed/null entries and duplicate IDs are partial,
+  not empty success. Keep known active/upcoming records on partial refresh; valid empty
+  feeds are authoritative. A feed 401/403 never logs out Twitch; Twitch auth/cancellation
+  failures propagate. Coverage can vary, and restarts need the feed for non-inventory
+  campaigns. Never claim relogin/cache clearing repairs feed coverage. Unknown
+  PubSub/CurrentDrop progress queues inventory refresh at most once per minute.
 - Unknown linkage is null and unknown progress has no confirmed timestamp. Infer claims from
   awards only when every benefit has evidence in the drop's time window and no explicit
   account record contradicts it.

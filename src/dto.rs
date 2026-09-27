@@ -116,6 +116,8 @@ pub struct ManualMode {
 pub struct InventoryStatus {
     pub available: bool,
     pub checked_at: Option<DateTime<Utc>>,
+    #[serde(default)]
+    pub catalog_updated_at: Option<DateTime<Utc>>,
 }
 
 #[derive(Clone, Copy, Debug, Default, Serialize, Deserialize, PartialEq, Eq)]

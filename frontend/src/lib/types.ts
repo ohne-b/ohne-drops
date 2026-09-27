@@ -124,6 +124,7 @@ export interface ManualMode {
 export interface InventoryStatus {
   available: boolean;
   checked_at: string | null;
+  catalog_updated_at?: string | null;
 }
 export interface InventoryRefresh {
   sequence: number;

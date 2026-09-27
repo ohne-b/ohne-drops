@@ -67,7 +67,6 @@ async fn refresh_finishes_after_publication_and_partial_or_failed_requests_keep_
     let server = MockServer::start().await;
     gql_mock(&server, |q| match q["operationName"].as_str().unwrap() {
         "Inventory" => json!({"data":{"currentUser":{"inventory":{"dropCampaignsInProgress":[campaign_json("one")],"gameEventDrops":[]}}}}),
-        "ViewerDropsDashboard" => json!({"data":{"currentUser":{"dropCampaigns":[]}}}),
         other => panic!("unexpected operation {other}"),
     }).await;
     let (_dir, mut miner, intent, mut pool) = miner(&server).await;
@@ -99,6 +98,7 @@ async fn refresh_finishes_after_publication_and_partial_or_failed_requests_keep_
                     status: InventoryStatus {
                         available: false,
                         checked_at: Some(Utc::now()),
+                        catalog_updated_at: None,
                     },
                     awards: HashMap::new(),
                 }),
@@ -144,6 +144,7 @@ async fn refresh_finishes_after_publication_and_partial_or_failed_requests_keep_
                     status: InventoryStatus {
                         available: true,
                         checked_at: Some(Utc::now()),
+                        catalog_updated_at: None,
                     },
                     awards: HashMap::new(),
                 }),
@@ -1585,7 +1586,6 @@ async fn hourly_token_validation_preserves_manual_choice() {
         .await;
     gql_mock(&server,|q|match q["operationName"].as_str().unwrap(){
         "Inventory"=>json!({"data":{"currentUser":{"inventory":{"dropCampaignsInProgress":[campaign_json("one")],"gameEventDrops":[]}}}}),
-        "ViewerDropsDashboard"=>json!({"data":{"currentUser":{"dropCampaigns":[]}}}),
         "DirectoryPage_Game"=>json!({"data":{"game":{"streams":{"edges":[
             {"node":{"id":"b1","broadcaster":{"id":"10","login":"first","displayName":"First"},"game":{"id":"1","name":"Rust"},"viewersCount":100}},
             {"node":{"id":"b2","broadcaster":{"id":"11","login":"second","displayName":"Second"},"game":{"id":"1","name":"Rust"},"viewersCount":50}}
@@ -1930,7 +1930,6 @@ async fn channel_choice_during_hourly_reload_is_retained_until_channels_are_read
         let body: serde_json::Value = request.body_json().unwrap();
         let handler = |q: &serde_json::Value| match q["operationName"].as_str().unwrap() {
             "Inventory" => json!({"data":{"currentUser":{"inventory":{"dropCampaignsInProgress":[campaign_json("one")],"gameEventDrops":[]}}}}),
-            "ViewerDropsDashboard" => json!({"data":{"currentUser":{"dropCampaigns":[]}}}),
             "DirectoryPage_Game" => json!({"data":{"game":{"streams":{"edges":[
                 {"node":{"id":"b1","broadcaster":{"id":"10","login":"first","displayName":"First"},"game":{"id":"1","name":"Rust"},"viewersCount":100}},
                 {"node":{"id":"b2","broadcaster":{"id":"11","login":"second","displayName":"Second"},"game":{"id":"1","name":"Rust"},"viewersCount":50}}

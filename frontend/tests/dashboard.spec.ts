@@ -38,16 +38,13 @@ test('refresh button tracks completion, failures, stale events and reconnects wi
       data: {
         sequence: 4,
         state: 'failed',
-        error: 'Twitch did not provide the complete campaign catalog.',
+        error: 'The public catalog is unavailable or incomplete.',
       },
     },
   });
   const retry = page.getByRole('button', { name: 'Refresh failed - Retry', exact: true });
   await expect(retry).toBeEnabled();
-  await expect(retry).toHaveAttribute(
-    'title',
-    'Twitch did not provide the complete campaign catalog.',
-  );
+  await expect(retry).toHaveAttribute('title', 'The public catalog is unavailable or incomplete.');
   await expect(page.getByRole('alert')).toHaveCount(0);
   await page.screenshot({ path: '../artifacts/refresh-button-failure.png' });
   expect((await new AxeBuilder({ page }).include('main').analyze()).violations).toEqual([]);
@@ -769,7 +766,7 @@ test('catalog restrictions and hostile strings remain explicit and inert', async
   await expect(page.getByRole('alert')).toHaveCount(0);
   await page.getByRole('link', { name: 'Campaigns', exact: true }).click();
   await expect(page.getByRole('alert')).toContainText(
-    'Twitch did not provide the complete campaign catalog',
+    'Campaign data is incomplete or the public catalog is unavailable or stale',
   );
   await request.post('/__test/event', {
     headers,
@@ -789,6 +786,51 @@ test('snapshot replaces stale entities and keeps settings draft', async ({ page,
   });
   await expect(interval).toHaveValue('45');
 });
+test('public catalog campaigns are visible without mining and expose source freshness in the refresh button', async ({
+  page,
+  request,
+}) => {
+  const catalogTime = new Date().toISOString();
+  await request.post('/__test/event', {
+    headers,
+    data: {
+      event: 'initial_state',
+      data: {
+        ...snapshot,
+        current_drop: null,
+        channels: [],
+        wanted_items: [],
+        settings: { ...snapshot.settings, games_to_watch: [] },
+        inventory_status: {
+          available: true,
+          checked_at: catalogTime,
+          catalog_updated_at: catalogTime,
+        },
+        campaigns: Array.from({ length: 145 }, (_, i) => ({
+          ...snapshot.campaigns[0],
+          id: `public-${i}`,
+          name: `Public campaign ${i}`,
+          linked: null,
+        })),
+      },
+    },
+  });
+  await expect(
+    page.getByRole('button', { name: 'Refresh inventory', exact: true }),
+  ).toHaveAttribute('title', /Campaign catalog: SunkwiBOT. Updated/);
+  await page
+    .getByRole('navigation', { name: 'Main navigation' })
+    .getByRole('link', { name: 'Campaigns', exact: true })
+    .click();
+  await expect(page.getByText('145 of 145 campaigns', { exact: true })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Mine Rust', exact: true })).toHaveCount(145);
+  await expect(page.getByRole('alert')).toHaveCount(0);
+  await page
+    .getByRole('searchbox', { name: 'Search campaigns and rewards' })
+    .fill('Public campaign 144');
+  await expect(page.getByText('Public campaign 144', { exact: true })).toBeVisible();
+});
+
 test('incomplete catalog preserves account data and unknown linkage without a discovery banner', async ({
   page,
   request,
