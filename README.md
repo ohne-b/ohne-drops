@@ -35,9 +35,7 @@ watch events, and claims earned rewards. The Rust executable includes the React 
 
 ### Docker Compose
 
-> [!NOTE]
-> The new image address below is reserved for a future release and is not published yet.
-> [Build from a checkout](#build-from-a-checkout) to run the current changes.
+Version 1.0.0 and later use `ghcr.io/ohne-b/twitch-drops-miner`.
 
 Install Docker with Compose support. In a new directory, save this as `compose.yaml`:
 
