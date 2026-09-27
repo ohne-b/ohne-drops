@@ -163,7 +163,7 @@ priority selection. The game stays selected until you remove it.
 ### Games, filters, and ignored rewards
 
 In **Game priorities**, drag games into order or focus a drag handle and use the arrow
-keys. The first game has the highest priority. Settings save automatically; if a save
+keys. The first game has the highest priority. Settings save silently; if a save
 fails or another browser changes the same settings, your edits stay available for **Retry**.
 
 Campaign status filters combine **Active**, **Upcoming**, and **Expired**; **Not linked**

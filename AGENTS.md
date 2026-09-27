@@ -141,6 +141,7 @@ embed it and run without a build tool/runtime companion. Production builds never
   and Up next have equal desktop dimensions and internal scrolling; stack on narrow screens and
   preserve access on short windows. Show confirmed values/timestamps without redundant labels.
   Keep expanded channel-entry controls and feedback inside the scrollable list body.
+  Settings autosave has no saving/saved notices; preserve errors, edits and Retry.
 - History artwork is optional; retain old rows and use matching live benefits as display fallback.
   No Telegram controls/API/credentials in responses and no dashboard updater.
 - Maintenance checks the latest stable release's `latest.json`, compares SemVer precedence
