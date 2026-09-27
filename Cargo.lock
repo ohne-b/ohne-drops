@@ -2641,7 +2641,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "twitch-miner"
+name = "ohne-drops"
 version = "0.1.0"
 dependencies = [
  "anyhow",

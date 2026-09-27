@@ -4,6 +4,7 @@ import { mkdtempSync, mkdirSync, readFileSync, writeFileSync, rmSync, readdirSyn
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { execFileSync } from 'node:child_process';
+import { fileURLToPath } from 'node:url';
 import { bumpVersion, readVersion, validateVersion, isPrerelease, releaseImages, releaseManifest, releaseNotes, writeReleaseArtifacts } from '../release.mjs';
 
 test('release versions use SemVer precedence and reject shell syntax and noncanonical input', () => {
@@ -22,7 +23,7 @@ test('Cargo metadata validates and updates both version files without changing d
   try {
     mkdirSync(join(directory, 'src'));
     writeFileSync(join(directory, 'src/main.rs'), 'fn main() {}\n');
-    writeFileSync(join(directory, 'Cargo.toml'), '[package]\nname = "twitch-miner"\nversion = "1.0.0"\nedition = "2024"\n');
+    writeFileSync(join(directory, 'Cargo.toml'), '[package]\nname = "ohne-drops"\nversion = "1.0.0"\nedition = "2024"\n');
     execFileSync('cargo', ['generate-lockfile', '--offline'], { cwd: directory });
     assert.equal(readVersion(directory), '1.0.0');
     writeFileSync(join(directory, 'CHANGELOG.md'), releaseEntry('1.0.0'));
@@ -39,22 +40,23 @@ test('Cargo metadata validates and updates both version files without changing d
   } finally { rmSync(directory, { recursive: true, force: true }); }
 });
 
-const releaseEntry = version => `## [v${version}](https://github.com/ohne-b/twitch-miner/releases/tag/v${version}) - 2026-09-26\n\n- a reviewed change\n`;
-test('release images share one version across registries and reject malformed destinations', () => {
-  assert.deepEqual(releaseImages('0.1.0'), ['ghcr.io/ohne-b/twitch-miner:0.1.0']);
-  assert.deepEqual(releaseImages('0.2.0-rc.1+build.1', 'example/twitch-miner'), [
-    'ghcr.io/ohne-b/twitch-miner:0.2.0-rc.1_build.1',
-    'docker.io/example/twitch-miner:0.2.0-rc.1_build.1',
+const releaseEntry = version => `## [v${version}](https://github.com/ohne-b/ohne-drops/releases/tag/v${version}) - 2026-09-26\n\n- a reviewed change\n`;
+test('release images use only GHCR and encode SemVer build metadata in Docker tags', () => {
+  assert.deepEqual(releaseImages('0.1.0'), ['ghcr.io/ohne-b/ohne-drops:0.1.0']);
+  assert.deepEqual(releaseImages('0.2.0-rc.1+build.1'), [
+    'ghcr.io/ohne-b/ohne-drops:0.2.0-rc.1_build.1',
   ]);
-  for (const destination of ['Example/miner', 'example/miner:latest', 'docker.io/example/miner', 'example/miner\nother/miner', 'https://example/miner', '$(id)/miner', 'example/' + 'a'.repeat(256)]) {
-    assert.throws(() => releaseImages('0.1.0', destination));
-  }
+  assert.throws(() => releaseImages('0.1.0;bad'));
+  const tags = execFileSync(process.execPath, [fileURLToPath(new URL('../release.mjs', import.meta.url)), 'images', '0.1.0'], {
+    encoding: 'utf8', env: { ...process.env, DOCKERHUB_IMAGE: 'example/legacy-image' },
+  });
+  assert.equal(tags.trim(), 'ghcr.io/ohne-b/ohne-drops:0.1.0');
 });
 test('every release has matching metadata and concise reviewed notes, never an installer manifest', () => {
   assert.deepEqual(releaseManifest('0.1.0'), {
     schemaVersion: 1,
     version: '0.1.0',
-    notes: '[Check release notes on GitHub](https://github.com/ohne-b/twitch-miner/releases/tag/v0.1.0)',
+    notes: '[Check release notes on GitHub](https://github.com/ohne-b/ohne-drops/releases/tag/v0.1.0)',
   });
   assert.equal(releaseManifest('0.2.0-rc.1').version, '0.2.0-rc.1');
   const notes = releaseNotes('0.2.0', releaseEntry('0.2.0') + '\n' + releaseEntry('0.1.0'));

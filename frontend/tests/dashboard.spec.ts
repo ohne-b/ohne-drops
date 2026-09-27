@@ -19,17 +19,17 @@ test('Maintenance shows a release notice and notes link without installing anyth
         latest_version: '0.2.0',
         update_available: true,
         check_succeeded: true,
-        download_url: 'https://github.com/ohne-b/twitch-miner/releases/tag/v0.2.0',
+        download_url: 'https://github.com/ohne-b/ohne-drops/releases/tag/v0.2.0',
       },
     }),
   );
   await page.goto('/settings#maintenance');
   const maintenance = page.locator('#maintenance');
   await expect(maintenance.getByText('New version available: 0.2.0')).toBeVisible();
-  await expect(maintenance.getByText('Twitch miner · 0.1.0')).toBeVisible();
+  await expect(maintenance.getByText('OhneDrops · 0.1.0')).toBeVisible();
   await expect(maintenance.getByRole('link', { name: 'Release notes' })).toHaveAttribute(
     'href',
-    'https://github.com/ohne-b/twitch-miner/releases/tag/v0.2.0',
+    'https://github.com/ohne-b/ohne-drops/releases/tag/v0.2.0',
   );
   await expect(maintenance.getByRole('button', { name: /^(Install|Update now)/ })).toHaveCount(0);
   await maintenance.getByRole('button', { name: 'Check for updates' }).click();
@@ -51,7 +51,7 @@ test('failed release checks stay distinct from up-to-date and can be retried', a
         latest_version: successful ? '0.1.0' : null,
         update_available: false,
         check_succeeded: successful,
-        download_url: 'https://github.com/ohne-b/twitch-miner/releases',
+        download_url: 'https://github.com/ohne-b/ohne-drops/releases',
       },
     }),
   );
@@ -87,10 +87,15 @@ test.beforeEach(async ({ request, page }) => {
 test('shared logo loads in the dashboard, login and favicon at responsive sizes', async ({
   page,
 }) => {
-  const brand = page.getByRole('link', { name: 'Twitch miner', exact: true });
+  const brand = page.getByRole('link', { name: 'OhneDrops', exact: true });
+  await expect(page).toHaveTitle('OhneDrops — Twitch Drops Miner');
+  await expect(page.getByRole('link', { name: 'GitHub repository' })).toHaveAttribute(
+    'href',
+    'https://github.com/ohne-b/ohne-drops',
+  );
   const logo = brand.locator('img');
   const source = await logo.getAttribute('src');
-  expect(source).toMatch(/^\/assets\/twitch-miner-logo-[\w-]+\.svg$/);
+  expect(source).toMatch(/^\/assets\/ohne-drops-logo-[\w-]+\.svg$/);
   await expect(page.locator('link[rel="icon"]')).toHaveAttribute('href', source!);
   await expect
     .poll(() => logo.evaluate((img: HTMLImageElement) => img.naturalWidth))

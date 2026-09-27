@@ -1,6 +1,6 @@
 # Third-party notices
 
-Twitch Drops Miner is based on
+OhneDrops is based on
 [rangermix/TwitchDropsMiner](https://github.com/rangermix/TwitchDropsMiner).
 The upstream MIT license is reproduced in full below. The project's own MIT license
 is in [LICENSE](LICENSE). These notices retain the upstream copyright and attribution.
@@ -36,4 +36,4 @@ SOFTWARE.
 Font and icon notices remain in
 [frontend/public/assets/licenses](frontend/public/assets/licenses).
 Docker images include both project license files and those asset notices under
-`/usr/share/licenses/twitch-miner/`.
+`/usr/share/licenses/ohne-drops/`.
