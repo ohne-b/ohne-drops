@@ -27,7 +27,7 @@ export function InventoryRefreshButton() {
   const catalogTime = data?.inventory_status?.catalog_updated_at;
   return (
     <Button
-      className="min-w-[160px]"
+      className="min-w-[160px] justify-start"
       disabled={!connected || !data?.login.user_id || busy}
       aria-busy={busy}
       title={

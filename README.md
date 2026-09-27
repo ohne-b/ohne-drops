@@ -163,6 +163,7 @@ missing from the list or campaign catalog. A live channel can be watched even wh
 reward is discovered; this does not add games to your saved list. Twitch still determines
 whether any rewards accrue. Manual mode shows a known reward only after Twitch reports
 its progress, and never invents progress for unknown rewards.
+The Mine button stays disabled while Twitch checks a channel; lookup errors appear inline.
 
 Optionally enter **Auto mode after** in minutes (1–1440). The timer starts when the channel
 is selected and continues through dashboard reconnects and connection renewal. Leave it
@@ -174,7 +175,8 @@ also ends manual mode. Automatic selection resumes using your saved games and fi
 stays busy until the refreshed data is published, then briefly shows **Refreshed**, or
 **Refresh failed - Retry** with the reason on hover. Repeated requests share the same
 refresh; reconnecting the dashboard keeps its current status.
-The button's tooltip also shows when the public catalog was last updated.
+The button keeps its icon aligned on the left as its status changes. Its tooltip also shows
+when the public catalog was last updated.
 
 | Page                     | What it shows                                                                             |
 | ------------------------ | ----------------------------------------------------------------------------------------- |
