@@ -50,7 +50,9 @@ embed it and run without a build tool/runtime companion. Production builds never
 ## Mining contracts
 
 - Discovery does not select games. `games_to_watch` is the ordered Unicode-casefolded
-  allowlist. Empty means no watch events. Mine selects a game across eligible campaigns.
+  automatic allowlist. Empty means no automatic watch events. Mine selects a game across
+  eligible campaigns. An explicitly chosen manual channel overrides automatic selection
+  without changing saved games, filters or priorities.
 - Preserve campaign/drop timing, prerequisites, claim state, benefit filters and ignore rules.
   Literal ignore substrings cascade through dependents while retaining shared prerequisites.
   Zero-minute subscription rewards are omitted from Campaigns/Up next; expired drops leave
@@ -70,19 +72,25 @@ embed it and run without a build tool/runtime companion. Production builds never
   awards only when every benefit has evidence in the drop's time window and no explicit
   account record contradicts it. Recovered channels constrain eligibility but are not a real ACL.
 - Special Events (`509663`) and IRL (`509672`) cross categories only with a nonempty enabled
-  actual ACL. Regular drops need matching category and drops-enabled status; all need live
+  actual ACL. Automatic drops need matching category and drops-enabled status; all need live
   channels, selected games and eligible rewards. Offline/ineligible streams yield even at tied
   fallback priority. Preserve nullable viewer counts and the watching row during rebuilds.
-- Channels publishes only currently eligible selected-game streams; rank before the channel
-  limit using matching campaign priority, including actual-ACL special-category streams.
-  Mine channel accepts a validated Twitch login/root URL and resolves it with owned bounded
-  work after initial inventory readiness, independently of later inventory scans. Check
-  known campaign IDs, actual ACLs and reward filters before atomically selecting its game.
-  Preserve concurrent settings edits; recheck intent and eligibility inside the selection
-  transaction before committing. Preserve
-  pending lookups and the last confirmed manual channel separately across network generations.
-  Recovery-channel evidence never overrides actual ACLs or account records. Pending category refresh pauses watching
-  without losing manual intent; retry failed refreshes. Viewer counts use channel-only events.
+- Channels publishes currently eligible selected-game streams plus the explicitly selected
+  manual channel. Rank automatic candidates before the channel limit using matching campaign
+  priority, including actual-ACL special-category streams. Mine channel accepts a validated
+  Twitch login/root URL and resolves it with owned bounded work independently of inventory.
+  Manual watching requires a live identity, not catalog coverage, selected games, a drops tag
+  or local reward eligibility. Do not persist game selections or fabricate reward progress.
+  Direct lookup and manual stream refresh use a short best-effort metadata attempt;
+  missing/failed metadata never blocks watching, but auth/cancellation still propagates.
+  Show a known manual reward only after Twitch reports it; do not estimate manual rewards.
+  Preserve pending lookups and the confirmed channel separately across network generations;
+  late/superseded results cannot restore manual mode. Recovery evidence never overrides real
+  ACLs or account records. Pending stream refresh pauses watching; retry failed refreshes.
+  An optional 1..1440-minute timer uses a monotonic deadline starting at selection, survives
+  network renewal/browser reconnect, and returns to automatic selection at expiry. Offline
+  manual channels wait without switching targets or stopping the timer. Exit, logout, cache
+  clear and process restart end manual mode. Viewer counts use channel-only events.
 - Watch events use validated Twitch beacon URLs and a base64 minute-watched payload every
   59 seconds. No playlists/video/audio downloads. Confirm via PubSub or CurrentDrop, distinguish
   estimates, and recover at 15 unconfirmed estimates. Only currently eligible drop progress
@@ -94,7 +102,7 @@ embed it and run without a build tool/runtime companion. Production builds never
   restart even without catalog metadata. Never retire it before durable history/archive writes.
 - Every session/job/socket task is owned and drained. Logout coalesces and removes only Twitch
   credentials after drainage; concurrent shutdown cannot interrupt removal in either queue order.
-  Hourly validation/network reconfiguration preserves eligible manual selection and queues
+  Hourly validation/network reconfiguration preserves manual selection/deadlines and queues
   new channel choices until fresh channel eligibility is available. Cache clear
   preserves settings, credentials, claim history and completed campaigns.
 - Requests use bounded concurrency/rate, retries and cancellation. Quality 1..6 controls connect
@@ -141,7 +149,8 @@ embed it and run without a build tool/runtime companion. Production builds never
   and Up next have equal desktop dimensions and internal scrolling; stack on narrow screens and
   preserve access on short windows. Show confirmed values/timestamps without redundant labels.
   Keep expanded channel-entry controls and feedback inside the scrollable list body.
-  Settings autosave has no saving/saved notices; preserve errors, edits and Retry.
+  Channel name/URL and optional timer use accessible input placeholders. Settings autosave
+  has no saving/saved notices; preserve errors, edits and Retry.
 - History artwork is optional; retain old rows and use matching live benefits as display fallback.
   No Telegram controls/API/credentials in responses and no dashboard updater.
 - Maintenance checks the latest stable release's `latest.json`, compares SemVer precedence

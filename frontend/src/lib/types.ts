@@ -117,6 +117,7 @@ export interface ManualMode {
   active: boolean;
   game_name?: string;
   channel_name?: string;
+  expires_at?: string;
   pending_channel?: string;
   error?: string;
 }
