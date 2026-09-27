@@ -3,7 +3,7 @@ import { mdiRefresh, mdiCheck, mdiAlertCircleOutline } from '@mdi/js';
 import { useMiner } from '../lib/state';
 import { useT } from '../lib/i18n';
 import { request } from '../lib/api';
-import { Button, Icon, useAction } from './ui';
+import { Button, Icon, dateTime, useAction } from './ui';
 
 export function InventoryRefreshButton() {
   const { data, connected } = useMiner();
@@ -24,12 +24,19 @@ export function InventoryRefreshButton() {
   const error = action.error || refresh?.error;
   const failed = !busy && (Boolean(error) || refresh?.state === 'failed');
   const done = !busy && !failed && refresh?.state === 'refreshed' && dismissed !== sequence;
+  const catalogTime = data?.inventory_status?.catalog_updated_at;
   return (
     <Button
       className="min-w-[160px]"
       disabled={!connected || !data?.login.user_id || busy}
       aria-busy={busy}
-      title={failed ? (error ?? t('refresh_failed_detail')) : undefined}
+      title={
+        failed
+          ? (error ?? t('refresh_failed_detail'))
+          : catalogTime
+            ? t('catalog_updated', { time: dateTime(catalogTime) })
+            : undefined
+      }
       onClick={() => void action.run(() => request('/api/reload', {}))}
     >
       <Icon
