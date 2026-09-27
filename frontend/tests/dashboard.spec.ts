@@ -1109,6 +1109,14 @@ test('manual channel entry accepts a URL, opts into its game and reports invalid
   await input.fill('missing');
   await mine.click();
   await expect(page.getByRole('alert')).toHaveText('That Twitch channel was not found.');
+  await page.setViewportSize({ width: 1440, height: 420 });
+  const panel = page.getByRole('region', { name: 'Channels', exact: true });
+  expect((await panel.boundingBox())!.height).toBeGreaterThan(90);
+  await input.scrollIntoViewIfNeeded();
+  await expect(input).toBeInViewport();
+  await page.getByRole('alert').scrollIntoViewIfNeeded();
+  await expect(page.getByRole('alert')).toBeInViewport();
+  await page.screenshot({ path: '../artifacts/manual-channel-short.png' });
   await input.fill('https://www.twitch.tv/extra_streamer');
   await mine.click();
   await expect(page.getByRole('link', { name: 'extra_streamer', exact: true })).toBeVisible();

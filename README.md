@@ -33,6 +33,10 @@ watch events, and claims earned rewards. The Rust executable includes the React 
 
 ### Docker Compose
 
+> [!NOTE]
+> The new image address is prepared for 0.1.1. Until that release is published and its
+> image is public, [build from a checkout](#build-from-a-checkout) to run these changes.
+
 Install Docker with Compose support. In a new directory, save this as `compose.yaml`:
 
 ```yaml
@@ -67,6 +71,7 @@ Renaming the GitHub repository does not rename that old package or its pull comm
 [Release notes](https://github.com/ohne-b/twitch-drops-miner/releases)
 and the [changelog](CHANGELOG.md) describe changes between versions.
 
+<a name="build-from-a-checkout"></a>
 <details>
 <summary>Build the Docker image from a checkout</summary>
 

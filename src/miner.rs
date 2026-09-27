@@ -54,6 +54,8 @@ struct Generation {
 #[derive(Default)]
 struct Resume {
     manual: Option<(u64, u64)>,
+    channel: Option<ResolvedChannel>,
+    lookup: Option<(String, u64)>,
     seen: Intent,
 }
 
@@ -362,17 +364,10 @@ async fn run_generation(
     let mut mining = Mining::new(app, client, journal, intent, receiver);
     {
         let saved = resume.lock().await;
-        mining.resume_manual = saved.manual;
-        mining.seen = saved.seen.clone();
-        if saved.manual.is_some() && mining.seen.channel_login.is_some() {
-            mining.seen.manual_revision = mining.seen.manual_revision.wrapping_sub(1);
-        }
+        mining.restore(&saved);
     }
     let result = mining.run(&mut pool).await;
-    *resume.lock().await = Resume {
-        manual: mining.manual.or(mining.resume_manual),
-        seen: mining.seen.clone(),
-    };
+    *resume.lock().await = mining.resume();
     cancel.cancel();
     // Owned jobs include durable claim writes. Cancellation stops network work,
     // while any confirmed claim finishes its disk transaction before logout.
@@ -396,7 +391,7 @@ enum Job {
     Manual {
         revision: u64,
         requested_at: Instant,
-        result: Result<Option<ResolvedChannel>, TwitchError>,
+        result: Box<Result<Option<ResolvedChannel>, TwitchError>>,
     },
     Inventory {
         result: Result<Inventory, TwitchError>,
@@ -487,6 +482,34 @@ struct Mining {
     pending_claims: Vec<PendingClaim>,
 }
 impl Mining {
+    fn restore(&mut self, saved: &Resume) {
+        self.resume_manual = saved.manual;
+        self.seen = saved.seen.clone();
+        self.lookup = saved.lookup.clone();
+        self.manual_pending = saved.lookup.as_ref().map(|(login, _)| login.clone());
+        self.manual_extra = saved.channel.clone();
+        if let Some(extra) = &saved.channel {
+            // Keep identity and direct campaign evidence, but require fresh stream
+            // eligibility in this network generation before watching again.
+            self.channels.push(Channel::offline(
+                extra.channel.identity.clone(),
+                extra.channel.acl_based,
+            ));
+        }
+    }
+
+    fn resume(&self) -> Resume {
+        let manual = self.manual.or(self.resume_manual);
+        Resume {
+            manual,
+            channel: manual.and(self.manual_extra.clone()),
+            lookup: self
+                .manual_pending
+                .as_ref()
+                .map(|login| (login.clone(), self.seen.manual_revision)),
+            seen: self.seen.clone(),
+        }
+    }
     fn new(
         app: Arc<App>,
         client: TwitchClient,
@@ -859,7 +882,7 @@ impl Mining {
                 Job::Manual {
                     revision,
                     requested_at,
-                    result,
+                    result: Box::new(result),
                 }
             });
         }
@@ -1021,7 +1044,12 @@ impl Mining {
             let current = self
                 .channels
                 .iter()
-                .find(|c| Some(c.identity.id) == self.watching)
+                .find(|c| {
+                    Some(c.identity.id)
+                        == self
+                            .watching
+                            .or(self.manual.or(self.resume_manual).map(|(id, _)| id))
+                })
                 .cloned();
             self.app.status(message("gui.status.gathering", &[])).await;
             self.spawn(JobKind::Channels, async move {
@@ -1052,6 +1080,7 @@ impl Mining {
                 requested_at,
                 result,
             } => {
+                let result = *result;
                 if matches!(
                     result,
                     Err(TwitchError::Unauthorized | TwitchError::Cancelled)
@@ -1361,8 +1390,29 @@ impl Mining {
             return Some("gui.channels.no_rewards");
         };
         if !settings.selected(&game.name) {
-            match self.app.select_game(&game.name).await {
+            match self
+                .app
+                .select_game(&game.name, |current| {
+                    if self.intent.borrow().manual_revision != revision
+                        || self.client.http.cancel.is_cancelled()
+                    {
+                        return false;
+                    }
+                    let mut candidate = current.clone();
+                    candidate.games_to_watch = vec![game.name.clone()];
+                    campaigns.iter().any(|c| {
+                        c.game.id == game.id
+                            && resolved.campaigns.contains(&c.id)
+                            && c.can_watch(&resolved.channel, &candidate, Utc::now())
+                    })
+                })
+                .await
+            {
                 Ok(saved) => settings = saved.values,
+                Err(error) if error.1 == "channel_selection_changed" => {
+                    return (self.intent.borrow().manual_revision == revision)
+                        .then_some("gui.channels.no_rewards");
+                }
                 Err(_) => return Some("gui.channels.selection_failed"),
             }
         }

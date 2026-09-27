@@ -78,8 +78,10 @@ embed it and run without a build tool/runtime companion. Production builds never
   Mine channel accepts a validated Twitch login/root URL and resolves it with owned bounded
   work after initial inventory readiness, independently of later inventory scans. Check
   known campaign IDs, actual ACLs and reward filters before atomically selecting its game.
-  Preserve concurrent settings edits and reject superseded results. Recovery-channel evidence
-  never overrides actual ACLs or account records. Pending category refresh pauses watching
+  Preserve concurrent settings edits; recheck intent and eligibility inside the selection
+  transaction before committing. Preserve
+  pending lookups and the last confirmed manual channel separately across network generations.
+  Recovery-channel evidence never overrides actual ACLs or account records. Pending category refresh pauses watching
   without losing manual intent; retry failed refreshes. Viewer counts use channel-only events.
 - Watch events use validated Twitch beacon URLs and a base64 minute-watched payload every
   59 seconds. No playlists/video/audio downloads. Confirm via PubSub or CurrentDrop, distinguish
@@ -138,6 +140,7 @@ embed it and run without a build tool/runtime companion. Production builds never
 - Overview: watching information only in Mining, no status subtitle or Recent activity. Channels
   and Up next have equal desktop dimensions and internal scrolling; stack on narrow screens and
   preserve access on short windows. Show confirmed values/timestamps without redundant labels.
+  Keep expanded channel-entry controls and feedback inside the scrollable list body.
 - History artwork is optional; retain old rows and use matching live benefits as display fallback.
   No Telegram controls/API/credentials in responses and no dashboard updater.
 - Maintenance checks the latest stable release's `latest.json`, compares SemVer precedence
