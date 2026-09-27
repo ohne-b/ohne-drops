@@ -10,8 +10,18 @@ test('refresh button tracks completion, failures, stale events and reconnects wi
   request,
 }) => {
   const refresh = page.getByRole('button', { name: 'Refresh inventory', exact: true });
+  const iconCenter = () =>
+    page
+      .getByRole('button', { name: /^Refresh/ })
+      .locator('svg')
+      .evaluate((icon) => {
+        const box = icon.getBoundingClientRect();
+        return box.x + box.width / 2;
+      });
+  const idleIconCenter = await iconCenter();
   await refresh.click();
   await expect(page.getByRole('button', { name: 'Refreshing...', exact: true })).toBeDisabled();
+  expect(await iconCenter()).toBeCloseTo(idleIconCenter, 1);
   await page.reload();
   await expect(page.getByRole('button', { name: 'Refreshing...', exact: true })).toBeDisabled();
   await page.goto('/settings#maintenance');
@@ -22,6 +32,7 @@ test('refresh button tracks completion, failures, stale events and reconnects wi
     data: { event: 'inventory_refresh', data: { sequence: 2, state: 'refreshed', error: null } },
   });
   await expect(page.getByRole('button', { name: 'Refreshed', exact: true })).toBeEnabled();
+  expect(await iconCenter()).toBeCloseTo(idleIconCenter, 1);
   await request.post('/__test/event', {
     headers,
     data: { event: 'inventory_refresh', data: { sequence: 1, state: 'refreshing', error: null } },
@@ -1215,6 +1226,55 @@ test('channel snapshots replace old rows and allow backend-verified special even
     'https://www.twitch.tv/event_host',
   );
   await expect(page.getByRole('link', { name: 'northwind', exact: true })).toHaveCount(0);
+});
+
+test('manual lookup has no preparation message and clears pending state without a reload', async ({
+  page,
+  request,
+}) => {
+  await page.getByRole('button', { name: 'Mine channel', exact: true }).click();
+  await page.getByRole('textbox', { name: 'Twitch channel name or URL' }).fill('ronnyberger');
+  const mine = page.getByRole('button', { name: 'Mine', exact: true });
+  await expect(mine).toBeEnabled();
+  await request.post('/__test/event', {
+    headers,
+    data: {
+      event: 'manual_mode_update',
+      data: { ...snapshot.manual_mode, pending_channel: 'metashi12' },
+    },
+  });
+  await expect(mine).toBeDisabled();
+  await expect(mine).toHaveAttribute('aria-busy', 'true');
+  await expect(page.getByText('Preparing metashi12...')).toHaveCount(0);
+  await page.getByRole('button', { name: 'Mine channel', exact: true }).click();
+  await expect(
+    page.getByRole('region', { name: 'Channels', exact: true }).locator('form'),
+  ).toHaveCount(0);
+  await request.post('/__test/event', {
+    headers,
+    data: {
+      event: 'manual_mode_update',
+      data: {
+        ...snapshot.manual_mode,
+        pending_channel: null,
+        error: 'Could not check that channel with Twitch. Try again.',
+      },
+    },
+  });
+  await expect(page.getByRole('alert')).toHaveText(
+    'Could not check that channel with Twitch. Try again.',
+  );
+  await page.getByRole('button', { name: 'Mine channel', exact: true }).click();
+  await expect(mine).toBeEnabled();
+  await expect(mine).toHaveAttribute('aria-busy', 'false');
+  await request.post('/__test/event', {
+    headers,
+    data: {
+      event: 'manual_mode_update',
+      data: { ...snapshot.manual_mode, pending_channel: null, error: null },
+    },
+  });
+  await expect(page.getByRole('alert')).toHaveCount(0);
 });
 
 test('manual channel entry accepts a URL and optional timer without selecting games', async ({
