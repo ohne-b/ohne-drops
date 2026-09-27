@@ -7,7 +7,7 @@ the alternate agent instruction files; do not recreate copies or links.
 ## Workflow
 
 - Use descriptive `feat/` or `fix/` branches, conventional commits and PRs against
-  `ohne-b/twitch-miner:main`. Keep branches, commits and documentation free of assistant branding.
+  `ohne-b/ohne-drops:main`. Keep branches, commits and documentation free of assistant branding.
 - Preserve existing user changes, data, credentials, logs and backups. Ask before significant
   refactoring unless the current task already authorizes it. A full rewrite authorization
   covers its necessary cleanup. Never change a running deployment without authorization.
@@ -21,6 +21,10 @@ the alternate agent instruction files; do not recreate copies or links.
   or console changes. There are no other locales or language settings.
 
 ## Architecture
+
+The product is OhneDrops (full title: OhneDrops - Twitch Drops Miner), repository and
+Cargo package/binary are ohne-drops. Preserve the existing Compose service/container name,
+data/log directories, TDM log prefix, auth cookie and CSRF header for upgrade compatibility.
 
 One Rust Cargo package owns the backend. Use concrete structs with methods and composition
 for domain/services (the repository's OOP requirement), typed enums and DRY shared policies.
@@ -115,7 +119,7 @@ embed it and run without a build tool/runtime companion. Production builds never
 
 ## Dashboard design and contracts
 
-- Use `frontend/src/assets/twitch-miner-logo.svg` for the app, login, favicon and README.
+- Use `frontend/src/assets/ohne-drops-logo.svg` for the app, login, favicon and README.
   Preserve its artwork and aspect ratio; Vite emits one hashed asset for browser caching.
   Keep adjacent brand text accessible and sidebar navigation reachable in short windows.
 - Keep the subtle charcoal/Manrope design, individual MDI paths and shared native controls.
@@ -155,10 +159,9 @@ validated main and uses reviewed CHANGELOG notes/GHCR. Every release attaches an
 `latest.json` before publishing; stable releases alone move the latest pointer. Use scoped
 conventional commit messages and concise release change lists with comparison/issue links.
 Accept exact-commit push or manual validation.
-Optional Docker Hub publication uses `DOCKERHUB_IMAGE`/`DOCKERHUB_USERNAME` variables and
-the `DOCKERHUB_TOKEN` secret; push one multi-architecture build to both registries and
-advance `latest` only after a stable release and its manifest are public. Missing enabled
-credentials fail before publication; document partial registry-push/promotion recovery.
+Publish only to GHCR at ghcr.io/ohne-b/ohne-drops using the scoped workflow token.
+Advance latest only after the stable release and its manifest are public. Preserve
+published old-name images and document promotion recovery and first-package visibility.
 Keep Buildx/Build Push action pins identical between validation and release. README uses
 a centered title/tagline/license opener and GitHub Flavored Markdown alerts. Keep upstream
 attribution in License and credits; do not add a contributor/PR table or automation that

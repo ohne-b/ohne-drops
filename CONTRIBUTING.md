@@ -1,7 +1,7 @@
 # Contributing
 
 Read this guide before planning, editing, testing or reviewing. Its checklist applies to
-people and coding agents. The canonical repository is `ohne-b/twitch-miner`, targeting
+people and coding agents. The canonical repository is `ohne-b/ohne-drops`, targeting
 `main`. Preserve the project's [MIT license](LICENSE), full upstream license in
 [NOTICE.md](NOTICE.md), attribution and frontend asset licenses. Distribute both root
 license files with production images.
@@ -13,8 +13,8 @@ authorization covers its necessary implementation and cleanup.
 
 ## Report a problem
 
-Search [issues](https://github.com/ohne-b/twitch-miner/issues) and
-[PRs](https://github.com/ohne-b/twitch-miner/pulls) first. Include version/commit, OS,
+Search [issues](https://github.com/ohne-b/ohne-drops/issues) and
+[PRs](https://github.com/ohne-b/ohne-drops/pulls) first. Include version/commit, OS,
 installation method, steps, expected/actual behavior and minimal redacted evidence.
 For mining issues, distinguish displayed progress from Twitch inventory progress; include
 campaign eligibility, filters, selected games and simultaneous manual viewing.
@@ -166,7 +166,7 @@ version/link/date heading and change-list style. Review and merge it under the s
 **Publish release** then runs manually
 from main for that version, requires successful push or manually dispatched validation on the exact commit,
 and uses the `prod` environment. It builds both architectures, publishes
-`ghcr.io/ohne-b/twitch-miner:VERSION`, and creates a `Twitch miner vVERSION` draft release
+`ghcr.io/ohne-b/ohne-drops:VERSION`, and creates a `OhneDrops vVERSION` draft release
 with the reviewed changelog notes, comparison link and issue link. It attaches and verifies
 `latest.json` before publication. The manifest uses `schemaVersion: 1`, a canonical SemVer
 `version`, and a `notes` link; it contains no installer or executable commands. This applies
@@ -176,24 +176,17 @@ need public visibility configured for anonymous pulls. Ordinary merges publish n
 Commits made with a workflow token do not trigger push workflows; run **validation**
 manually on main before publishing when its latest commit has no matching push validation.
 SemVer build metadata uses `_` in place of `+` in the Docker tag.
-To publish the same multi-architecture build to Docker Hub, create a public repository
-and set Actions repository variables `DOCKERHUB_IMAGE` (`namespace/repository`) and
-`DOCKERHUB_USERNAME`, plus secret `DOCKERHUB_TOKEN` (a Read & Write personal access token).
-Leave `DOCKERHUB_IMAGE` unset for GHCR-only publication. Missing enabled credentials or
-failed login stop before the build; repository write access is checked by the actual push.
-Both registries receive the version tag; only stable releases advance their `latest` tags.
-The release and its verified manifest become public before registry `latest` tags advance.
-Registry writes are not transactional: a failed multi-registry push can leave version tags,
-and a failed promotion can leave one `latest` behind. Inspect the failed run and registry
-digests before retrying. If a run leaves a draft, verify its target commit against the
-validated revision and download/compare `latest.json` with the generated artifact before
-finishing its publication. Do not delete or rewrite published tags, or rerun the full
-workflow over an existing release. If publication succeeded but a `latest` promotion
-failed, verify the public release/tag, manifest and image revision/digest against the
-successful build, authenticate to the affected registry, and finish only that promotion:
+GHCR is the only publication registry, authenticated through the workflow's scoped
+GitHub token. The first release under the new image name needs public package visibility
+and anonymous-pull verification; existing version-0.1.0 images remain at their original
+GHCR address for compatibility. Do not overwrite or remove those published tags.
+A failed push or latest-tag promotion may leave a partial publication. Inspect the failed
+run, public release, verified manifest and image revision/digest before retrying. Never
+rerun the full workflow over an existing release. If publication succeeded but promotion
+failed, finish only that promotion:
 
 ```bash
-docker buildx imagetools create --tag REGISTRY/IMAGE:latest REGISTRY/IMAGE:VERSION
+docker buildx imagetools create --tag ghcr.io/ohne-b/ohne-drops:latest ghcr.io/ohne-b/ohne-drops:VERSION
 ```
 
 Maintenance reads the latest stable release's manifest with bounded requests and a short

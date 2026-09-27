@@ -18,18 +18,11 @@ export function validateVersion(version, previous) {
 
 export const isPrerelease = version => semver.prerelease(validateVersion(version)) !== null;
 
-const repository = 'https://github.com/ohne-b/twitch-miner';
+const repository = 'https://github.com/ohne-b/ohne-drops';
 
-export function releaseImages(version, dockerHubImage = '') {
+export function releaseImages(version) {
   const tag = validateVersion(version).replace('+', '_');
-  const images = ['ghcr.io/ohne-b/twitch-miner'];
-  if (dockerHubImage) {
-    if (dockerHubImage.length > 255 || !/^[a-z0-9][a-z0-9_-]*\/[a-z0-9]+(?:[._-][a-z0-9]+)*$/.test(dockerHubImage)) {
-      throw new Error('DOCKERHUB_IMAGE must be a lowercase namespace/repository without a registry or tag.');
-    }
-    images.push(`docker.io/${dockerHubImage}`);
-  }
-  return images.map(image => `${image}:${tag}`);
+  return [`ghcr.io/ohne-b/ohne-drops:${tag}`];
 }
 
 export function releaseManifest(version) {
@@ -73,8 +66,8 @@ export function readVersion(directory = process.cwd(), locked = true) {
   const metadata = JSON.parse(execFileSync('cargo', args, {
     cwd: directory, encoding: 'utf8', maxBuffer: 16 * 1024 * 1024, stdio: ['ignore', 'pipe', 'pipe'],
   }));
-  const pkg = metadata.packages.find(p => p.name === 'twitch-miner' && metadata.workspace_members.includes(p.id));
-  if (!pkg) throw new Error('The twitch-miner package is missing.');
+  const pkg = metadata.packages.find(p => p.name === 'ohne-drops' && metadata.workspace_members.includes(p.id));
+  if (!pkg) throw new Error('The ohne-drops package is missing.');
   return validateVersion(pkg.version);
 }
 
@@ -104,7 +97,7 @@ if (process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1]
   if (command === 'read') console.log(readVersion());
   else if (command === 'bump') console.log(bumpVersion(version));
   else if (command === 'prerelease') console.log(isPrerelease(version));
-  else if (command === 'images') console.log(releaseImages(version, process.env.DOCKERHUB_IMAGE).join('\n'));
+  else if (command === 'images') console.log(releaseImages(version).join('\n'));
   else if (command === 'artifacts') writeReleaseArtifacts(version);
   else if (command === 'verify') {
     validateVersion(version);
