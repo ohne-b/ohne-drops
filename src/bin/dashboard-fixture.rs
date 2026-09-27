@@ -1,7 +1,7 @@
 use std::net::SocketAddr;
 
 use clap::Parser;
-use ohne_drops::{fixture, web};
+use twitch_drops_miner::{fixture, web};
 
 #[derive(Parser)]
 struct Args {

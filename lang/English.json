@@ -40,7 +40,9 @@
             "authentication_required": "Please log in again.",
             "forbidden": "Request blocked. Open this app directly and try again.",
             "invalid_request": "Invalid request.",
-            "request_failed": "Request failed. Try again."
+            "request_failed": "Request failed. Try again.",
+            "invalid_channel": "Enter a Twitch channel name or a direct twitch.tv channel URL.",
+            "twitch_login_required": "Connect your Twitch account before selecting a channel."
         },
         "status": {
             "gathering": "Gathering channels...",
@@ -62,7 +64,16 @@
         "channels": {
             "name": "Channels",
             "no_channels": "No channels tracked yet...",
-            "viewers": "viewers"
+            "viewers": "viewers",
+            "mine_channel": "Mine channel",
+            "channel_input": "Twitch channel name or URL",
+            "manual_help": "Mine an eligible reward from your campaign catalog on this channel. Its game will be added to your mining list. Reward filters and channel restrictions still apply.",
+            "looking_up": "Preparing {channel}...",
+            "not_found": "That Twitch channel was not found.",
+            "offline": "That channel is offline. Choose a live channel.",
+            "no_rewards": "No eligible rewards from your campaign catalog are available on this channel. Check its game, campaign restrictions and reward filters.",
+            "lookup_failed": "Could not check that channel with Twitch. Try again.",
+            "selection_failed": "Could not save the game selection. Your previous selection is unchanged."
         },
         "settings": {
             "mining_benefits": "Mining Benefits",
@@ -79,7 +90,7 @@
             "remove_game": "Remove {game}"
         },
         "help": {
-            "about": "About OhneDrops",
+            "about": "About Drops Miner",
             "about_text": "This application automatically mines timed Twitch drops without downloading stream data."
         },
         "wanted": {

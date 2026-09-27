@@ -6,8 +6,9 @@ use serde::{Deserialize, Serialize};
 use tokio::{sync::Mutex, time::Instant};
 use tokio_util::sync::CancellationToken;
 
-const RELEASES: &str = "https://github.com/ohne-b/ohne-drops/releases";
-const MANIFEST: &str = "https://github.com/ohne-b/ohne-drops/releases/latest/download/latest.json";
+const RELEASES: &str = "https://github.com/ohne-b/twitch-drops-miner/releases";
+const MANIFEST: &str =
+    "https://github.com/ohne-b/twitch-drops-miner/releases/latest/download/latest.json";
 const MAX_MANIFEST: usize = 64 * 1024;
 const CHECK_INTERVAL: Duration = Duration::from_secs(30);
 
@@ -47,7 +48,7 @@ impl Releases {
         Ok(Self {
             client: Client::builder()
                 .no_proxy()
-                .user_agent("ohne-drops")
+                .user_agent("twitch-drops-miner")
                 .timeout(Duration::from_secs(5))
                 .redirect(reqwest::redirect::Policy::limited(3))
                 .build()?,

@@ -70,6 +70,8 @@ pub struct CampaignView {
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]
 pub struct ChannelView {
     pub id: u64,
+    #[serde(default)]
+    pub login: String,
     pub name: String,
     pub game: Option<String>,
     pub game_id: Option<u64>,
@@ -102,6 +104,10 @@ pub struct ManualMode {
     pub game_name: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub channel_name: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub pending_channel: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub error: Option<String>,
 }
 
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]

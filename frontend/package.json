@@ -1,5 +1,5 @@
 {
-  "name": "ohne-drops-dashboard",
+  "name": "twitch-drops-miner-dashboard",
   "private": true,
   "type": "module",
   "scripts": {

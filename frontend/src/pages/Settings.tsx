@@ -167,7 +167,7 @@ function ReleaseNotice({ disabled }: { disabled: boolean }) {
   return (
     <div className="space-y-3 text-[13px]">
       <div className="flex flex-wrap items-center justify-between gap-3">
-        <p className="text-muted">OhneDrops{release && ` · ${release.current_version}`}</p>
+        <p className="text-muted">Drops Miner{release && ` · ${release.current_version}`}</p>
         <Button disabled={disabled || busy} onClick={() => void check()}>
           {t(busy ? 'checking_updates' : 'check_updates')}
         </Button>
@@ -559,7 +559,7 @@ function SettingsContent({ settings, auth }: { settings: SettingsData; auth: Aut
           </p>
           <a
             className="text-link inline-block"
-            href="https://github.com/ohne-b/ohne-drops"
+            href="https://github.com/ohne-b/twitch-drops-miner"
             target="_blank"
             rel="noreferrer"
           >

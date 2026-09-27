@@ -7,7 +7,7 @@ the alternate agent instruction files; do not recreate copies or links.
 ## Workflow
 
 - Use descriptive `feat/` or `fix/` branches, conventional commits and PRs against
-  `ohne-b/ohne-drops:main`. Keep branches, commits and documentation free of assistant branding.
+  `ohne-b/twitch-drops-miner:main`. Keep branches, commits and documentation free of assistant branding.
 - Preserve existing user changes, data, credentials, logs and backups. Ask before significant
   refactoring unless the current task already authorizes it. A full rewrite authorization
   covers its necessary cleanup. Never change a running deployment without authorization.
@@ -22,8 +22,8 @@ the alternate agent instruction files; do not recreate copies or links.
 
 ## Architecture
 
-The product is OhneDrops (full title: OhneDrops - Twitch Drops Miner), repository and
-Cargo package/binary are ohne-drops. Preserve the existing Compose service/container name,
+The product is Twitch Drops Miner (dashboard: Drops Miner), repository and
+Cargo package/binary are twitch-drops-miner. Preserve the existing Compose service/container name,
 data/log directories, TDM log prefix, auth cookie and CSRF header for upgrade compatibility.
 
 One Rust Cargo package owns the backend. Use concrete structs with methods and composition
@@ -73,6 +73,16 @@ embed it and run without a build tool/runtime companion. Production builds never
   actual ACL. Regular drops need matching category and drops-enabled status; all need live
   channels, selected games and eligible rewards. Offline/ineligible streams yield even at tied
   fallback priority. Preserve nullable viewer counts and the watching row during rebuilds.
+- Channels publishes only currently eligible selected-game streams; rank before the channel
+  limit using matching campaign priority, including actual-ACL special-category streams.
+  Mine channel accepts a validated Twitch login/root URL and resolves it with owned bounded
+  work after initial inventory readiness, independently of later inventory scans. Check
+  known campaign IDs, actual ACLs and reward filters before atomically selecting its game.
+  Preserve concurrent settings edits; recheck intent and eligibility inside the selection
+  transaction before committing. Preserve
+  pending lookups and the last confirmed manual channel separately across network generations.
+  Recovery-channel evidence never overrides actual ACLs or account records. Pending category refresh pauses watching
+  without losing manual intent; retry failed refreshes. Viewer counts use channel-only events.
 - Watch events use validated Twitch beacon URLs and a base64 minute-watched payload every
   59 seconds. No playlists/video/audio downloads. Confirm via PubSub or CurrentDrop, distinguish
   estimates, and recover at 15 unconfirmed estimates. Only currently eligible drop progress
@@ -119,7 +129,7 @@ embed it and run without a build tool/runtime companion. Production builds never
 
 ## Dashboard design and contracts
 
-- Use `frontend/src/assets/ohne-drops-logo.svg` for the app, login, favicon and README.
+- Use `frontend/src/assets/twitch-drops-miner-logo.svg` for the app, login, favicon and README.
   Preserve its artwork and aspect ratio; Vite emits one hashed asset for browser caching.
   Keep adjacent brand text accessible and sidebar navigation reachable in short windows.
 - Keep the subtle charcoal/Manrope design, individual MDI paths and shared native controls.
@@ -130,6 +140,7 @@ embed it and run without a build tool/runtime companion. Production builds never
 - Overview: watching information only in Mining, no status subtitle or Recent activity. Channels
   and Up next have equal desktop dimensions and internal scrolling; stack on narrow screens and
   preserve access on short windows. Show confirmed values/timestamps without redundant labels.
+  Keep expanded channel-entry controls and feedback inside the scrollable list body.
 - History artwork is optional; retain old rows and use matching live benefits as display fallback.
   No Telegram controls/API/credentials in responses and no dashboard updater.
 - Maintenance checks the latest stable release's `latest.json`, compares SemVer precedence
@@ -159,7 +170,7 @@ validated main and uses reviewed CHANGELOG notes/GHCR. Every release attaches an
 `latest.json` before publishing; stable releases alone move the latest pointer. Use scoped
 conventional commit messages and concise release change lists with comparison/issue links.
 Accept exact-commit push or manual validation.
-Publish only to GHCR at ghcr.io/ohne-b/ohne-drops using the scoped workflow token.
+Publish only to GHCR at ghcr.io/ohne-b/twitch-drops-miner using the scoped workflow token.
 Advance latest only after the stable release and its manifest are public. Preserve
 published old-name images and document promotion recovery and first-package visibility.
 Keep Buildx/Build Push action pins identical between validation and release. README uses

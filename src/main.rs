@@ -7,11 +7,11 @@ use std::{
 
 use anyhow::{Context, Result};
 use clap::{Parser, Subcommand};
-use ohne_drops::{
+use tracing_subscriber::{EnvFilter, layer::SubscriberExt, util::SubscriberInitExt};
+use twitch_drops_miner::{
     miner::Miner,
     web::{self, App},
 };
-use tracing_subscriber::{EnvFilter, layer::SubscriberExt, util::SubscriberInitExt};
 
 #[derive(Parser)]
 #[command(version, about)]
@@ -44,7 +44,7 @@ fn log_filter(verbose: u8) -> EnvFilter {
         1 => "debug",
         _ => "trace",
     };
-    EnvFilter::new(format!("warn,ohne_drops={level}"))
+    EnvFilter::new(format!("warn,twitch_drops_miner={level}"))
 }
 
 fn logging(args: &Args) -> Result<tracing_appender::non_blocking::WorkerGuard> {
@@ -121,7 +121,7 @@ async fn run(args: Args) -> Result<()> {
     let listener = tokio::net::TcpListener::bind(address)
         .await
         .context("could not bind dashboard address")?;
-    tracing::info!(version=env!("CARGO_PKG_VERSION"),%address,"Starting OhneDrops");
+    tracing::info!(version=env!("CARGO_PKG_VERSION"),%address,"Starting Twitch Drops Miner");
     let shutdown = app.shutdown.clone();
     let router = web::router(app.clone());
     let mut server = tokio::spawn(async move {
@@ -170,7 +170,7 @@ async fn main() -> ExitCode {
     match run(Args::parse()).await {
         Ok(()) => ExitCode::SUCCESS,
         Err(error) => {
-            eprintln!("OhneDrops: {error}");
+            eprintln!("Twitch Drops Miner: {error}");
             ExitCode::FAILURE
         }
     }
@@ -203,7 +203,7 @@ mod tests {
         tracing::subscriber::with_default(subscriber, || {
             tracing::trace!(target:"tungstenite::protocol","LISTEN auth_token=secret");
             tracing::debug!(target:"reqwest::connect","proxy password=secret");
-            tracing::trace!(target:"ohne_drops","safe application diagnostic");
+            tracing::trace!(target:"twitch_drops_miner","safe application diagnostic");
         });
         let text = String::from_utf8(output.lock().unwrap().clone()).unwrap();
         assert!(text.contains("safe application diagnostic"));

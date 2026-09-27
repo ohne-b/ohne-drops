@@ -1,8 +1,8 @@
 <p align="center">
-  <img src="frontend/src/assets/ohne-drops-logo.svg" width="128" alt="OhneDrops logo">
+  <img src="frontend/src/assets/twitch-drops-miner-logo.svg" width="128" alt="Twitch Drops Miner logo">
 </p>
 
-<h1 align="center">OhneDrops — Twitch Drops Miner</h1>
+<h1 align="center">Twitch Drops Miner</h1>
 
 <p align="center">Mine timed Twitch Drops without streaming video or audio.</p>
 
@@ -10,7 +10,7 @@
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-9146ff" alt="License: MIT"></a>
 </p>
 
-OhneDrops runs on your own hardware and manages one Twitch account through a
+Twitch Drops Miner runs on your own hardware and manages one Twitch account through a
 web dashboard. It discovers campaigns, watches eligible live channels through Twitch
 watch events, and claims earned rewards. The Rust executable includes the React dashboard.
 
@@ -33,12 +33,16 @@ watch events, and claims earned rewards. The Rust executable includes the React 
 
 ### Docker Compose
 
+> [!NOTE]
+> The new image address below is reserved for a future release and is not published yet.
+> [Build from a checkout](#build-from-a-checkout) to run the current changes.
+
 Install Docker with Compose support. In a new directory, save this as `compose.yaml`:
 
 ```yaml
 services:
   twitch-drops-miner:
-    image: ghcr.io/ohne-b/twitch-miner:0.1.0
+    image: ghcr.io/ohne-b/twitch-drops-miner:latest
     container_name: twitch-drops-miner
     user: "1000:1000"
     ports:
@@ -60,12 +64,14 @@ Open <http://127.0.0.1:8080> and follow [First login](#first-login).
 The port mapping limits access to the local machine. For LAN access, bind an explicit
 LAN address and enable [dashboard protection](#dashboard-password-and-remote-access).
 
-Images are published on GitHub Container Registry. The example pins the existing 0.1.0
-release, which predates the OhneDrops rename. Future releases will use
-`ghcr.io/ohne-b/ohne-drops`; that image name is not published yet. Build from source below
-to use the current renamed dashboard. [Release notes](https://github.com/ohne-b/ohne-drops/releases)
+Future releases will use GitHub Container Registry at `ghcr.io/ohne-b/twitch-drops-miner`.
+`latest` follows stable releases; use an explicit version tag to pin a release.
+The historical 0.1.0 image remains at `ghcr.io/ohne-b/twitch-miner:0.1.0` for rollback.
+Renaming the GitHub repository does not rename that old package or its pull command.
+[Release notes](https://github.com/ohne-b/twitch-drops-miner/releases)
 and the [changelog](CHANGELOG.md) describe changes between versions.
 
+<a name="build-from-a-checkout"></a>
 <details>
 <summary>Build the Docker image from a checkout</summary>
 
@@ -73,8 +79,8 @@ The repository's [docker-compose.yml](docker-compose.yml) builds the image local
 uses the same data paths, user, and loopback port mapping. With Git and Docker installed:
 
 ```bash
-git clone https://github.com/ohne-b/ohne-drops.git
-cd ohne-drops
+git clone https://github.com/ohne-b/twitch-drops-miner.git
+cd twitch-drops-miner
 ```
 
 Create writable `data` and `logs` directories as above, then run:
@@ -91,8 +97,8 @@ Install [Rust through rustup](https://rustup.rs/), Node.js 24, and Git. Windows 
 also require the Visual Studio C++ build tools. The repository pins the Rust toolchain.
 
 ```bash
-git clone https://github.com/ohne-b/ohne-drops.git
-cd ohne-drops
+git clone https://github.com/ohne-b/twitch-drops-miner.git
+cd twitch-drops-miner
 npm --prefix frontend ci
 npm --prefix frontend run build
 cargo run --locked -- --host 127.0.0.1
@@ -102,7 +108,7 @@ Open <http://127.0.0.1:8080>. Data and logs go to `data/` and `logs/` relative t
 working directory. After building the frontend, create a release executable with:
 
 ```bash
-cargo build --release --locked --bin ohne-drops
+cargo build --release --locked --bin twitch-drops-miner
 ```
 
 The executable in `target/release/` embeds the dashboard and runs without Node.js.
@@ -132,6 +138,18 @@ restarts; enter your Twitch password only on Twitch's authorization page.
 > viewing can interfere with drop progress.
 
 ## Using the dashboard
+
+**Overview > Channels** shows live streams currently eligible for your selected games and
+rewards. Special-event campaigns can include other categories when their actual channel
+restriction allows it. Channel changes pause watching until eligibility is refreshed.
+
+Use **Mine channel** to enter a Twitch login or a direct channel URL, including streams
+missing from the list. This checks that channel against the current campaign catalog and
+adds its eligible game to your mining list. Reward filters, prerequisites and campaign
+channel restrictions still apply. Offline channels and channels without eligible known
+rewards are reported without changing your selection. Manual selection falls back within
+its game if another eligible channel is needed; **Return to Auto Mode** restores game
+priority selection. The game stays selected until you remove it.
 
 | Page                     | What it shows                                                                             |
 | ------------------------ | ----------------------------------------------------------------------------------------- |
@@ -221,14 +239,14 @@ and forgotten-password recovery.
 
 ## Updating
 
-The project was renamed from Twitch Drops Miner to **OhneDrops**. Existing data, login,
-settings and history need no migration for this rename. Keep the existing Compose service
+The repository and executable are now `twitch-drops-miner`; the dashboard is **Drops Miner**.
+Existing data, login, settings and history need no migration for this rename. Keep the existing Compose service
 and container name (`twitch-drops-miner`), mounts and project directory when upgrading.
-The executable is now `ohne-drops`; update custom service commands if you run it directly.
+The executable is now `twitch-drops-miner`; update custom service commands if you run it directly.
 Existing source checkouts can update their remote with:
 
 ```bash
-git remote set-url origin https://github.com/ohne-b/ohne-drops.git
+git remote set-url origin https://github.com/ohne-b/twitch-drops-miner.git
 ```
 
 **Settings > Maintenance** checks the latest stable release and links to its notes.
@@ -303,7 +321,7 @@ and independent review. [AGENTS.md](AGENTS.md) contains the repository's agent i
 Backend tests use temporary storage and mock transports; browser tests start their own
 offline fixture. Never use a live miner or real credentials for automated checks.
 
-Report reproducible problems through [GitHub issues](https://github.com/ohne-b/ohne-drops/issues).
+Report reproducible problems through [GitHub issues](https://github.com/ohne-b/twitch-drops-miner/issues).
 Include the version, installation method, and redacted evidence; never upload credentials,
 device codes, or a data directory.
 
