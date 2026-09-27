@@ -306,9 +306,10 @@ development builds labeled `1.3.2`.
 ## Troubleshooting
 
 - **No campaigns appear:** clear the campaign filters and check **Activity**. Twitch can
-  return an incomplete catalog; live-channel discovery may improve coverage but cannot
-  guarantee every campaign appears. Clearing cache or logging in again cannot repair
-  an upstream catalog restriction.
+  withhold the complete catalog from device-code sessions. In-progress rewards remain
+  available; the miner does not scan unrelated live channels to assemble a partial catalog.
+  A partial refresh keeps previously known active campaigns. Clearing cache or logging in
+  again cannot repair an upstream catalog restriction. Manual watching still works.
 - **Mining is idle:** select a game, check account linking, campaign dates, prerequisites,
   reward filters, and ignore rules. Progress requires an eligible live channel.
 - **Progress seems stuck:** compare Twitch's inventory with the dashboard's confirmed

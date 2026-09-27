@@ -27,7 +27,7 @@ mod protocol_regressions {
             _ => unreachable!(),
         }).await;
         let client = TwitchClient::new(Arc::new(http(&server)), &session());
-        client.inventory(&Settings::default()).await.unwrap();
+        client.inventory().await.unwrap();
         client.current_drop(10).await.unwrap();
         let bodies: Vec<serde_json::Value> = server
             .received_requests()
@@ -103,34 +103,6 @@ mod protocol_regressions {
         assert!(
             inflight <= 5,
             "{inflight} simultaneous requests reached the server before any completed"
-        );
-    }
-
-    #[tokio::test]
-    async fn incomplete_recovery_does_not_poison_later_complete_record() {
-        let server = MockServer::start().await;
-        gql_mock(&server, |q| match q["operationName"].as_str().unwrap() {
-            "Inventory" => json!({"data":{"currentUser":{"inventory":{"dropCampaignsInProgress":[],"gameEventDrops":[]}}}}),
-            "ViewerDropsDashboard" => json!({"data":{"currentUser":{"dropCampaigns":null}}}),
-            "DropsDiscoveryGames" => json!({"data":{"games":{"edges":[{"cursor":"end","node":{"streams":{"edges":[
-                {"node":{"broadcaster":{"id":"10","login":"first","displayName":"First"}}},
-                {"node":{"broadcaster":{"id":"11","login":"second","displayName":"Second"}}}
-            ]}}}],"pageInfo":{"hasNextPage":false}}}}),
-            "ChannelDropsRecovery" => {
-                let mut campaign=campaign_json("shared");
-                campaign.as_object_mut().unwrap().remove("self");
-                campaign["timeBasedDrops"][0].as_object_mut().unwrap().remove("self");
-                let id=q["variables"]["channelID"].as_str().unwrap();
-                if id=="10" {campaign.as_object_mut().unwrap().remove("timeBasedDrops");}
-                json!({"data":{"channel":{"id":id,"viewerDropCampaigns":[campaign]}}})
-            },
-            _ => unreachable!(),
-        }).await;
-        let client = TwitchClient::new(Arc::new(http(&server)), &session());
-        let inventory = client.inventory(&Settings::default()).await.unwrap();
-        assert_eq!(
-            inventory.status.recovered, 1,
-            "the second source supplied the complete campaign"
         );
     }
 }

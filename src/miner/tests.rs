@@ -62,6 +62,35 @@ async fn finish_job(mining: &mut Mining, pool: &PubSub) {
     mining.complete(completed.job, pool).await.unwrap();
 }
 
+#[tokio::test(start_paused = true)]
+async fn unknown_progress_requests_inventory_without_fabricating_rewards_or_repeated_scans() {
+    let server = MockServer::start().await;
+    let (_dir, mut miner, _intent, mut pool) = miner(&server).await;
+    miner
+        .event(Event::Progress {
+            id: "unknown".into(),
+            minutes: 1,
+        })
+        .await
+        .unwrap();
+    assert!(miner.refresh);
+    assert!(miner.last_progress.is_none());
+    assert_eq!(miner.campaigns[0].drops[0].confirmed_minutes, 12);
+    miner.refresh = false;
+    miner
+        .event(Event::Progress {
+            id: "another-unknown".into(),
+            minutes: 2,
+        })
+        .await
+        .unwrap();
+    assert!(!miner.refresh);
+    tokio::time::advance(Duration::from_secs(60)).await;
+    assert!(!miner.confirm("unknown", 3));
+    assert!(miner.refresh);
+    pool.close().await;
+}
+
 #[tokio::test]
 async fn only_selected_games_send_beacons_and_inventory_io_does_not_block_watch_cadence() {
     let server = MockServer::start().await;
@@ -373,8 +402,6 @@ async fn published_channels_use_mining_eligibility_including_real_special_acls()
     unrelated.game.as_mut().unwrap().name = "Other game".into();
     unrelated.acl_based = true;
     miner.channels.push(unrelated.clone());
-    miner.campaigns[0].discovery_channels =
-        Some(miner.channels.iter().map(|c| c.identity.clone()).collect());
     miner.publish(&settings).await.unwrap();
     assert_eq!(
         miner
@@ -444,17 +471,14 @@ async fn channel_changes_refresh_during_slow_inventory_and_viewers_only_update_t
     pool.close().await;
 }
 
-fn external_channel(miner: &Mining) -> ResolvedChannel {
+fn external_channel(miner: &Mining) -> Channel {
     let mut channel = miner.channels[0].clone();
     channel.identity = ChannelIdentity {
         id: 999,
         login: "extra_streamer".into(),
         name: "Extra Streamer".into(),
     };
-    ResolvedChannel {
-        channel,
-        campaigns: HashSet::from(["one".into()]),
-    }
+    channel
 }
 
 #[tokio::test]
@@ -533,7 +557,7 @@ async fn renewal_keeps_pending_requests_and_restores_confirmed_channel_after_fai
         .unwrap();
     let saved = miner.resume();
     assert_eq!(
-        saved.channel.as_ref().unwrap().channel.identity.login,
+        saved.channel.as_ref().unwrap().identity.login,
         "extra_streamer"
     );
     assert!(saved.lookup.is_none());
@@ -646,7 +670,6 @@ async fn manual_channel_preserves_settings_and_survives_catalog_rebuilds() {
         .settings
         .values
         .minimum_refresh_interval_minutes = 17;
-    miner.campaigns[0].discovery_channels = Some(vec![miner.channels[0].identity.clone()]);
     let inventory = miner.campaigns.clone();
     let requested_at = Instant::now();
     intent.send_modify(|v| {
@@ -710,7 +733,7 @@ async fn manual_lookup_rejects_offline_and_stale_results_but_does_not_require_el
     let (_dir, mut miner, intent, mut pool) = miner(&server).await;
     let requested_at = Instant::now();
     let mut offline = external_channel(&miner);
-    offline.channel.broadcast_id = None;
+    offline.broadcast_id = None;
     assert_eq!(
         miner.finish_manual(Ok(Some(offline)), requested_at, None),
         Some("gui.channels.offline")
@@ -730,8 +753,7 @@ async fn manual_lookup_rejects_offline_and_stale_results_but_does_not_require_el
         .unwrap();
     assert!(miner.manual.is_none());
     assert_eq!(miner.channels.len(), 1);
-    let mut resolved = external_channel(&miner);
-    resolved.channel = miner.channels[0].clone();
+    let resolved = miner.channels[0].clone();
     miner.event(Event::Offline(10)).await.unwrap();
     assert_eq!(
         miner.finish_manual(Ok(Some(resolved)), requested_at, None),
@@ -748,10 +770,9 @@ async fn manual_lookup_rejects_offline_and_stale_results_but_does_not_require_el
             ..Settings::default()
         };
         let mut resolved = external_channel(&miner);
-        resolved.channel.broadcast_id = Some("manual-live".into());
-        resolved.channel.game = None;
-        resolved.channel.drops_enabled = false;
-        resolved.campaigns.clear();
+        resolved.broadcast_id = Some("manual-live".into());
+        resolved.game = None;
+        resolved.drops_enabled = false;
         assert_eq!(
             miner.finish_manual(Ok(Some(resolved)), Instant::now(), None),
             None
@@ -784,9 +805,8 @@ async fn manual_unknown_stream_sends_beacons_without_catalog_or_selection_and_st
         .await;
     let (_dir, mut miner, intent, mut pool) = miner(&server).await;
     let mut resolved = external_channel(&miner);
-    resolved.channel.drops_enabled = false;
-    resolved.channel.game = None;
-    resolved.campaigns.clear();
+    resolved.drops_enabled = false;
+    resolved.game = None;
     miner.campaigns.clear();
     intent.send_modify(|v| {
         v.manual_revision = 1;
@@ -842,8 +862,8 @@ async fn manual_timer_survives_renewal_and_expiry_restores_auto_without_replayin
     let settings = select(&mut miner).await;
     tokio::time::pause();
     let mut resolved = external_channel(&miner);
-    resolved.channel.game = None;
-    resolved.channel.drops_enabled = false;
+    resolved.game = None;
+    resolved.drops_enabled = false;
     intent.send_modify(|v| {
         v.manual_revision = 1;
         v.channel_login = Some("extra_streamer".into());
@@ -875,13 +895,13 @@ async fn manual_timer_survives_renewal_and_expiry_restores_auto_without_replayin
         .complete(
             Job::Update {
                 requested_at: Instant::now(),
-                result: Ok(vec![resolved.channel.clone()]),
+                result: Ok(vec![resolved.clone()]),
             },
             &pool,
         )
         .await
         .unwrap();
-    let mut automatic = resolved.channel;
+    let mut automatic = resolved;
     automatic.identity.id = 10;
     automatic.game = Some(miner.campaigns[0].game.clone());
     automatic.drops_enabled = true;

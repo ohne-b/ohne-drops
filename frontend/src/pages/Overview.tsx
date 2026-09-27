@@ -52,7 +52,7 @@ export default function Overview() {
         </Button>
       </div>
       <ActionResult action={action} />
-      {data.inventory_status?.available === false && !data.inventory_status.recovered && (
+      {data.inventory_status?.available === false && data.inventory_status.checked_at && (
         <Notice error>{t('campaigns_unavailable')}</Notice>
       )}
       <section className="panel shrink-0 p-5 md:p-6" aria-labelledby="mining-heading">

@@ -690,8 +690,12 @@ test('catalog restrictions and hostile strings remain explicit and inert', async
 }) => {
   await request.post('/__test/event', {
     headers,
-    data: { event: 'inventory_status', data: { available: false, checked_at: null } },
+    data: {
+      event: 'inventory_status',
+      data: { available: false, checked_at: new Date().toISOString() },
+    },
   });
+  await page.getByRole('link', { name: 'Campaigns', exact: true }).click();
   await expect(page.getByRole('alert')).toContainText(
     'Twitch did not provide the complete campaign catalog',
   );
@@ -713,7 +717,7 @@ test('snapshot replaces stale entities and keeps settings draft', async ({ page,
   });
   await expect(interval).toHaveValue('45');
 });
-test('recovered campaigns keep unknown account linkage without a discovery banner', async ({
+test('incomplete catalog preserves account data and unknown linkage without a discovery banner', async ({
   page,
   request,
 }) => {
@@ -723,13 +727,13 @@ test('recovered campaigns keep unknown account linkage without a discovery banne
       event: 'initial_state',
       data: {
         ...snapshot,
-        current_drop: { ...snapshot.current_drop!, drop_name: 'Recovered reward fixture' },
-        inventory_status: { available: false, recovered: 1, checked_at: null },
+        current_drop: { ...snapshot.current_drop!, drop_name: 'Account reward fixture' },
+        inventory_status: { available: false, checked_at: new Date().toISOString() },
         campaigns: snapshot.campaigns.map((campaign) => ({ ...campaign, linked: null })),
       },
     },
   });
-  await expect(page.getByText('Recovered reward fixture', { exact: true })).toBeVisible();
+  await expect(page.getByText('Account reward fixture', { exact: true })).toBeVisible();
   await expect(page.getByText(/Found \d+ campaigns through live Twitch channels/)).toHaveCount(0);
   await page.getByRole('link', { name: 'Campaigns', exact: true }).click();
   await expect(page.getByText(/Found \d+ campaigns through live Twitch channels/)).toHaveCount(0);

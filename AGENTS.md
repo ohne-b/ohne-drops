@@ -37,7 +37,7 @@ Do not add forwarding hierarchies or speculative traits with one implementation.
 | `domain.rs`, `policy.rs` | Campaign/drop/channel eligibility and dependency-aware ignores |
 | `store.rs` | Exclusive data directory, atomic settings/history/archive/claim journal |
 | `auth.rs`, `origin.rs` | Dashboard passwords/sessions, origin and cookie policy |
-| `twitch/` | OAuth, bounded HTTP/GQL, inventory recovery, beacon watch, PubSub shards |
+| `twitch/` | OAuth, bounded HTTP/GQL, inventory/catalog, beacon watch, PubSub shards |
 | `miner.rs` | Session supervisor and owned mining jobs, scheduling and reconciliation |
 | `web/` | Axum HTTP, Socketioxide, protected snapshots and embedded frontend |
 | `fixture.rs`, `bin/dashboard-fixture.rs` | Feature-gated offline browser fixture |
@@ -61,16 +61,17 @@ embed it and run without a build tool/runtime companion. Production builds never
   claimed; expiry alone never qualifies. Persistent completion archives are display-only,
   survive cache clears, and can be invalidated by newer contradictory account evidence or
   changed rewards. Older claim-only history remains completion-unverified.
-- Inventory/details win over metadata recovery as whole records. Preserve independent
-  in-progress records when details are null. Valid empty catalogs never trigger recovery.
-  With a valid catalog, recovery is restricted to its active/upcoming IDs.
-- Recovery uses authenticated `viewerDropCampaigns` without `self` edges: at most 500
-  categories × 3 streams, 100 known/saved slugs, and 60 seconds. Propagate logout/auth failures.
-  Skip nullable neighbors individually. Partial coverage stays partial; no false diagnostics
-  that relogin, cache clearing or client substitution repairs an upstream catalog restriction.
+- Fetch account Inventory and the campaign catalog independently; inventory account records
+  win over details. Fetch all active/upcoming catalog IDs in bounded batches. Preserve
+  independent in-progress records when the catalog/details are null or fail. Keep previously
+  known active/upcoming records on partial refresh; a valid empty catalog is authoritative.
+  Do not discover campaigns by scanning live channels or game directories. Propagate auth
+  and cancellation failures; skip nullable neighbors individually. Partial coverage stays
+  partial; never claim relogin/cache clearing/client substitution repairs upstream restrictions.
+  Unknown PubSub/CurrentDrop progress queues inventory refresh at most once per minute.
 - Unknown linkage is null and unknown progress has no confirmed timestamp. Infer claims from
   awards only when every benefit has evidence in the drop's time window and no explicit
-  account record contradicts it. Recovered channels constrain eligibility but are not a real ACL.
+  account record contradicts it.
 - Special Events (`509663`) and IRL (`509672`) cross categories only with a nonempty enabled
   actual ACL. Automatic drops need matching category and drops-enabled status; all need live
   channels, selected games and eligible rewards. Offline/ineligible streams yield even at tied
@@ -85,8 +86,8 @@ embed it and run without a build tool/runtime companion. Production builds never
   missing/failed metadata never blocks watching, but auth/cancellation still propagates.
   Show a known manual reward only after Twitch reports it; do not estimate manual rewards.
   Preserve pending lookups and the confirmed channel separately across network generations;
-  late/superseded results cannot restore manual mode. Recovery evidence never overrides real
-  ACLs or account records. Pending stream refresh pauses watching; retry failed refreshes.
+  late/superseded results cannot restore manual mode. Manual stream metadata never overrides
+  real ACLs or account records. Pending stream refresh pauses watching; retry failed refreshes.
   An optional 1..1440-minute timer uses a monotonic deadline starting at selection, survives
   network renewal/browser reconnect, and returns to automatic selection at expiry. Offline
   manual channels wait without switching targets or stopping the timer. Exit, logout, cache
