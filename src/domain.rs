@@ -304,7 +304,6 @@ pub struct Campaign {
     pub ends_at: DateTime<Utc>,
     pub valid: bool,
     pub allowed_channels: Vec<ChannelIdentity>,
-    pub discovery_channels: Option<Vec<ChannelIdentity>>,
     pub drops: Vec<Drop>,
 }
 
@@ -354,10 +353,6 @@ impl Campaign {
             } else {
                 channel_list(&value["allow"]["channels"])?
             },
-            discovery_channels: value
-                .get("discovery_channels")
-                .map(channel_list)
-                .transpose()?,
             drops,
         })
     }
@@ -424,10 +419,6 @@ impl Campaign {
                 .allowed_channels
                 .iter()
                 .any(|c| c.id == channel.identity.id))
-            && self
-                .discovery_channels
-                .as_ref()
-                .is_none_or(|list| list.iter().any(|c| c.id == channel.identity.id))
             && (ignore_channel_status
                 || channel.game.as_ref().is_some_and(|g| g.id == self.game.id)
                 || channel.online() && self.game.special() && !self.allowed_channels.is_empty())
@@ -843,9 +834,6 @@ mod tests {
         assert!(!c.can_watch(&stream, &settings, now()));
         assert!(c.channel_eligible(&stream, true));
         stream = channel();
-        c.discovery_channels = Some(vec![]);
-        assert!(!c.can_watch(&stream, &settings, now()));
-        c.discovery_channels = Some(vec![stream.identity.clone()]);
         c.allowed_channels.clear();
         assert!(!c.can_watch(&stream, &settings, now()));
         raw["allow"]["isEnabled"] = false.into();

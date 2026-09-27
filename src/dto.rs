@@ -115,8 +115,6 @@ pub struct ManualMode {
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]
 pub struct InventoryStatus {
     pub available: bool,
-    #[serde(default)]
-    pub recovered: usize,
     pub checked_at: Option<DateTime<Utc>>,
 }
 

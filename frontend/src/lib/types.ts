@@ -123,7 +123,6 @@ export interface ManualMode {
 }
 export interface InventoryStatus {
   available: boolean;
-  recovered?: number;
   checked_at: string | null;
 }
 export interface Snapshot {
