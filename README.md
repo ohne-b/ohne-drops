@@ -157,6 +157,11 @@ blank to watch until **Return to Auto Mode**. If the channel goes offline, manua
 waits for it to return; the timer continues. Logout, cache clearing or a process restart
 also ends manual mode. Automatic selection resumes using your saved games and filters.
 
+**Refresh inventory** in Overview and Maintenance shows its progress in the button. It
+stays busy until the refreshed data is published, then briefly shows **Refreshed**, or
+**Refresh failed - Retry** with the reason on hover. Repeated requests share the same
+refresh; reconnecting the dashboard keeps its current status.
+
 | Page                     | What it shows                                                                             |
 | ------------------------ | ----------------------------------------------------------------------------------------- |
 | **Overview**             | Mining progress, live channels, and the **Up next** reward queue.                         |

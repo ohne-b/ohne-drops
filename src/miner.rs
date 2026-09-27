@@ -16,7 +16,7 @@ use tokio_util::sync::CancellationToken;
 use crate::{
     config::Settings,
     domain::{Campaign, Channel, wanted_items},
-    dto::{InventoryStatus, Login, ManualMode},
+    dto::{InventoryStatus, Login, ManualMode, RefreshState},
     store::{ClaimJournal, PendingClaim},
     twitch::{
         Endpoints, TwitchClient, TwitchError, TwitchHttp,
@@ -177,6 +177,8 @@ impl Miner {
                             },
                             Ok(Err(TwitchError::Cancelled))|Ok(Ok(()))=>{},
                             Ok(Err(error))=>{
+                                let sequence=self.app.snapshot.read().await.inventory_refresh.sequence;
+                                self.app.finish_inventory_refresh(sequence,Some(message("gui.redesign.refresh_failed_detail",&[]))).await;
                                 self.app.console(message("gui.backend.twitch_error",&[("error",&error.to_string())])).await;
                                 tokio::select!{_=self.app.shutdown.cancelled()=>{},_=tokio::time::sleep(Duration::from_secs(5))=>{}}
                             },
@@ -269,6 +271,9 @@ async fn reset_session(app: &App) {
         };
         state.campaigns = archived;
         state.inventory_status = InventoryStatus::default();
+        state.inventory_refresh.sequence += 1;
+        state.inventory_refresh.state = RefreshState::Idle;
+        state.inventory_refresh.error = None;
         state.settings.games_available.clear();
     }
     let state = app.snapshot.read().await.clone();
@@ -411,6 +416,7 @@ enum Job {
     Inventory {
         result: Result<Inventory, TwitchError>,
         requested_at: chrono::DateTime<Utc>,
+        refresh_sequence: u64,
     },
     Channels {
         result: Result<Vec<Channel>, TwitchError>,
@@ -1028,6 +1034,7 @@ impl Mining {
         }
         if self.refresh || now >= self.next_refresh {
             self.refresh = false;
+            let (refresh_sequence, _) = self.app.begin_inventory_refresh().await;
             let client = self.client.clone();
             self.app
                 .status(message("gui.status.fetching_inventory", &[]))
@@ -1037,6 +1044,7 @@ impl Mining {
                 Job::Inventory {
                     result: client.inventory().await,
                     requested_at,
+                    refresh_sequence,
                 }
             });
             return;
@@ -1114,6 +1122,7 @@ impl Mining {
             Job::Inventory {
                 result: Ok(mut inventory),
                 requested_at,
+                refresh_sequence,
             } => {
                 if !inventory.status.available {
                     for previous in &self.campaigns {
@@ -1164,7 +1173,15 @@ impl Mining {
                         u64::from(settings.minimum_refresh_interval_minutes) * 60,
                     );
                 self.channels_dirty = true;
-                self.publish = true;
+                self.publish(&settings).await?;
+                self.publish = false;
+                self.app
+                    .finish_inventory_refresh(
+                        refresh_sequence,
+                        (!self.status.available)
+                            .then(|| message("gui.redesign.campaigns_unavailable", &[])),
+                    )
+                    .await;
                 None
             }
             Job::Channels {
@@ -1323,8 +1340,16 @@ impl Mining {
             }
             Job::Notification(result) => result.err(),
             Job::Inventory {
-                result: Err(error), ..
+                result: Err(error),
+                refresh_sequence,
+                ..
             } => {
+                self.app
+                    .finish_inventory_refresh(
+                        refresh_sequence,
+                        Some(message("gui.redesign.refresh_failed_detail", &[])),
+                    )
+                    .await;
                 self.refresh = true;
                 Some(error)
             }

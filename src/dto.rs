@@ -118,6 +118,23 @@ pub struct InventoryStatus {
     pub checked_at: Option<DateTime<Utc>>,
 }
 
+#[derive(Clone, Copy, Debug, Default, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum RefreshState {
+    #[default]
+    Idle,
+    Refreshing,
+    Refreshed,
+    Failed,
+}
+
+#[derive(Clone, Debug, Default, Serialize, Deserialize)]
+pub struct InventoryRefresh {
+    pub sequence: u64,
+    pub state: RefreshState,
+    pub error: Option<String>,
+}
+
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct Progress {
     pub drop_id: String,
@@ -169,6 +186,8 @@ pub struct Snapshot {
     pub current_drop: Option<Progress>,
     pub wanted_items: Vec<WantedGame>,
     pub inventory_status: InventoryStatus,
+    #[serde(default)]
+    pub inventory_refresh: InventoryRefresh,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
