@@ -1061,12 +1061,62 @@ test('history refreshes after claims and reports clear failure inside its dialog
   expect((await (await request.get('/api/history')).json()).entries).toHaveLength(1);
 });
 
-test('all channels remain available when priorities change', async ({ page, request }) => {
-  await request.post('/api/settings', { headers, data: { games_to_watch: ['rUsT'] } });
-  await expect(page.getByRole('link', { name: 'harbor', exact: true })).toBeVisible();
+test('channel snapshots replace old rows and allow backend-verified special event streams', async ({
+  page,
+  request,
+}) => {
+  await request.post('/api/settings', { headers, data: { games_to_watch: ['Special Events'] } });
+  await request.post('/__test/event', {
+    headers,
+    data: {
+      event: 'channels_batch_update',
+      data: {
+        channels: [
+          {
+            ...snapshot.channels[0],
+            name: 'event-host',
+            login: 'event_host',
+            game: 'Just Chatting',
+            acl_based: true,
+          },
+        ],
+      },
+    },
+  });
+  await expect(page.getByRole('link', { name: 'event-host', exact: true })).toHaveAttribute(
+    'href',
+    'https://www.twitch.tv/event_host',
+  );
+  await expect(page.getByRole('link', { name: 'northwind', exact: true })).toHaveCount(0);
+});
+
+test('manual channel entry accepts a URL, opts into its game and reports invalid or missing channels', async ({
+  page,
+  request,
+}) => {
   await request.post('/api/settings', { headers, data: { games_to_watch: ['Other game'] } });
-  await expect(page.getByRole('link', { name: 'harbor', exact: true })).toBeVisible();
-  await expect(page.getByRole('link', { name: 'northwind', exact: true })).toBeVisible();
+  await page.getByRole('button', { name: 'Mine channel', exact: true }).click();
+  const input = page.getByRole('textbox', { name: 'Twitch channel name or URL' });
+  const mine = page.getByRole('button', { name: 'Mine', exact: true });
+  await input.fill('https://example.com/streamer');
+  await mine.click();
+  await expect(page.getByRole('alert')).toHaveText(
+    'Enter a Twitch channel name or a direct twitch.tv channel URL.',
+  );
+  await input.fill('missing');
+  await mine.click();
+  await expect(page.getByRole('alert')).toHaveText('That Twitch channel was not found.');
+  await input.fill('https://www.twitch.tv/extra_streamer');
+  await mine.click();
+  await expect(page.getByRole('link', { name: 'extra_streamer', exact: true })).toBeVisible();
+  await expect(page.getByText('Manual selection', { exact: true })).toBeVisible();
+  expect((await (await request.get('/api/settings')).json()).games_to_watch).toEqual([
+    'Other game',
+    'Rust',
+  ]);
+  expect((await new AxeBuilder({ page }).include('main').analyze()).violations).toEqual([]);
+  await page.getByRole('button', { name: 'Return to Auto Mode' }).click();
+  await expect(page.getByText('Automatic selection', { exact: true })).toBeVisible();
 });
 
 test('empty selection asks for an explicit mining choice', async ({ page, request }) => {

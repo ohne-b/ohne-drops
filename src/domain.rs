@@ -279,6 +279,7 @@ impl Channel {
     pub fn view(&self, watching: Option<u64>) -> ChannelView {
         ChannelView {
             id: self.identity.id,
+            login: self.identity.login.clone(),
             name: self.identity.name.clone(),
             game: self.game.as_ref().map(|g| g.name.clone()),
             game_id: self.game.as_ref().map(|g| g.id),
@@ -433,13 +434,24 @@ impl Campaign {
     }
 
     pub fn can_watch(&self, channel: &Channel, settings: &Settings, now: DateTime<Utc>) -> bool {
+        self.can_mine(settings, now) && self.matches_channel(channel)
+    }
+
+    pub fn matches_channel(&self, channel: &Channel) -> bool {
+        channel.online()
+            && (self.game.special() || channel.drops_enabled)
+            && self.channel_eligible(channel, false)
+    }
+
+    pub fn can_mine(&self, settings: &Settings, now: DateTime<Utc>) -> bool {
         let policy = self.policy(settings);
         settings.selected(&self.game.name)
-            && channel.online()
-            && (self.game.special() || channel.drops_enabled)
             && self.active(now)
-            && self.channel_eligible(channel, false)
-            && self.can_earn_within(settings, now, now + Duration::nanoseconds(1))
+            && self.valid
+            && self
+                .drops
+                .iter()
+                .any(|d| self.drop_eligible(d, &policy, now, now + Duration::nanoseconds(1)))
             && self.drops.iter().any(|d| {
                 policy.mineable.contains(&d.id) && d.benefits.iter().any(|b| b.wanted(settings))
             })
