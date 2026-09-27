@@ -459,6 +459,47 @@ fn external_channel(miner: &Mining) -> ResolvedChannel {
 }
 
 #[tokio::test]
+async fn renewal_during_a_blocked_manual_settings_commit_keeps_the_uncommitted_request() {
+    let server = MockServer::start().await;
+    let (_dir, mut miner, intent, mut pool) = miner(&server).await;
+    intent.send_modify(|v| {
+        v.manual_revision = 1;
+        v.channel_login = Some("extra_streamer".into());
+    });
+    miner.apply_intent(&pool).await;
+    let slot = miner.app.settings_slot.clone();
+    let permit = slot.acquire().await.unwrap();
+    let cancelled = miner.client.http.cancel.clone();
+    let resolved = external_channel(&miner);
+    {
+        let completion = miner.complete(
+            Job::Manual {
+                revision: 1,
+                requested_at: Instant::now(),
+                result: Box::new(Ok(Some(resolved))),
+            },
+            &pool,
+        );
+        tokio::pin!(completion);
+        tokio::select! {
+            _ = &mut completion => panic!("settings transaction was not held"),
+            _ = tokio::time::sleep(Duration::from_millis(20)) => {}
+        }
+        cancelled.cancel();
+        drop(permit);
+        assert_eq!(completion.await, Err(TwitchError::Cancelled));
+    }
+    assert!(miner.app.data.settings().unwrap().games_to_watch.is_empty());
+    let saved = miner.resume();
+    assert_eq!(saved.lookup, Some(("extra_streamer".into(), 1)));
+    let (_next_dir, mut next, _next_intent, mut next_pool) = self::miner(&server).await;
+    next.restore(&saved);
+    assert_eq!(next.lookup, saved.lookup);
+    pool.close().await;
+    next_pool.close().await;
+}
+
+#[tokio::test]
 async fn renewal_keeps_pending_requests_and_restores_confirmed_channel_after_failed_replacement() {
     let server = MockServer::start().await;
     let (_dir, mut miner, intent, mut pool) = miner(&server).await;

@@ -80,7 +80,7 @@ pub struct App {
     pub sockets: SocketHub,
     pub shutdown: CancellationToken,
     writes: TaskTracker,
-    settings_slot: Arc<Semaphore>,
+    pub(crate) settings_slot: Arc<Semaphore>,
     releases: releases::Releases,
     commands: mpsc::Sender<CommandRequest>,
     #[cfg(feature = "dashboard-fixture")]
