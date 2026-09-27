@@ -2,7 +2,7 @@
 
 Read this guide before planning, editing, testing or reviewing. Its checklist applies to
 people and coding agents. The canonical repository is `ohne-b/twitch-drops-miner`, targeting
-`main`. Preserve the project's [PolyForm Strict 1.0.0 license](LICENSE), full upstream license in
+`main`. Preserve the project's [PolyForm Strict 1.0.0 license](LICENSE.md), full upstream license in
 [NOTICE.md](NOTICE.md), attribution and frontend asset licenses. Distribute both root
 license files with production images.
 
