@@ -45,6 +45,7 @@ export interface Campaign {
 }
 export interface Channel {
   id: number;
+  login?: string;
   name: string;
   game: string | null;
   game_id: number | null;
@@ -116,6 +117,8 @@ export interface ManualMode {
   active: boolean;
   game_name?: string;
   channel_name?: string;
+  pending_channel?: string;
+  error?: string;
 }
 export interface InventoryStatus {
   available: boolean;

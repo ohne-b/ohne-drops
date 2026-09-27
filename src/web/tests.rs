@@ -87,6 +87,69 @@ impl Drop for TestApp {
 }
 
 #[tokio::test]
+async fn manual_channel_boundary_requires_login_and_rejects_arbitrary_urls() {
+    let test = TestApp::new("");
+    let headers = [("x-tdm-request", "1")];
+    assert_eq!(
+        test.call(
+            Method::POST,
+            "/api/channels/select",
+            json!({"channel":"streamer"}),
+            "",
+            &headers
+        )
+        .await
+        .0,
+        StatusCode::CONFLICT
+    );
+    test.app.snapshot.write().await.login.user_id = Some(42);
+    for input in [
+        "",
+        "https://evil.test/private",
+        "https://twitch.tv/user/videos",
+        "http://localhost/private",
+    ] {
+        assert_eq!(
+            test.call(
+                Method::POST,
+                "/api/channels/select",
+                json!({"channel":input}),
+                "",
+                &headers
+            )
+            .await
+            .0,
+            StatusCode::BAD_REQUEST
+        );
+    }
+    assert_eq!(
+        test.call(
+            Method::POST,
+            "/api/channels/select",
+            json!({"channel_id":999}),
+            "",
+            &headers
+        )
+        .await
+        .0,
+        StatusCode::NOT_FOUND
+    );
+    assert_eq!(
+        test.call(
+            Method::POST,
+            "/api/channels/select",
+            json!({"channel":"https://www.twitch.tv/streamer"}),
+            "",
+            &headers
+        )
+        .await
+        .0,
+        StatusCode::OK
+    );
+    assert!(test.app.data.settings().unwrap().games_to_watch.is_empty());
+}
+
+#[tokio::test]
 async fn public_assets_and_spa_allowlist_preserve_private_api_boundaries() {
     let test = TestApp::new("");
     assert_eq!(

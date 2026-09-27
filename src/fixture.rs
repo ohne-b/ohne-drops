@@ -101,6 +101,7 @@ async fn commands(app: Arc<App>, mut receiver: mpsc::Receiver<CommandRequest>) {
                         active: true,
                         game_name: Some("Rust".into()),
                         channel_name: Some("harbor".into()),
+                        ..ManualMode::default()
                     };
                     state.manual_mode.clone()
                 };
@@ -111,6 +112,45 @@ async fn commands(app: Arc<App>, mut receiver: mpsc::Receiver<CommandRequest>) {
             }
             Command::ExitManual => {
                 let mode = ManualMode::default();
+                app.snapshot.write().await.manual_mode = mode.clone();
+                app.sockets.emit("manual_mode_update", &mode).await;
+            }
+            Command::MineChannel(login) => {
+                let mode = if login == "missing" {
+                    ManualMode {
+                        error: Some(crate::web::message("gui.channels.not_found", &[])),
+                        ..ManualMode::default()
+                    }
+                } else {
+                    let _ = app.select_game("Rust").await;
+                    let channels = {
+                        let mut state = app.snapshot.write().await;
+                        for c in &mut state.channels {
+                            c.watching = false;
+                        }
+                        state.channels.push(crate::dto::ChannelView {
+                            id: 999,
+                            login: login.clone(),
+                            name: login.clone(),
+                            game: Some("Rust".into()),
+                            game_id: Some(1),
+                            online: true,
+                            drops_enabled: true,
+                            watching: true,
+                            ..Default::default()
+                        });
+                        state.channels.clone()
+                    };
+                    app.sockets
+                        .emit("channels_batch_update", &json!({"channels":channels}))
+                        .await;
+                    ManualMode {
+                        active: true,
+                        game_name: Some("Rust".into()),
+                        channel_name: Some(login),
+                        ..ManualMode::default()
+                    }
+                };
                 app.snapshot.write().await.manual_mode = mode.clone();
                 app.sockets.emit("manual_mode_update", &mode).await;
             }

@@ -73,6 +73,14 @@ embed it and run without a build tool/runtime companion. Production builds never
   actual ACL. Regular drops need matching category and drops-enabled status; all need live
   channels, selected games and eligible rewards. Offline/ineligible streams yield even at tied
   fallback priority. Preserve nullable viewer counts and the watching row during rebuilds.
+- Channels publishes only currently eligible selected-game streams; rank before the channel
+  limit using matching campaign priority, including actual-ACL special-category streams.
+  Mine channel accepts a validated Twitch login/root URL and resolves it with owned bounded
+  work after initial inventory readiness, independently of later inventory scans. Check
+  known campaign IDs, actual ACLs and reward filters before atomically selecting its game.
+  Preserve concurrent settings edits and reject superseded results. Recovery-channel evidence
+  never overrides actual ACLs or account records. Pending category refresh pauses watching
+  without losing manual intent; retry failed refreshes. Viewer counts use channel-only events.
 - Watch events use validated Twitch beacon URLs and a base64 minute-watched payload every
   59 seconds. No playlists/video/audio downloads. Confirm via PubSub or CurrentDrop, distinguish
   estimates, and recover at 15 unconfirmed estimates. Only currently eligible drop progress

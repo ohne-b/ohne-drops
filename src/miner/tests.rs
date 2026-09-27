@@ -41,6 +41,7 @@ async fn miner(server: &MockServer) -> (tempfile::TempDir, Mining, watch::Sender
         beacon_url: None,
     }];
     mining.channels_loaded = true;
+    mining.inventory_loaded = true;
     (dir, mining, intent, pool)
 }
 async fn select(mining: &mut Mining) -> Settings {
@@ -325,7 +326,7 @@ async fn transitions_manual_failover_cache_clear_and_refresh_setting_preserve_us
     assert_eq!(miner.watching, Some(11));
     assert!(miner.manual.is_some());
     miner.event(Event::Changed(10)).await.unwrap();
-    assert!(miner.refresh_channels[&10] >= Instant::now() + Duration::from_secs(119));
+    assert!(miner.refresh_channels[&10] <= Instant::now() + Duration::from_secs(2));
     miner.campaigns[0].drops[0].ends_at = Utc::now() + chrono::Duration::seconds(10);
     miner.set_transition();
     assert!(miner.next_transition.unwrap() <= Utc::now() + chrono::Duration::seconds(10));
@@ -358,6 +359,336 @@ async fn transitions_manual_failover_cache_clear_and_refresh_setting_preserve_us
     assert_eq!(
         miner.app.data.settings().unwrap().games_to_watch,
         vec!["Rust"]
+    );
+    pool.close().await;
+}
+
+#[tokio::test]
+async fn published_channels_use_mining_eligibility_including_real_special_acls() {
+    let server = MockServer::start().await;
+    let (_dir, mut miner, _intent, mut pool) = miner(&server).await;
+    let settings = select(&mut miner).await;
+    let mut unrelated = miner.channels[0].clone();
+    unrelated.identity.id = 11;
+    unrelated.game.as_mut().unwrap().id = 2;
+    unrelated.game.as_mut().unwrap().name = "Other game".into();
+    unrelated.acl_based = true;
+    miner.channels.push(unrelated.clone());
+    miner.campaigns[0].discovery_channels =
+        Some(miner.channels.iter().map(|c| c.identity.clone()).collect());
+    miner.publish(&settings).await.unwrap();
+    assert_eq!(
+        miner
+            .app
+            .snapshot
+            .read()
+            .await
+            .channels
+            .iter()
+            .map(|c| c.id)
+            .collect::<Vec<_>>(),
+        vec![10]
+    );
+    miner.publish(&Settings::default()).await.unwrap();
+    assert!(miner.app.snapshot.read().await.channels.is_empty());
+    let mut special = miner.campaigns[0].clone();
+    special.id = "special".into();
+    special.game.id = 509663;
+    special.game.name = "Special Events".into();
+    special.allowed_channels = vec![unrelated.identity];
+    miner.campaigns.push(special);
+    let settings = Settings {
+        games_to_watch: vec!["Rust".into(), "Special Events".into()],
+        ..settings
+    };
+    miner.publish(&settings).await.unwrap();
+    assert_eq!(miner.app.snapshot.read().await.channels.len(), 2);
+    miner.event(Event::Changed(11)).await.unwrap();
+    miner.publish(&settings).await.unwrap();
+    assert_eq!(miner.app.snapshot.read().await.channels.len(), 1);
+    pool.close().await;
+}
+
+#[tokio::test]
+async fn channel_changes_refresh_during_slow_inventory_and_viewers_only_update_the_channel() {
+    let server = MockServer::start().await;
+    gql_mock(&server, |q| match q["operationName"].as_str().unwrap() {
+        "VideoPlayerStreamInfoOverlayChannel" => json!({"data":{"user":{"stream":null}}}),
+        "DropsHighlightService_AvailableDrops" => {
+            json!({"data":{"channel":{"viewerDropCampaigns":[]}}})
+        }
+        other => panic!("unexpected operation {other}"),
+    })
+    .await;
+    let (_dir, mut miner, _intent, mut pool) = miner(&server).await;
+    let settings = select(&mut miner).await;
+    miner.publish(&settings).await.unwrap();
+    miner.publish = false;
+    miner
+        .event(Event::Viewers { id: 10, count: 456 })
+        .await
+        .unwrap();
+    assert!(!miner.publish);
+    assert_eq!(
+        miner.app.snapshot.read().await.channels[0].viewers,
+        Some(456)
+    );
+    miner.event(Event::Changed(10)).await.unwrap();
+    miner.reselect(&settings).await;
+    assert_eq!(miner.watching, None);
+    miner.refresh_channels.insert(10, Instant::now());
+    miner.busy.insert(JobKind::Inventory);
+    miner.schedule(&settings).await;
+    assert!(miner.busy.contains(&JobKind::Update));
+    finish_job(&mut miner, &pool).await;
+    assert!(!miner.channels[0].online());
+    pool.close().await;
+}
+
+fn external_channel(miner: &Mining) -> ResolvedChannel {
+    let mut channel = miner.channels[0].clone();
+    channel.identity = ChannelIdentity {
+        id: 999,
+        login: "extra_streamer".into(),
+        name: "Extra Streamer".into(),
+    };
+    ResolvedChannel {
+        channel,
+        campaigns: HashSet::from(["one".into()]),
+    }
+}
+
+#[tokio::test]
+async fn manual_mode_waits_for_category_confirmation_and_pending_login_waits_for_initial_inventory()
+{
+    let server = MockServer::start().await;
+    let (_dir, mut miner, intent, mut pool) = miner(&server).await;
+    let settings = select(&mut miner).await;
+    miner.manual = Some((10, 1));
+    let fresh = miner.channels[0].clone();
+    miner.event(Event::Changed(10)).await.unwrap();
+    miner.reselect(&settings).await;
+    assert_eq!(miner.manual, Some((10, 1)));
+    assert_eq!(miner.watching, None);
+    miner.refresh_channels.insert(10, Instant::now());
+    miner
+        .complete(
+            Job::Update {
+                result: Err(TwitchError::Network),
+                requested_at: Instant::now(),
+            },
+            &pool,
+        )
+        .await
+        .unwrap();
+    assert!(miner.refresh_channels.contains_key(&10));
+    miner.reselect(&settings).await;
+    assert_eq!(miner.manual, Some((10, 1)));
+    miner
+        .complete(
+            Job::Update {
+                result: Ok(vec![fresh]),
+                requested_at: Instant::now(),
+            },
+            &pool,
+        )
+        .await
+        .unwrap();
+    miner.reselect(&settings).await;
+    assert_eq!(miner.manual, Some((10, 1)));
+    assert_eq!(miner.watching, Some(10));
+    miner.inventory_loaded = false;
+    miner.campaigns.clear();
+    miner.watching = None;
+    intent.send_modify(|v| {
+        v.manual_revision += 1;
+        v.channel_login = Some("extra_streamer".into());
+    });
+    miner.apply_intent(&pool).await;
+    miner.schedule(&settings).await;
+    assert!(!miner.busy.contains(&JobKind::Manual));
+    assert!(miner.lookup.is_some());
+    assert_eq!(miner.manual_pending.as_deref(), Some("extra_streamer"));
+    gql_mock(&server, |q| match q["operationName"].as_str().unwrap() {
+        "VideoPlayerStreamInfoOverlayChannel" => json!({"data":{"user":{"id":"999","displayName":"Extra Streamer","stream":{"id":"live"},"broadcastSettings":{"game":{"id":"1","name":"Rust"}}}}}),
+        "DropsHighlightService_AvailableDrops" => json!({"data":{"channel":{"viewerDropCampaigns":[{"id":"one"}]}}}),
+        other => panic!("unexpected operation {other}"),
+    }).await;
+    miner
+        .complete(
+            Job::Inventory {
+                requested_at: Utc::now(),
+                result: Ok(Inventory {
+                    campaigns: vec![
+                        Campaign::parse(&campaign_json("one"), &HashMap::new(), Utc::now())
+                            .unwrap(),
+                    ],
+                    awards: HashMap::new(),
+                    status: InventoryStatus::default(),
+                }),
+            },
+            &pool,
+        )
+        .await
+        .unwrap();
+    miner.channels_dirty = false;
+    miner.busy.insert(JobKind::Inventory); // A subsequent scan must not delay the lookup.
+    miner.schedule(&settings).await;
+    assert!(miner.busy.contains(&JobKind::Manual));
+    finish_job(&mut miner, &pool).await;
+    miner.reselect(&settings).await;
+    assert_eq!(miner.manual, Some((999, 1)));
+    assert_eq!(miner.watching, Some(999));
+    assert!(miner.manual_error.is_none());
+    pool.close().await;
+}
+
+#[tokio::test]
+async fn manual_channel_selects_only_its_game_preserves_settings_and_survives_catalog_rebuilds() {
+    let server = MockServer::start().await;
+    let (dir, mut miner, intent, mut pool) = miner(&server).await;
+    miner
+        .app
+        .snapshot
+        .write()
+        .await
+        .settings
+        .values
+        .games_to_watch = vec!["Other game".into()];
+    miner
+        .app
+        .snapshot
+        .write()
+        .await
+        .settings
+        .values
+        .minimum_refresh_interval_minutes = 17;
+    miner.campaigns[0].discovery_channels = Some(vec![miner.channels[0].identity.clone()]);
+    let inventory = miner.campaigns.clone();
+    let requested_at = Instant::now();
+    intent.send_modify(|v| {
+        v.manual_revision += 1;
+        v.channel_login = Some("extra_streamer".into());
+    });
+    miner.apply_intent(&pool).await;
+    let resolved = external_channel(&miner);
+    miner
+        .complete(
+            Job::Manual {
+                revision: 1,
+                requested_at,
+                result: Ok(Some(resolved)),
+            },
+            &pool,
+        )
+        .await
+        .unwrap();
+    let settings = miner.app.snapshot.read().await.settings.values.clone();
+    assert_eq!(settings.games_to_watch, ["Other game", "Rust"]);
+    assert_eq!(settings.minimum_refresh_interval_minutes, 17);
+    assert_eq!(
+        miner.app.data.settings().unwrap().games_to_watch,
+        settings.games_to_watch
+    );
+    assert!(dir.path().join("settings.json").exists());
+    miner.reselect(&settings).await;
+    assert_eq!(miner.watching, Some(999));
+    miner
+        .complete(
+            Job::Channels {
+                requested_at,
+                result: Ok(vec![]),
+            },
+            &pool,
+        )
+        .await
+        .unwrap();
+    assert_eq!(miner.channels[0].identity.id, 999);
+    miner
+        .complete(
+            Job::Inventory {
+                requested_at: Utc::now(),
+                result: Ok(Inventory {
+                    campaigns: inventory,
+                    awards: HashMap::new(),
+                    status: InventoryStatus::default(),
+                }),
+            },
+            &pool,
+        )
+        .await
+        .unwrap();
+    miner.reselect(&settings).await;
+    assert_eq!(miner.watching, Some(999));
+    miner.publish(&settings).await.unwrap();
+    assert!(miner.app.snapshot.read().await.manual_mode.active);
+    pool.close().await;
+}
+
+#[tokio::test]
+async fn manual_lookup_rejects_offline_acl_filtered_and_stale_results_without_selecting_games() {
+    let server = MockServer::start().await;
+    let (_dir, mut miner, intent, mut pool) = miner(&server).await;
+    let requested_at = Instant::now();
+    let mut offline = external_channel(&miner);
+    offline.channel.broadcast_id = None;
+    assert_eq!(
+        miner.finish_manual(Ok(Some(offline)), requested_at).await,
+        Some("gui.channels.offline")
+    );
+    miner.campaigns[0].allowed_channels = vec![miner.channels[0].identity.clone()];
+    let resolved = external_channel(&miner);
+    assert_eq!(
+        miner.finish_manual(Ok(Some(resolved)), requested_at).await,
+        Some("gui.channels.no_rewards")
+    );
+    miner.campaigns[0].allowed_channels.clear();
+    miner
+        .app
+        .snapshot
+        .write()
+        .await
+        .settings
+        .values
+        .drop_name_blacklist = vec!["reward".into()];
+    let resolved = external_channel(&miner);
+    assert_eq!(
+        miner.finish_manual(Ok(Some(resolved)), requested_at).await,
+        Some("gui.channels.no_rewards")
+    );
+    miner
+        .app
+        .snapshot
+        .write()
+        .await
+        .settings
+        .values
+        .drop_name_blacklist
+        .clear();
+    intent.send_modify(|v| {
+        v.manual_revision = 2;
+    });
+    let resolved = external_channel(&miner);
+    miner
+        .complete(
+            Job::Manual {
+                revision: 1,
+                requested_at,
+                result: Ok(Some(resolved)),
+            },
+            &pool,
+        )
+        .await
+        .unwrap();
+    assert!(miner.app.data.settings().unwrap().games_to_watch.is_empty());
+    assert!(miner.manual.is_none());
+    assert_eq!(miner.channels.len(), 1);
+    let mut resolved = external_channel(&miner);
+    resolved.channel = miner.channels[0].clone();
+    miner.event(Event::Offline(10)).await.unwrap();
+    assert_eq!(
+        miner.finish_manual(Ok(Some(resolved)), requested_at).await,
+        Some("gui.channels.offline")
     );
     pool.close().await;
 }

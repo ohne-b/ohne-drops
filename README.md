@@ -133,6 +133,18 @@ restarts; enter your Twitch password only on Twitch's authorization page.
 
 ## Using the dashboard
 
+**Overview > Channels** shows live streams currently eligible for your selected games and
+rewards. Special-event campaigns can include other categories when their actual channel
+restriction allows it. Channel changes pause watching until eligibility is refreshed.
+
+Use **Mine channel** to enter a Twitch login or a direct channel URL, including streams
+missing from the list. This checks that channel against the current campaign catalog and
+adds its eligible game to your mining list. Reward filters, prerequisites and campaign
+channel restrictions still apply. Offline channels and channels without eligible known
+rewards are reported without changing your selection. Manual selection falls back within
+its game if another eligible channel is needed; **Return to Auto Mode** restores game
+priority selection. The game stays selected until you remove it.
+
 | Page                     | What it shows                                                                             |
 | ------------------------ | ----------------------------------------------------------------------------------------- |
 | **Overview**             | Mining progress, live channels, and the **Up next** reward queue.                         |
