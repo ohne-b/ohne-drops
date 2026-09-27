@@ -548,7 +548,9 @@ test('game priorities show icons instead of editable numbers', async ({ page, re
   await page.goto('/settings');
   await page.getByRole('searchbox', { name: 'Search games...' }).fill('The Elder Scrolls Online');
   await page.getByRole('button', { name: 'Add Game', exact: true }).click();
-  await expect(page.getByText('Changes saved.', { exact: true })).toBeVisible();
+  await expect
+    .poll(async () => (await (await request.get('/api/settings')).json()).games_to_watch)
+    .toContain('The Elder Scrolls Online');
   await expect(page.getByRole('spinbutton', { name: /Priority for/ })).toHaveCount(0);
   await page
     .getByRole('button', { name: 'Reorder The Elder Scrolls Online', exact: true })
@@ -863,7 +865,9 @@ test('manual game confirmation appends to the latest settings from another devic
   });
   await expect(page.locator('[data-game="Another device"]')).toHaveCount(1);
   await page.getByRole('button', { name: 'Confirm', exact: true }).click();
-  await expect(page.getByText('Changes saved.', { exact: true })).toBeVisible();
+  await expect
+    .poll(async () => (await (await request.get('/api/settings')).json()).games_to_watch)
+    .toEqual(['Another device', 'Manual name']);
   expect((await (await request.get('/api/settings')).json()).games_to_watch).toEqual([
     'Another device',
     'Manual name',
@@ -1016,7 +1020,9 @@ test('explicit game priorities preserve manual spelling and case-insensitive uni
   ).toEqual(['Custom game', 'rust']);
   await expect(page.getByRole('button', { name: 'Select All', exact: true })).toHaveCount(0);
   await page.getByRole('button', { name: 'Reorder rust', exact: true }).press('ArrowUp');
-  await expect(page.getByText('Changes saved.', { exact: true })).toBeVisible();
+  await expect
+    .poll(async () => (await (await request.get('/api/settings')).json()).games_to_watch)
+    .toEqual(['rust', 'Custom game']);
   const games = (await (await request.get('/api/settings')).json()).games_to_watch;
   expect(games).toEqual(['rust', 'Custom game']);
   expect(games.filter((name: string) => name.toLowerCase() === 'rust')).toHaveLength(1);
@@ -1264,4 +1270,34 @@ test('touch dragging reorders game priorities', async ({ browser, request }) => 
     .poll(async () => (await (await request.get('/api/settings')).json()).games_to_watch)
     .toEqual(['Sea of Thieves', 'Rust']);
   await context.close();
+});
+
+test('Settings saves silently and persists edits', async ({ page, request }) => {
+  await page.goto('/settings');
+  let finishSave!: () => void;
+  const saveGate = new Promise<void>((resolve) => {
+    finishSave = resolve;
+  });
+  await page.route('**/api/settings', async (route) => {
+    if (route.request().method() === 'POST') await saveGate;
+    await route.continue();
+  });
+  const sending = page.waitForRequest(
+    (r) => r.url().endsWith('/api/settings') && r.method() === 'POST',
+  );
+  await page.getByLabel('Minimum Refresh Interval (minutes):', { exact: true }).fill('19');
+  await sending;
+  await expect(page.getByText(/^(Saving.*|Changes saved\.)$/)).toHaveCount(0);
+  finishSave();
+  await expect
+    .poll(
+      async () =>
+        (await (await request.get('/api/settings')).json()).minimum_refresh_interval_minutes,
+    )
+    .toBe(19);
+  await expect(page.getByText('Changes saved.', { exact: true })).toHaveCount(0);
+  await page.reload();
+  await expect(page.getByLabel('Minimum Refresh Interval (minutes):', { exact: true })).toHaveValue(
+    '19',
+  );
 });

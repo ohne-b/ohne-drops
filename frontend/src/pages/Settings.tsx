@@ -60,7 +60,7 @@ function Access({ initial, disabled }: { initial: AuthStatus; disabled: boolean 
       setConfirm('');
       setDisableDialog(false);
       window.dispatchEvent(new Event('auth-updated'));
-    }, t('saved'));
+    });
   }
   return (
     <Section id="access" title={t('gui.auth.title')} help={t('gui.auth.help')}>
@@ -477,17 +477,6 @@ function SettingsContent({ settings, auth }: { settings: SettingsData; auth: Aut
             <ActionResult action={proxyAction} />
           </Section>
           <div className="space-y-2" aria-live="polite">
-            <p className="muted" role="status">
-              {t(
-                autosave.error
-                  ? 'unsaved'
-                  : autosave.busy || autosave.pending
-                    ? 'saving'
-                    : autosave.success
-                      ? 'saved'
-                      : 'autosave_help',
-              )}
-            </p>
             {autosave.error && (
               <Notice error>
                 {t(autosave.error)}{' '}

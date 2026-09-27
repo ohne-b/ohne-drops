@@ -151,7 +151,6 @@
             "interface": "Interface",
             "loading": "Loading…",
             "saving": "Saving…",
-            "saved": "Changes saved.",
             "cancel": "Cancel",
             "close": "Close",
             "retry": "Try again",

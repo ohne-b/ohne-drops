@@ -16,7 +16,6 @@ export function useAutosave(
   const [changes, setChanges] = useState<Changes>({});
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
-  const [success, setSuccess] = useState(false);
   const pending = Object.keys(changes).length > 0;
 
   function change<K extends keyof Changes>(
@@ -31,7 +30,6 @@ export function useAutosave(
     };
     setChanges(queued.current);
     setError('');
-    setSuccess(false);
   }
 
   async function save(refresh = false) {
@@ -68,7 +66,6 @@ export function useAutosave(
         ),
       );
       setChanges(queued.current);
-      setSuccess(true);
     } catch (failure) {
       setError(
         failure instanceof ApiError && failure.status === 409
@@ -102,7 +99,6 @@ export function useAutosave(
     busy,
     pending,
     error,
-    success,
     retry: () => save(true),
   };
 }
