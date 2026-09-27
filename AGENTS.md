@@ -19,6 +19,8 @@ the alternate agent instruction files; do not recreate copies or links.
 - Add backend unit/regression tests; cover frontend changes where practical. Always update
   README and this harness when behavior/architecture changes. Update English messages for UI
   or console changes. There are no other locales or language settings.
+- Keep user guidance in README and contributor policy in CONTRIBUTING. Do not create
+  `docs/`, `plans/` or repository planning documents.
 
 ## Architecture
 
