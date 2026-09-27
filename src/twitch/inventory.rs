@@ -28,6 +28,9 @@ impl TwitchClient {
             })
             .collect();
         let mut account = records(&inventory["dropCampaignsInProgress"]);
+        let account_complete = inventory["dropCampaignsInProgress"]
+            .as_array()
+            .is_some_and(|records| records.len() == account.len());
         let response = match self.gql(Operation::Campaigns.request(json!({}))).await {
             Ok(response) => response,
             Err(error @ (TwitchError::Unauthorized | TwitchError::Cancelled)) => return Err(error),
@@ -36,6 +39,12 @@ impl TwitchClient {
         let catalog = response
             .pointer("/data/currentUser/dropCampaigns")
             .and_then(Value::as_array);
+        let catalog_complete = catalog.is_some_and(|entries| {
+            entries.iter().all(|entry| {
+                entry["id"].as_str().is_some_and(|id| !id.is_empty())
+                    && entry["status"].as_str().is_some_and(|s| !s.is_empty())
+            })
+        });
         let summaries: BTreeMap<String, Value> = catalog
             .into_iter()
             .flatten()
@@ -92,7 +101,9 @@ impl TwitchClient {
                     .map(|c| (id.clone(), c))
             })
             .collect();
-        let available = catalog.is_some()
+        let available = account_complete
+            && account.len() == campaigns.len()
+            && catalog_complete
             && summaries
                 .keys()
                 .all(|id| fetched.contains(id) && campaigns.contains_key(id));
@@ -178,12 +189,35 @@ mod tests {
             "details_null",
             "catalog_error",
             "details_error",
+            "invalid_account_record",
+            "missing_account_id",
+            "null_inventory",
+            "null_catalog_entry",
+            "malformed_catalog_entry",
         ] {
             let server = MockServer::start().await;
             gql_mock(&server, move |q| match q["operationName"].as_str().unwrap() {
-                "Inventory" => json!({"data":{"currentUser":{"inventory":{"dropCampaignsInProgress":[campaign_json("owned")],"gameEventDrops":[]}}}}),
+                "Inventory" => {
+                    let mut invalid = campaign_json("invalid");
+                    invalid["game"] = Value::Null;
+                    let account = match mode {
+                        "invalid_account_record" => json!([campaign_json("owned"), invalid]),
+                        "missing_account_id" => json!([campaign_json("owned"), {"id":null}]),
+                        "null_inventory" => Value::Null,
+                        _ => json!([campaign_json("owned")]),
+                    };
+                    json!({"data":{"currentUser":{"inventory":{"dropCampaignsInProgress":account,"gameEventDrops":[]}}}})
+                },
                 "ViewerDropsDashboard" if mode == "catalog_error" => json!({"errors":[{"message":"unknown error"}]}),
-                "ViewerDropsDashboard" => json!({"data":{"currentUser":{"dropCampaigns":match mode {"empty" => json!([]), "null" => Value::Null, _ => json!([campaign_json("owned"),campaign_json("new")])}}}}),
+                "ViewerDropsDashboard" => json!({"data":{"currentUser":{"dropCampaigns":match mode {
+                    "empty" | "invalid_account_record" | "missing_account_id" => json!([]),
+                    "null_inventory" => json!([campaign_json("owned")]),
+                    "null_catalog_entry" => json!([null]),
+                    "malformed_catalog_entry" => json!([{"status":"ACTIVE","id":null}]),
+                    "null" => Value::Null,
+                    _ => json!([campaign_json("owned"),campaign_json("new")])
+                }}}}),
+                "DropCampaignDetails" if mode == "null_inventory" => json!({"data":{"user":{"dropCampaign":campaign_json("owned")}}}),
                 "DropCampaignDetails" if mode == "details_error" => json!({"errors":[{"message":"unknown error"}]}),
                 "DropCampaignDetails" => json!({"data":{"user":{"dropCampaign":null}}}),
                 other => panic!("unexpected discovery operation {other}"),
