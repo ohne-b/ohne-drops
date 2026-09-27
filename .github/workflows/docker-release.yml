@@ -39,7 +39,6 @@ jobs:
         env:
           RELEASE_VERSION: ${{ inputs.version }}
           GH_TOKEN: ${{ github.token }}
-          DOCKERHUB_IMAGE: ${{ vars.DOCKERHUB_IMAGE }}
         run: |
           node .github/scripts/release.mjs verify "$RELEASE_VERSION"
           remote_main=$(git ls-remote origin refs/heads/main)
@@ -65,15 +64,6 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: printf '%s' "$GH_TOKEN" | docker login ghcr.io -u "$GITHUB_ACTOR" --password-stdin
-      - name: Authenticate to Docker Hub when configured
-        if: vars.DOCKERHUB_IMAGE != ''
-        env:
-          DOCKERHUB_USERNAME: ${{ vars.DOCKERHUB_USERNAME }}
-          DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
-        run: |
-          : "${DOCKERHUB_USERNAME:?Set the DOCKERHUB_USERNAME repository variable}"
-          : "${DOCKERHUB_TOKEN:?Set the DOCKERHUB_TOKEN repository secret}"
-          printf '%s' "$DOCKERHUB_TOKEN" | docker login docker.io -u "$DOCKERHUB_USERNAME" --password-stdin
       - uses: docker/build-push-action@53b7df96c91f9c12dcc8a07bcb9ccacbed38856a # v7.3.0
         with:
           context: .
@@ -95,7 +85,7 @@ jobs:
         run: |
           # Upload to a draft first: the public release must never lack latest.json.
           gh release create "v${RELEASE_VERSION}" --target "$GITHUB_SHA" --draft \
-            --title "Twitch miner v${RELEASE_VERSION}" --notes-file dist/release/notes.md \
+            --title "OhneDrops v${RELEASE_VERSION}" --notes-file dist/release/notes.md \
             dist/release/latest.json
           gh release download "v${RELEASE_VERSION}" --pattern latest.json --dir dist/verify
           cmp dist/release/latest.json dist/verify/latest.json
@@ -104,7 +94,5 @@ jobs:
           else
             gh release edit "v${RELEASE_VERSION}" --draft=false --latest
             # Never advertise a stable image before its release and manifest are public.
-            while IFS= read -r image; do
-              docker buildx imagetools create --tag "${image%:*}:latest" "$image"
-            done <<< "$IMAGE_TAGS"
+            docker buildx imagetools create --tag "${IMAGE_TAGS%:*}:latest" "$IMAGE_TAGS"
           fi
