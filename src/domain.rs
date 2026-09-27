@@ -24,11 +24,17 @@ pub fn number(value: &Value) -> Option<u64> {
 }
 
 fn timestamp(value: &Value, key: &str) -> Result<DateTime<Utc>, InvalidData> {
-    value[key]
+    let at: DateTime<Utc> = value[key]
         .as_str()
         .ok_or(InvalidData)?
         .parse()
-        .map_err(|_| InvalidData)
+        .map_err(|_| InvalidData)?;
+    // Every campaign/drop date must support scheduling lead time and claim grace.
+    at.checked_sub_signed(Duration::hours(1))
+        .ok_or(InvalidData)?;
+    at.checked_add_signed(Duration::hours(24))
+        .ok_or(InvalidData)?;
+    Ok(at)
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -304,7 +310,6 @@ pub struct Campaign {
     pub ends_at: DateTime<Utc>,
     pub valid: bool,
     pub allowed_channels: Vec<ChannelIdentity>,
-    pub discovery_channels: Option<Vec<ChannelIdentity>>,
     pub drops: Vec<Drop>,
 }
 
@@ -354,10 +359,6 @@ impl Campaign {
             } else {
                 channel_list(&value["allow"]["channels"])?
             },
-            discovery_channels: value
-                .get("discovery_channels")
-                .map(channel_list)
-                .transpose()?,
             drops,
         })
     }
@@ -424,10 +425,6 @@ impl Campaign {
                 .allowed_channels
                 .iter()
                 .any(|c| c.id == channel.identity.id))
-            && self
-                .discovery_channels
-                .as_ref()
-                .is_none_or(|list| list.iter().any(|c| c.id == channel.identity.id))
             && (ignore_channel_status
                 || channel.game.as_ref().is_some_and(|g| g.id == self.game.id)
                 || channel.online() && self.game.special() && !self.allowed_channels.is_empty())
@@ -711,6 +708,31 @@ mod tests {
     }
 
     #[test]
+    fn campaign_and_drop_dates_leave_room_for_scheduling_and_claim_deadlines() {
+        for path in [
+            "/startAt",
+            "/endAt",
+            "/timeBasedDrops/0/startAt",
+            "/timeBasedDrops/0/endAt",
+        ] {
+            for at in [DateTime::<Utc>::MIN_UTC, DateTime::<Utc>::MAX_UTC] {
+                let mut raw = raw_campaign(vec![raw_drop("coat", &[])]);
+                *raw.pointer_mut(path).unwrap() = json!(at.to_rfc3339());
+                assert!(
+                    Campaign::parse(&raw, &HashMap::new(), now()).is_err(),
+                    "{path}: {at}"
+                );
+            }
+        }
+        let mut raw = raw_campaign(vec![raw_drop("coat", &[])]);
+        raw["startAt"] = json!((DateTime::<Utc>::MIN_UTC + Duration::hours(1)).to_rfc3339());
+        raw["endAt"] = json!((DateTime::<Utc>::MAX_UTC - Duration::hours(24)).to_rfc3339());
+        let mut campaign = Campaign::parse(&raw, &HashMap::new(), now()).unwrap();
+        campaign.drops[0].claim_id = Some("instance".into());
+        assert!(campaign.drops[0].can_claim(campaign.ends_at, now()));
+    }
+
+    #[test]
     fn claims_are_independent_of_selection_ignore_and_expiry_until_strict_grace_end() {
         let mut c = campaign(vec![raw_drop("coat", &[])]);
         c.drops[0].claim_id = Some("instance".into());
@@ -843,9 +865,6 @@ mod tests {
         assert!(!c.can_watch(&stream, &settings, now()));
         assert!(c.channel_eligible(&stream, true));
         stream = channel();
-        c.discovery_channels = Some(vec![]);
-        assert!(!c.can_watch(&stream, &settings, now()));
-        c.discovery_channels = Some(vec![stream.identity.clone()]);
         c.allowed_channels.clear();
         assert!(!c.can_watch(&stream, &settings, now()));
         raw["allow"]["isEnabled"] = false.into();

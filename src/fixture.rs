@@ -71,6 +71,15 @@ async fn reset(State(app): State<Arc<App>>) -> Result<Json<Value>, crate::web::A
     Ok(Json(json!({"ok":true})))
 }
 async fn event(State(app): State<Arc<App>>, Json(body): Json<Event>) -> Json<Value> {
+    if body.event == "inventory_refresh"
+        && let Ok(refresh) =
+            serde_json::from_value::<crate::dto::InventoryRefresh>(body.data.clone())
+    {
+        let mut state = app.snapshot.write().await;
+        if refresh.sequence >= state.inventory_refresh.sequence {
+            state.inventory_refresh = refresh;
+        }
+    }
     app.sockets.emit(&body.event, &body.data).await;
     Json(json!({"ok":true}))
 }

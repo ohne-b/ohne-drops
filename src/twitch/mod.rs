@@ -1,3 +1,4 @@
+mod catalog;
 pub mod channels;
 pub mod inventory;
 pub mod oauth;
@@ -56,6 +57,7 @@ pub(crate) struct Endpoints {
     pub tv: Url,
     pub web: Url,
     pub pubsub: Url,
+    pub catalog: Url,
 }
 impl Default for Endpoints {
     fn default() -> Self {
@@ -65,6 +67,7 @@ impl Default for Endpoints {
             tv: Url::parse(CLIENT_ORIGIN).unwrap(),
             web: Url::parse("https://www.twitch.tv/").unwrap(),
             pubsub: Url::parse("wss://pubsub-edge.twitch.tv/v1").unwrap(),
+            catalog: Url::parse("https://twitch-drops-api.sunkwi.com/v2/drops").unwrap(),
         }
     }
 }
@@ -79,6 +82,7 @@ impl Endpoints {
             oauth: base.clone(),
             gql: base.join("gql").unwrap(),
             tv: base.join("tv").unwrap(),
+            catalog: base.join("catalog").unwrap(),
             web: base,
             pubsub,
         }
@@ -88,6 +92,7 @@ impl Endpoints {
 #[derive(Clone)]
 pub struct TwitchHttp {
     pub(crate) client: reqwest::Client,
+    catalog_client: reqwest::Client,
     pub(crate) endpoints: Endpoints,
     jar: Arc<Jar>,
     pub device_id: String,
@@ -133,22 +138,33 @@ impl TwitchHttp {
             ),
         ]);
         let quality = u64::from(settings.connection_quality.clamp(1, 6));
-        let mut builder = reqwest::Client::builder()
-            .no_proxy()
-            .redirect(reqwest::redirect::Policy::none())
+        let builder = || {
+            let mut builder = reqwest::Client::builder()
+                .no_proxy()
+                .redirect(reqwest::redirect::Policy::none())
+                .pool_max_idle_per_host(50)
+                .connect_timeout(Duration::from_secs(5 * quality))
+                .timeout(Duration::from_secs(10 * quality));
+            if !settings.proxy.is_empty() {
+                builder = builder.proxy(
+                    reqwest::Proxy::all(&settings.proxy).map_err(|_| TwitchError::Configuration)?,
+                );
+            }
+            Ok::<_, TwitchError>(builder)
+        };
+        let client = builder()?
             .cookie_provider(jar.clone())
             .default_headers(headers)
-            .pool_max_idle_per_host(50)
-            .connect_timeout(Duration::from_secs(5 * quality))
-            .timeout(Duration::from_secs(10 * quality));
-        if !settings.proxy.is_empty() {
-            builder = builder.proxy(
-                reqwest::Proxy::all(&settings.proxy).map_err(|_| TwitchError::Configuration)?,
-            );
-        }
-        let client = builder.build().map_err(|_| TwitchError::Configuration)?;
+            .build()
+            .map_err(|_| TwitchError::Configuration)?;
+        // Public metadata must never share Twitch headers, identifiers or cookies.
+        let catalog_client = builder()?
+            .user_agent(concat!("TwitchDropsMiner/", env!("CARGO_PKG_VERSION")))
+            .build()
+            .map_err(|_| TwitchError::Configuration)?;
         Ok(Self {
             client,
+            catalog_client,
             endpoints,
             jar,
             device_id,
@@ -219,12 +235,21 @@ impl TwitchHttp {
         request: reqwest::RequestBuilder,
         retry: bool,
     ) -> Result<http::Response<Vec<u8>>, TwitchError> {
+        self.execute_with(&self.client, request, retry).await
+    }
+
+    async fn execute_with(
+        &self,
+        client: &reqwest::Client,
+        request: reqwest::RequestBuilder,
+        retry: bool,
+    ) -> Result<http::Response<Vec<u8>>, TwitchError> {
         let request = request.build().map_err(|_| TwitchError::Configuration)?;
         for attempt in 0..5 {
             let sending = request.try_clone().ok_or(TwitchError::Configuration)?;
             let result = tokio::select! { biased;
                 _=self.cancel.cancelled()=>return Err(TwitchError::Cancelled),
-                result=self.client.execute(sending)=>result,
+                result=client.execute(sending)=>result,
             };
             let response = match result {
                 Ok(response) => response,

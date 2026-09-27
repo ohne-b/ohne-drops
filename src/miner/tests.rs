@@ -63,6 +63,142 @@ async fn finish_job(mining: &mut Mining, pool: &PubSub) {
 }
 
 #[tokio::test]
+async fn refresh_finishes_after_publication_and_partial_or_failed_requests_keep_known_campaigns() {
+    let server = MockServer::start().await;
+    gql_mock(&server, |q| match q["operationName"].as_str().unwrap() {
+        "Inventory" => json!({"data":{"currentUser":{"inventory":{"dropCampaignsInProgress":[campaign_json("one")],"gameEventDrops":[]}}}}),
+        other => panic!("unexpected operation {other}"),
+    }).await;
+    let (_dir, mut miner, intent, mut pool) = miner(&server).await;
+    intent.send_modify(|v| v.refresh += 1);
+    miner.apply_intent(&pool).await;
+    miner.schedule(&Settings::default()).await;
+    assert_eq!(
+        miner.app.snapshot.read().await.inventory_refresh.state,
+        RefreshState::Refreshing
+    );
+    intent.send_modify(|v| v.refresh += 1);
+    miner.apply_intent(&pool).await;
+    assert!(
+        !miner.refresh,
+        "a repeated request should join the in-flight inventory job"
+    );
+    finish_job(&mut miner, &pool).await;
+    {
+        let state = miner.app.snapshot.read().await;
+        assert_eq!(state.inventory_refresh.state, RefreshState::Refreshed);
+        assert!(state.campaigns.iter().any(|c| c.id == "one"));
+    }
+    let (sequence, _) = miner.app.begin_inventory_refresh().await;
+    miner
+        .complete(
+            Job::Inventory {
+                result: Ok(Inventory {
+                    campaigns: vec![],
+                    status: InventoryStatus {
+                        available: false,
+                        checked_at: Some(Utc::now()),
+                        catalog_updated_at: None,
+                    },
+                    awards: HashMap::new(),
+                }),
+                requested_at: Utc::now(),
+                refresh_sequence: sequence,
+            },
+            &pool,
+        )
+        .await
+        .unwrap();
+    assert_eq!(
+        miner.app.snapshot.read().await.inventory_refresh.state,
+        RefreshState::Failed
+    );
+    assert_eq!(
+        miner.campaigns.len(),
+        1,
+        "partial responses must not erase still-active metadata"
+    );
+    let (sequence, _) = miner.app.begin_inventory_refresh().await;
+    miner
+        .complete(
+            Job::Inventory {
+                result: Err(TwitchError::Network),
+                requested_at: Utc::now(),
+                refresh_sequence: sequence,
+            },
+            &pool,
+        )
+        .await
+        .unwrap();
+    assert_eq!(
+        miner.app.snapshot.read().await.inventory_refresh.state,
+        RefreshState::Failed
+    );
+    assert_eq!(miner.campaigns.len(), 1);
+    let (sequence, _) = miner.app.begin_inventory_refresh().await;
+    miner
+        .complete(
+            Job::Inventory {
+                result: Ok(Inventory {
+                    campaigns: vec![],
+                    status: InventoryStatus {
+                        available: true,
+                        checked_at: Some(Utc::now()),
+                        catalog_updated_at: None,
+                    },
+                    awards: HashMap::new(),
+                }),
+                requested_at: Utc::now(),
+                refresh_sequence: sequence,
+            },
+            &pool,
+        )
+        .await
+        .unwrap();
+    assert!(
+        miner.campaigns.is_empty(),
+        "a complete empty result is authoritative"
+    );
+    let (sequence, _) = miner.app.begin_inventory_refresh().await;
+    reset_session(&miner.app).await;
+    miner.app.finish_inventory_refresh(sequence, None).await;
+    assert_eq!(
+        miner.app.snapshot.read().await.inventory_refresh.state,
+        RefreshState::Idle
+    );
+    pool.close().await;
+}
+
+#[tokio::test(start_paused = true)]
+async fn unknown_progress_requests_inventory_without_fabricating_rewards_or_repeated_scans() {
+    let server = MockServer::start().await;
+    let (_dir, mut miner, _intent, mut pool) = miner(&server).await;
+    miner
+        .event(Event::Progress {
+            id: "unknown".into(),
+            minutes: 1,
+        })
+        .await
+        .unwrap();
+    assert!(miner.refresh);
+    assert!(miner.last_progress.is_none());
+    assert_eq!(miner.campaigns[0].drops[0].confirmed_minutes, 12);
+    miner.refresh = false;
+    miner
+        .event(Event::Progress {
+            id: "another-unknown".into(),
+            minutes: 2,
+        })
+        .await
+        .unwrap();
+    assert!(!miner.refresh);
+    tokio::time::advance(Duration::from_secs(60)).await;
+    assert!(!miner.confirm("unknown", 3));
+    assert!(miner.refresh);
+    pool.close().await;
+}
+
+#[tokio::test]
 async fn only_selected_games_send_beacons_and_inventory_io_does_not_block_watch_cadence() {
     let server = MockServer::start().await;
     Mock::given(method("GET"))
@@ -288,6 +424,7 @@ async fn inventory_refresh_cannot_replace_progress_confirmed_after_the_request_s
     miner
         .complete(
             Job::Inventory {
+                refresh_sequence: 0,
                 result: Ok(inventory),
                 requested_at: before,
             },
@@ -373,8 +510,6 @@ async fn published_channels_use_mining_eligibility_including_real_special_acls()
     unrelated.game.as_mut().unwrap().name = "Other game".into();
     unrelated.acl_based = true;
     miner.channels.push(unrelated.clone());
-    miner.campaigns[0].discovery_channels =
-        Some(miner.channels.iter().map(|c| c.identity.clone()).collect());
     miner.publish(&settings).await.unwrap();
     assert_eq!(
         miner
@@ -444,17 +579,14 @@ async fn channel_changes_refresh_during_slow_inventory_and_viewers_only_update_t
     pool.close().await;
 }
 
-fn external_channel(miner: &Mining) -> ResolvedChannel {
+fn external_channel(miner: &Mining) -> Channel {
     let mut channel = miner.channels[0].clone();
     channel.identity = ChannelIdentity {
         id: 999,
         login: "extra_streamer".into(),
         name: "Extra Streamer".into(),
     };
-    ResolvedChannel {
-        channel,
-        campaigns: HashSet::from(["one".into()]),
-    }
+    channel
 }
 
 #[tokio::test]
@@ -533,7 +665,7 @@ async fn renewal_keeps_pending_requests_and_restores_confirmed_channel_after_fai
         .unwrap();
     let saved = miner.resume();
     assert_eq!(
-        saved.channel.as_ref().unwrap().channel.identity.login,
+        saved.channel.as_ref().unwrap().identity.login,
         "extra_streamer"
     );
     assert!(saved.lookup.is_none());
@@ -646,7 +778,6 @@ async fn manual_channel_preserves_settings_and_survives_catalog_rebuilds() {
         .settings
         .values
         .minimum_refresh_interval_minutes = 17;
-    miner.campaigns[0].discovery_channels = Some(vec![miner.channels[0].identity.clone()]);
     let inventory = miner.campaigns.clone();
     let requested_at = Instant::now();
     intent.send_modify(|v| {
@@ -686,6 +817,7 @@ async fn manual_channel_preserves_settings_and_survives_catalog_rebuilds() {
     miner
         .complete(
             Job::Inventory {
+                refresh_sequence: 0,
                 requested_at: Utc::now(),
                 result: Ok(Inventory {
                     campaigns: inventory,
@@ -710,7 +842,7 @@ async fn manual_lookup_rejects_offline_and_stale_results_but_does_not_require_el
     let (_dir, mut miner, intent, mut pool) = miner(&server).await;
     let requested_at = Instant::now();
     let mut offline = external_channel(&miner);
-    offline.channel.broadcast_id = None;
+    offline.broadcast_id = None;
     assert_eq!(
         miner.finish_manual(Ok(Some(offline)), requested_at, None),
         Some("gui.channels.offline")
@@ -730,8 +862,7 @@ async fn manual_lookup_rejects_offline_and_stale_results_but_does_not_require_el
         .unwrap();
     assert!(miner.manual.is_none());
     assert_eq!(miner.channels.len(), 1);
-    let mut resolved = external_channel(&miner);
-    resolved.channel = miner.channels[0].clone();
+    let resolved = miner.channels[0].clone();
     miner.event(Event::Offline(10)).await.unwrap();
     assert_eq!(
         miner.finish_manual(Ok(Some(resolved)), requested_at, None),
@@ -748,10 +879,9 @@ async fn manual_lookup_rejects_offline_and_stale_results_but_does_not_require_el
             ..Settings::default()
         };
         let mut resolved = external_channel(&miner);
-        resolved.channel.broadcast_id = Some("manual-live".into());
-        resolved.channel.game = None;
-        resolved.channel.drops_enabled = false;
-        resolved.campaigns.clear();
+        resolved.broadcast_id = Some("manual-live".into());
+        resolved.game = None;
+        resolved.drops_enabled = false;
         assert_eq!(
             miner.finish_manual(Ok(Some(resolved)), Instant::now(), None),
             None
@@ -784,9 +914,8 @@ async fn manual_unknown_stream_sends_beacons_without_catalog_or_selection_and_st
         .await;
     let (_dir, mut miner, intent, mut pool) = miner(&server).await;
     let mut resolved = external_channel(&miner);
-    resolved.channel.drops_enabled = false;
-    resolved.channel.game = None;
-    resolved.campaigns.clear();
+    resolved.drops_enabled = false;
+    resolved.game = None;
     miner.campaigns.clear();
     intent.send_modify(|v| {
         v.manual_revision = 1;
@@ -842,8 +971,8 @@ async fn manual_timer_survives_renewal_and_expiry_restores_auto_without_replayin
     let settings = select(&mut miner).await;
     tokio::time::pause();
     let mut resolved = external_channel(&miner);
-    resolved.channel.game = None;
-    resolved.channel.drops_enabled = false;
+    resolved.game = None;
+    resolved.drops_enabled = false;
     intent.send_modify(|v| {
         v.manual_revision = 1;
         v.channel_login = Some("extra_streamer".into());
@@ -875,13 +1004,13 @@ async fn manual_timer_survives_renewal_and_expiry_restores_auto_without_replayin
         .complete(
             Job::Update {
                 requested_at: Instant::now(),
-                result: Ok(vec![resolved.channel.clone()]),
+                result: Ok(vec![resolved.clone()]),
             },
             &pool,
         )
         .await
         .unwrap();
-    let mut automatic = resolved.channel;
+    let mut automatic = resolved;
     automatic.identity.id = 10;
     automatic.game = Some(miner.campaigns[0].game.clone());
     automatic.drops_enabled = true;
@@ -1201,6 +1330,7 @@ async fn claim_ready_event_survives_an_older_inventory_request() {
     miner
         .complete(
             Job::Inventory {
+                refresh_sequence: 0,
                 result: Ok(inventory),
                 requested_at,
             },
@@ -1456,7 +1586,6 @@ async fn hourly_token_validation_preserves_manual_choice() {
         .await;
     gql_mock(&server,|q|match q["operationName"].as_str().unwrap(){
         "Inventory"=>json!({"data":{"currentUser":{"inventory":{"dropCampaignsInProgress":[campaign_json("one")],"gameEventDrops":[]}}}}),
-        "ViewerDropsDashboard"=>json!({"data":{"currentUser":{"dropCampaigns":[]}}}),
         "DirectoryPage_Game"=>json!({"data":{"game":{"streams":{"edges":[
             {"node":{"id":"b1","broadcaster":{"id":"10","login":"first","displayName":"First"},"game":{"id":"1","name":"Rust"},"viewersCount":100}},
             {"node":{"id":"b2","broadcaster":{"id":"11","login":"second","displayName":"Second"},"game":{"id":"1","name":"Rust"},"viewersCount":50}}
@@ -1801,7 +1930,6 @@ async fn channel_choice_during_hourly_reload_is_retained_until_channels_are_read
         let body: serde_json::Value = request.body_json().unwrap();
         let handler = |q: &serde_json::Value| match q["operationName"].as_str().unwrap() {
             "Inventory" => json!({"data":{"currentUser":{"inventory":{"dropCampaignsInProgress":[campaign_json("one")],"gameEventDrops":[]}}}}),
-            "ViewerDropsDashboard" => json!({"data":{"currentUser":{"dropCampaigns":[]}}}),
             "DirectoryPage_Game" => json!({"data":{"game":{"streams":{"edges":[
                 {"node":{"id":"b1","broadcaster":{"id":"10","login":"first","displayName":"First"},"game":{"id":"1","name":"Rust"},"viewersCount":100}},
                 {"node":{"id":"b2","broadcaster":{"id":"11","login":"second","displayName":"Second"},"game":{"id":"1","name":"Rust"},"viewersCount":50}}

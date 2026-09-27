@@ -37,7 +37,7 @@ Do not add forwarding hierarchies or speculative traits with one implementation.
 | `domain.rs`, `policy.rs` | Campaign/drop/channel eligibility and dependency-aware ignores |
 | `store.rs` | Exclusive data directory, atomic settings/history/archive/claim journal |
 | `auth.rs`, `origin.rs` | Dashboard passwords/sessions, origin and cookie policy |
-| `twitch/` | OAuth, bounded HTTP/GQL, inventory recovery, beacon watch, PubSub shards |
+| `twitch/` | OAuth, bounded HTTP/GQL, inventory/catalog, beacon watch, PubSub shards |
 | `miner.rs` | Session supervisor and owned mining jobs, scheduling and reconciliation |
 | `web/` | Axum HTTP, Socketioxide, protected snapshots and embedded frontend |
 | `fixture.rs`, `bin/dashboard-fixture.rs` | Feature-gated offline browser fixture |
@@ -61,16 +61,25 @@ embed it and run without a build tool/runtime companion. Production builds never
   claimed; expiry alone never qualifies. Persistent completion archives are display-only,
   survive cache clears, and can be invalidated by newer contradictory account evidence or
   changed rewards. Older claim-only history remains completion-unverified.
-- Inventory/details win over metadata recovery as whole records. Preserve independent
-  in-progress records when details are null. Valid empty catalogs never trigger recovery.
-  With a valid catalog, recovery is restricted to its active/upcoming IDs.
-- Recovery uses authenticated `viewerDropCampaigns` without `self` edges: at most 500
-  categories × 3 streams, 100 known/saved slugs, and 60 seconds. Propagate logout/auth failures.
-  Skip nullable neighbors individually. Partial coverage stays partial; no false diagnostics
-  that relogin, cache clearing or client substitution repairs an upstream catalog restriction.
+- Fetch Twitch account Inventory and `https://twitch-drops-api.sunkwi.com/v2/drops` concurrently.
+  SunkwiBOT is the catalog source; remove Twitch catalog/detail operations and live-channel
+  campaign scans. Inventory wins as whole records, including explicit unclaimed evidence;
+  malformed account records must not fall back to public account assumptions. Public HTTP
+  uses an isolated client with no Twitch credentials, cookies or identifiers, no redirects,
+  the configured proxy/timeouts, and bounded retries within 30 seconds. Cap bodies at 16 MiB
+  and campaigns at 2000. Reject timestamps older than 30 minutes or over 5 minutes ahead.
+  Strip public campaign/drop `self` records; preserve real ACLs, dependencies and timing.
+  Reject mixed-null enabled ACLs. Shared domain parsing rejects campaign/drop dates without
+  room for the scheduler's one-hour lead and the claim journal's 24-hour grace period.
+  Missing restrictions/dependencies, malformed/null entries and duplicate IDs are partial,
+  not empty success. Keep known active/upcoming records on partial refresh; valid empty
+  feeds are authoritative. A feed 401/403 never logs out Twitch; Twitch auth/cancellation
+  failures propagate. Coverage can vary, and restarts need the feed for non-inventory
+  campaigns. Never claim relogin/cache clearing repairs feed coverage. Unknown
+  PubSub/CurrentDrop progress queues inventory refresh at most once per minute.
 - Unknown linkage is null and unknown progress has no confirmed timestamp. Infer claims from
   awards only when every benefit has evidence in the drop's time window and no explicit
-  account record contradicts it. Recovered channels constrain eligibility but are not a real ACL.
+  account record contradicts it.
 - Special Events (`509663`) and IRL (`509672`) cross categories only with a nonempty enabled
   actual ACL. Automatic drops need matching category and drops-enabled status; all need live
   channels, selected games and eligible rewards. Offline/ineligible streams yield even at tied
@@ -85,8 +94,8 @@ embed it and run without a build tool/runtime companion. Production builds never
   missing/failed metadata never blocks watching, but auth/cancellation still propagates.
   Show a known manual reward only after Twitch reports it; do not estimate manual rewards.
   Preserve pending lookups and the confirmed channel separately across network generations;
-  late/superseded results cannot restore manual mode. Recovery evidence never overrides real
-  ACLs or account records. Pending stream refresh pauses watching; retry failed refreshes.
+  late/superseded results cannot restore manual mode. Manual stream metadata never overrides
+  real ACLs or account records. Pending stream refresh pauses watching; retry failed refreshes.
   An optional 1..1440-minute timer uses a monotonic deadline starting at selection, survives
   network renewal/browser reconnect, and returns to automatic selection at expiry. Offline
   manual channels wait without switching targets or stopping the timer. Exit, logout, cache
@@ -151,6 +160,10 @@ embed it and run without a build tool/runtime companion. Production builds never
   Keep expanded channel-entry controls and feedback inside the scrollable list body.
   Channel name/URL and optional timer use accessible input placeholders. Settings autosave
   has no saving/saved notices; preserve errors, edits and Retry.
+- Overview and Maintenance share inventory refresh feedback inside the button. Track queued
+  and running work through publication, coalesce requests, preserve state on reconnect and
+  ignore stale completion events. An acknowledgement is not completion. Keep request errors
+  and partial-catalog failures retryable without clearing previous results or adding notices.
 - History artwork is optional; retain old rows and use matching live benefits as display fallback.
   No Telegram controls/API/credentials in responses and no dashboard updater.
 - Maintenance checks the latest stable release's `latest.json`, compares SemVer precedence

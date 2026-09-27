@@ -4,6 +4,7 @@ import type { AuthStatus, ReleaseInfo, Result, Settings as SettingsData } from '
 import { request, safeUrl } from '../lib/api';
 import { useMiner } from '../lib/state';
 import { GamePriorities } from '../components/GamePriorities';
+import { InventoryRefreshButton } from '../components/InventoryRefreshButton';
 import { plainText, useT } from '../lib/i18n';
 import {
   ActionResult,
@@ -495,14 +496,7 @@ function SettingsContent({ settings, auth }: { settings: SettingsData; auth: Aut
       <Section id="maintenance" title={t('maintenance')}>
         <ReleaseNotice disabled={!connected} />
         <div className="flex flex-wrap gap-2">
-          <Button
-            disabled={!connected || command.busy}
-            onClick={() =>
-              void command.run(() => request('/api/reload', {}), t('refresh_requested'))
-            }
-          >
-            {t('refresh')}
-          </Button>
+          <InventoryRefreshButton />
           <Button
             disabled={!connected || command.busy}
             onClick={() =>
