@@ -10,6 +10,7 @@ test('refresh button tracks completion, failures, stale events and reconnects wi
   request,
 }) => {
   const refresh = page.getByRole('button', { name: 'Refresh inventory', exact: true });
+  await page.evaluate(() => document.fonts.ready);
   const iconCenter = () =>
     page
       .getByRole('button', { name: /^Refresh/ })
@@ -55,6 +56,7 @@ test('refresh button tracks completion, failures, stale events and reconnects wi
   });
   const retry = page.getByRole('button', { name: 'Refresh failed - Retry', exact: true });
   await expect(retry).toBeEnabled();
+  expect(await iconCenter()).toBeCloseTo(idleIconCenter, 1);
   await expect(retry).toHaveAttribute('title', 'The public catalog is unavailable or incomplete.');
   await expect(page.getByRole('alert')).toHaveCount(0);
   await page.screenshot({ path: '../artifacts/refresh-button-failure.png' });
