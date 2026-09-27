@@ -19,6 +19,8 @@ the alternate agent instruction files; do not recreate copies or links.
 - Add backend unit/regression tests; cover frontend changes where practical. Always update
   README and this harness when behavior/architecture changes. Update English messages for UI
   or console changes. There are no other locales or language settings.
+- Keep user guidance in README and contributor policy in CONTRIBUTING. Do not create
+  `docs/`, `plans/` or repository planning documents.
 
 ## Architecture
 
@@ -158,12 +160,15 @@ embed it and run without a build tool/runtime companion. Production builds never
   and Up next have equal desktop dimensions and internal scrolling; stack on narrow screens and
   preserve access on short windows. Show confirmed values/timestamps without redundant labels.
   Keep expanded channel-entry controls and feedback inside the scrollable list body.
+  Manual lookup has no preparing message; retain the busy/disabled Mine button, inline
+  errors and return-to-auto control while a lookup is pending.
   Channel name/URL and optional timer use accessible input placeholders. Settings autosave
   has no saving/saved notices; preserve errors, edits and Retry.
 - Overview and Maintenance share inventory refresh feedback inside the button. Track queued
   and running work through publication, coalesce requests, preserve state on reconnect and
   ignore stale completion events. An acknowledgement is not completion. Keep request errors
   and partial-catalog failures retryable without clearing previous results or adding notices.
+  Keep the refresh/check icon at the same left-aligned position when the label changes.
 - History artwork is optional; retain old rows and use matching live benefits as display fallback.
   No Telegram controls/API/credentials in responses and no dashboard updater.
 - Maintenance checks the latest stable release's `latest.json`, compares SemVer precedence
@@ -184,7 +189,8 @@ Never use live credentials, a live miner or real notifications for automated che
 
 CI requires Rust fmt/Clippy/tests, frontend format/type/build/unit/browser/axe, automation
 contracts, version/lock agreement, and amd64/arm64 production image builds plus isolated health.
-Keep the project's MIT license in `LICENSE` and the full upstream license in `NOTICE.md`;
+Keep the project's PolyForm Strict 1.0.0 license in `LICENSE` and the full upstream MIT
+license in `NOTICE.md`; third-party components retain their original licenses;
 include both with frontend asset notices in production images. Preserve 1000:1000 ownership,
 mounts and port. Health does not prove earning.
 
