@@ -28,8 +28,8 @@ RUN case "${TARGETARCH:-amd64}" in \
       *) echo "Unsupported architecture" >&2; exit 1 ;; \
     esac \
     && rustup target add "$target" \
-    && cargo build --release --locked --bin ohne-drops --target "$target" \
-    && cp "target/$target/release/ohne-drops" /ohne-drops
+    && cargo build --release --locked --bin twitch-drops-miner --target "$target" \
+    && cp "target/$target/release/twitch-drops-miner" /twitch-drops-miner
 
 FROM debian:bookworm-slim
 ARG BUILD_DATE
@@ -37,22 +37,22 @@ ARG VCS_REF
 ARG VERSION
 LABEL org.opencontainers.image.created="${BUILD_DATE}" \
       org.opencontainers.image.authors="rangermix, ohne-b" \
-      org.opencontainers.image.source="https://github.com/ohne-b/ohne-drops" \
+      org.opencontainers.image.source="https://github.com/ohne-b/twitch-drops-miner" \
       org.opencontainers.image.version="${VERSION}" \
       org.opencontainers.image.revision="${VCS_REF}" \
       org.opencontainers.image.licenses="MIT" \
-      org.opencontainers.image.title="OhneDrops"
+      org.opencontainers.image.title="Twitch Drops Miner"
 RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates \
     && rm -rf /var/lib/apt/lists/* \
     && mkdir -p /app/data /app/logs \
     && chown 1000:1000 /app/data /app/logs
-COPY --from=build /ohne-drops /usr/local/bin/ohne-drops
-COPY LICENSE NOTICE.md /usr/share/licenses/ohne-drops/
-COPY frontend/public/assets/licenses/ /usr/share/licenses/ohne-drops/dashboard/
+COPY --from=build /twitch-drops-miner /usr/local/bin/twitch-drops-miner
+COPY LICENSE NOTICE.md /usr/share/licenses/twitch-drops-miner/
+COPY frontend/public/assets/licenses/ /usr/share/licenses/twitch-drops-miner/dashboard/
 WORKDIR /app
 ENV HOST=0.0.0.0 PORT=8080 DATA_DIR=/app/data LOG_DIR=/app/logs
 USER 1000:1000
 EXPOSE 8080
 HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
-    CMD ["/usr/local/bin/ohne-drops", "healthcheck"]
-ENTRYPOINT ["/usr/local/bin/ohne-drops"]
+    CMD ["/usr/local/bin/twitch-drops-miner", "healthcheck"]
+ENTRYPOINT ["/usr/local/bin/twitch-drops-miner"]

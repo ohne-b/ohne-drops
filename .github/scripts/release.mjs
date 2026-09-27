@@ -18,11 +18,11 @@ export function validateVersion(version, previous) {
 
 export const isPrerelease = version => semver.prerelease(validateVersion(version)) !== null;
 
-const repository = 'https://github.com/ohne-b/ohne-drops';
+const repository = 'https://github.com/ohne-b/twitch-drops-miner';
 
 export function releaseImages(version) {
   const tag = validateVersion(version).replace('+', '_');
-  return [`ghcr.io/ohne-b/ohne-drops:${tag}`];
+  return [`ghcr.io/ohne-b/twitch-drops-miner:${tag}`];
 }
 
 export function releaseManifest(version) {
@@ -66,8 +66,8 @@ export function readVersion(directory = process.cwd(), locked = true) {
   const metadata = JSON.parse(execFileSync('cargo', args, {
     cwd: directory, encoding: 'utf8', maxBuffer: 16 * 1024 * 1024, stdio: ['ignore', 'pipe', 'pipe'],
   }));
-  const pkg = metadata.packages.find(p => p.name === 'ohne-drops' && metadata.workspace_members.includes(p.id));
-  if (!pkg) throw new Error('The ohne-drops package is missing.');
+  const pkg = metadata.packages.find(p => p.name === 'twitch-drops-miner' && metadata.workspace_members.includes(p.id));
+  if (!pkg) throw new Error('The twitch-drops-miner package is missing.');
   return validateVersion(pkg.version);
 }
 

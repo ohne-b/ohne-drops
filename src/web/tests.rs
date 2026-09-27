@@ -87,6 +87,125 @@ impl Drop for TestApp {
 }
 
 #[tokio::test]
+async fn manual_channel_boundary_requires_login_and_rejects_arbitrary_urls() {
+    let test = TestApp::new("");
+    let headers = [("x-tdm-request", "1")];
+    assert_eq!(
+        test.call(
+            Method::POST,
+            "/api/channels/select",
+            json!({"channel":"streamer"}),
+            "",
+            &headers
+        )
+        .await
+        .0,
+        StatusCode::CONFLICT
+    );
+    test.app.snapshot.write().await.login.user_id = Some(42);
+    for input in [
+        "",
+        "https://evil.test/private",
+        "https://twitch.tv/user/videos",
+        "http://localhost/private",
+    ] {
+        assert_eq!(
+            test.call(
+                Method::POST,
+                "/api/channels/select",
+                json!({"channel":input}),
+                "",
+                &headers
+            )
+            .await
+            .0,
+            StatusCode::BAD_REQUEST
+        );
+    }
+    assert_eq!(
+        test.call(
+            Method::POST,
+            "/api/channels/select",
+            json!({"channel_id":999}),
+            "",
+            &headers
+        )
+        .await
+        .0,
+        StatusCode::NOT_FOUND
+    );
+    assert_eq!(
+        test.call(
+            Method::POST,
+            "/api/channels/select",
+            json!({"channel":"https://www.twitch.tv/streamer"}),
+            "",
+            &headers
+        )
+        .await
+        .0,
+        StatusCode::OK
+    );
+    assert!(test.app.data.settings().unwrap().games_to_watch.is_empty());
+}
+
+#[tokio::test]
+async fn manual_game_commit_rechecks_intent_and_latest_settings_after_waiting_for_an_autosave() {
+    let test = TestApp::new("");
+    for cancel in [false, true] {
+        let permit = test.app.settings_slot.acquire().await.unwrap();
+        let (intent, selected) = tokio::sync::watch::channel(1);
+        let app = test.app.clone();
+        let task = tokio::spawn(async move {
+            app.select_game("Rust", |settings| {
+                *selected.borrow() == 1 && settings.drop_name_blacklist.is_empty()
+            })
+            .await
+        });
+        tokio::task::yield_now().await;
+        assert!(!task.is_finished());
+        if cancel {
+            intent.send_replace(2);
+        } else {
+            test.app
+                .snapshot
+                .write()
+                .await
+                .settings
+                .values
+                .drop_name_blacklist = vec!["reward".into()];
+        }
+        let revision = test.app.snapshot.read().await.settings.revision.clone();
+        drop(permit);
+        let error = match task.await.unwrap() {
+            Ok(_) => panic!("superseded selection committed"),
+            Err(error) => error,
+        };
+        assert_eq!(error.1, "channel_selection_changed");
+        assert!(
+            test.app
+                .snapshot
+                .read()
+                .await
+                .settings
+                .values
+                .games_to_watch
+                .is_empty()
+        );
+        assert_eq!(test.app.snapshot.read().await.settings.revision, revision);
+        assert!(test.app.data.settings().unwrap().games_to_watch.is_empty());
+        test.app
+            .snapshot
+            .write()
+            .await
+            .settings
+            .values
+            .drop_name_blacklist
+            .clear();
+    }
+}
+
+#[tokio::test]
 async fn public_assets_and_spa_allowlist_preserve_private_api_boundaries() {
     let test = TestApp::new("");
     assert_eq!(
@@ -169,7 +288,7 @@ async fn public_assets_and_spa_allowlist_preserve_private_api_boundaries() {
         "public, max-age=31536000, immutable"
     );
     let logo = super::Assets::iter()
-        .find(|name| name.starts_with("assets/ohne-drops-logo-") && name.ends_with(".svg"))
+        .find(|name| name.starts_with("assets/twitch-drops-miner-logo-") && name.ends_with(".svg"))
         .expect("Vite emits the shared logo as a hashed asset");
     let (status, headers, body) = test
         .call(Method::GET, &format!("/{logo}"), Value::Null, "", &[])

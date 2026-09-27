@@ -1,4 +1,8 @@
-use std::{cmp::Reverse, collections::BTreeMap, sync::LazyLock};
+use std::{
+    cmp::Reverse,
+    collections::{BTreeMap, HashSet},
+    sync::LazyLock,
+};
 
 use base64::{Engine, engine::general_purpose::STANDARD};
 use chrono::{DateTime, Duration, Utc};
@@ -25,7 +29,85 @@ static SETTINGS: LazyLock<Regex> = LazyLock::new(|| {
     Regex::new(r#"(?i)src="(https?://[^"\s]+/config/settings\.[0-9a-f]{32}\.js)""#).unwrap()
 });
 
+/// Accept only a Twitch login or a channel root URL, never an arbitrary fetch target.
+pub fn channel_login(input: &str) -> Option<String> {
+    if input.len() > 256 {
+        return None;
+    }
+    let input = input.trim();
+    let login = if input.contains('/') || input.contains(':') {
+        let url = Url::parse(input).ok()?;
+        if !matches!(url.scheme(), "https" | "http")
+            || !matches!(
+                url.host_str(),
+                Some("twitch.tv" | "www.twitch.tv" | "m.twitch.tv")
+            )
+            || !url.username().is_empty()
+            || url.password().is_some()
+            || url.port().is_some()
+            || url.query().is_some()
+            || url.fragment().is_some()
+        {
+            return None;
+        }
+        url.path().trim_matches('/').to_owned()
+    } else {
+        input.trim_start_matches('@').to_owned()
+    };
+    (1..=25).contains(&login.len()).then_some(())?;
+    login
+        .bytes()
+        .all(|b| b.is_ascii_alphanumeric() || b == b'_')
+        .then(|| login.to_ascii_lowercase())
+}
+
+#[derive(Clone)]
+pub struct ResolvedChannel {
+    pub channel: Channel,
+    pub campaigns: HashSet<String>,
+}
+
 impl TwitchClient {
+    pub async fn resolve_channel(
+        &self,
+        login: &str,
+    ) -> Result<Option<ResolvedChannel>, TwitchError> {
+        let login = channel_login(login).ok_or(TwitchError::InvalidResponse)?;
+        let response = self
+            .gql(Operation::StreamInfo.request(json!({"channel":login})))
+            .await?;
+        let user = &response["data"]["user"];
+        if user.is_null() {
+            return Ok(None);
+        }
+        let identity = ChannelIdentity {
+            id: number(&user["id"]).ok_or(TwitchError::InvalidResponse)?,
+            name: user["displayName"]
+                .as_str()
+                .filter(|name| !name.is_empty())
+                .unwrap_or(&login)
+                .to_owned(),
+            login,
+        };
+        let mut channel = Channel::offline(identity, false);
+        update_stream(&mut channel, user);
+        let campaigns = if channel.online() {
+            let response = self
+                .gql(
+                    Operation::AvailableDrops
+                        .request(json!({"channelID":channel.identity.id.to_string()})),
+                )
+                .await?;
+            values(&response["data"]["channel"]["viewerDropCampaigns"])
+                .filter_map(|v| v["id"].as_str().map(str::to_owned))
+                .collect::<HashSet<_>>()
+        } else {
+            HashSet::new()
+        };
+        channel.drops_enabled = !campaigns.is_empty();
+        Ok(Some(ResolvedChannel { channel, campaigns }))
+    }
+
     pub async fn channels(
         &self,
         campaigns: &[Campaign],
@@ -63,6 +145,11 @@ impl TwitchClient {
                 );
             }
         }
+        if let Some(current) = current {
+            channels
+                .entry(current.identity.id)
+                .or_insert_with(|| Channel::offline(current.identity.clone(), current.acl_based));
+        }
         let mut restricted: Vec<_> = channels.into_values().collect();
         // Check the participating lists before trimming: an offline popular game
         // must not hide a live participant farther down its campaign ACL.
@@ -96,9 +183,14 @@ impl TwitchClient {
             updated.beacon_url = current.beacon_url.clone();
         }
         let mut channels: Vec<_> = channels.into_values().collect();
+        let mineable: Vec<_> = campaigns
+            .iter()
+            .filter(|c| c.can_mine(settings, now))
+            .copied()
+            .collect();
         channels.sort_by_key(|c| {
             (
-                game_priority(settings, c.game.as_ref()),
+                channel_priority(c, &mineable, settings),
                 Reverse(c.acl_based),
                 Reverse(c.viewers),
                 c.identity.id,
@@ -106,16 +198,13 @@ impl TwitchClient {
         });
         // Preserve the watched row through a settings rebuild. Eligibility is still
         // checked against the new settings before another beacon can be sent.
-        if let Some(current) = current {
-            if let Some(index) = channels
+        if let Some(current) = current
+            && let Some(index) = channels
                 .iter()
                 .position(|c| c.identity.id == current.identity.id)
-            {
-                let current = channels.remove(index);
-                channels.insert(0, current);
-            } else {
-                channels.insert(0, current.clone());
-            }
+        {
+            let current = channels.remove(index);
+            channels.insert(0, current);
         }
         channels.truncate(MAX_CHANNELS);
         Ok(channels)
@@ -136,31 +225,10 @@ impl TwitchClient {
             let responses = self.batch(queries).await?;
             for (channel, responses) in channels.iter_mut().zip(responses.chunks_exact(2)) {
                 let user = &responses[0]["data"]["user"];
-                let stream = &user["stream"];
-                let broadcast_id = stream["id"]
-                    .as_str()
-                    .filter(|v| !v.is_empty())
-                    .map(str::to_owned);
-                if channel.broadcast_id != broadcast_id {
-                    channel.beacon_url = None;
-                }
-                channel.broadcast_id = broadcast_id;
-                channel.game = if channel.online() {
-                    Game::parse(&user["broadcastSettings"]["game"]).ok()
-                } else {
-                    None
-                };
-                channel.viewers = if channel.online() {
-                    number(&stream["viewersCount"])
-                } else {
-                    None
-                };
+                update_stream(channel, user);
                 channel.drops_enabled = channel.online()
                     && values(&responses[1]["data"]["channel"]["viewerDropCampaigns"])
                         .any(|v| v["id"].is_string());
-                if let Some(name) = user["displayName"].as_str().filter(|n| !n.is_empty()) {
-                    channel.identity.name = name.to_owned();
-                }
             }
         }
         Ok(())
@@ -303,6 +371,29 @@ impl TwitchClient {
     }
 }
 
+fn update_stream(channel: &mut Channel, user: &Value) {
+    let stream = &user["stream"];
+    let broadcast_id = stream["id"]
+        .as_str()
+        .filter(|v| !v.is_empty())
+        .map(str::to_owned);
+    if channel.broadcast_id != broadcast_id {
+        channel.beacon_url = None;
+    }
+    channel.broadcast_id = broadcast_id;
+    channel.game = channel
+        .online()
+        .then(|| Game::parse(&user["broadcastSettings"]["game"]).ok())
+        .flatten();
+    channel.viewers = channel
+        .online()
+        .then(|| number(&stream["viewersCount"]))
+        .flatten();
+    if let Some(name) = user["displayName"].as_str().filter(|n| !n.is_empty()) {
+        channel.identity.name = name.to_owned();
+    }
+}
+
 fn directory_channel(raw: &Value, game: &Game) -> Option<Channel> {
     Some(Channel {
         identity: ChannelIdentity::parse(&raw["broadcaster"]).ok()?,
@@ -324,6 +415,15 @@ pub fn game_priority(settings: &Settings, game: Option<&Game>) -> usize {
     .unwrap_or(usize::MAX)
 }
 
+fn channel_priority(channel: &Channel, campaigns: &[&Campaign], settings: &Settings) -> usize {
+    campaigns
+        .iter()
+        .filter(|c| c.matches_channel(channel))
+        .map(|c| game_priority(settings, Some(&c.game)))
+        .min()
+        .unwrap_or(usize::MAX)
+}
+
 pub fn select_channel(
     channels: &[Channel],
     campaigns: &[Campaign],
@@ -332,11 +432,11 @@ pub fn select_channel(
     current: Option<u64>,
     manual: Option<(u64, u64)>,
 ) -> Option<u64> {
-    let eligible = |channel: &&Channel| {
-        campaigns.iter().any(|c| {
-            c.can_watch(channel, settings, now) && manual.is_none_or(|(_, game)| c.game.id == game)
-        })
-    };
+    let campaigns: Vec<_> = campaigns
+        .iter()
+        .filter(|c| c.can_mine(settings, now) && manual.is_none_or(|(_, game)| c.game.id == game))
+        .collect();
+    let eligible = |channel: &&Channel| campaigns.iter().any(|c| c.matches_channel(channel));
     if let Some((selected, _)) = manual
         && let Some(channel) = channels
             .iter()
@@ -347,7 +447,7 @@ pub fn select_channel(
     }
     let best = channels.iter().filter(eligible).min_by_key(|c| {
         (
-            game_priority(settings, c.game.as_ref()),
+            channel_priority(c, &campaigns, settings),
             Reverse(c.acl_based),
             Reverse(c.viewers),
             c.identity.id,
@@ -358,10 +458,10 @@ pub fn select_channel(
         .filter(eligible)
         .find(|c| Some(c.identity.id) == current)
         && (
-            game_priority(settings, current.game.as_ref()),
+            channel_priority(current, &campaigns, settings),
             Reverse(current.acl_based),
         ) <= (
-            game_priority(settings, best.game.as_ref()),
+            channel_priority(best, &campaigns, settings),
             Reverse(best.acl_based),
         )
     {
@@ -379,6 +479,134 @@ mod tests {
         Mock, MockServer, ResponseTemplate,
         matchers::{method, path},
     };
+
+    #[test]
+    fn manual_input_is_a_twitch_login_not_a_network_target() {
+        for input in [
+            "  Extra_Streamer  ",
+            "@Extra_Streamer",
+            "https://www.twitch.tv/Extra_Streamer/",
+        ] {
+            assert_eq!(channel_login(input).as_deref(), Some("extra_streamer"));
+        }
+        for input in [
+            "",
+            "https://evil.test/a",
+            "https://twitch.tv.evil.test/a",
+            "https://user:secret@twitch.tv/a",
+            "https://twitch.tv:8443/a",
+            "https://twitch.tv/a/videos",
+            "https://twitch.tv/a?token=secret",
+            "https://twitch.tv/a#secret",
+            "http://127.0.0.1/a",
+            "a b",
+            "a\\b",
+            "a".repeat(26).as_str(),
+        ] {
+            assert!(
+                channel_login(input).is_none(),
+                "accepted invalid channel input"
+            );
+        }
+    }
+
+    #[test]
+    fn cross_category_acl_streams_use_the_selected_campaign_priority() {
+        let now = Utc::now();
+        let rust = Campaign::parse(&campaign_json("rust"), &HashMap::new(), now).unwrap();
+        let mut event = rust.clone();
+        event.id = "event".into();
+        event.game.id = 509663;
+        event.game.name = "Special Events".into();
+        let regular = channel(10);
+        let mut host = channel(11);
+        host.game.as_mut().unwrap().id = 509658;
+        host.game.as_mut().unwrap().name = "Just Chatting".into();
+        event.allowed_channels = vec![host.identity.clone()];
+        let settings = Settings {
+            games_to_watch: vec!["Special Events".into(), "Rust".into()],
+            ..Settings::default()
+        };
+        assert_eq!(
+            select_channel(
+                &[regular, host],
+                &[rust, event],
+                &settings,
+                now,
+                Some(10),
+                None
+            ),
+            Some(11)
+        );
+    }
+
+    #[tokio::test]
+    async fn eligible_streams_survive_the_limit_ahead_of_unrelated_recovered_channels() {
+        let server = MockServer::start().await;
+        gql_mock(&server, |q| match q["operationName"].as_str().unwrap() {
+            "VideoPlayerStreamInfoOverlayChannel" => {
+                let live = q["variables"]["channel"] == "wanted";
+                json!({"data":{"user":{"stream":{"id":"stream","viewersCount":if live {1} else {10000}},"broadcastSettings":{"game":{"id":if live {"1"} else {"2"},"name":if live {"Rust"} else {"Other"}}}}}})
+            },
+            "DropsHighlightService_AvailableDrops" => json!({"data":{"channel":{"viewerDropCampaigns":[{"id":"one"}]}}}),
+            other => panic!("unexpected operation {other}"),
+        }).await;
+        let client = TwitchClient::new(Arc::new(http(&server)), &session());
+        let mut campaign =
+            Campaign::parse(&campaign_json("one"), &HashMap::new(), Utc::now()).unwrap();
+        let mut identities: Vec<_> = (1..=MAX_CHANNELS as u64)
+            .map(|id| ChannelIdentity {
+                id,
+                login: format!("unrelated{id}"),
+                name: format!("Unrelated {id}"),
+            })
+            .collect();
+        identities.push(ChannelIdentity {
+            id: 999,
+            login: "wanted".into(),
+            name: "Wanted".into(),
+        });
+        campaign.discovery_channels = Some(identities);
+        let settings = Settings {
+            games_to_watch: vec!["Rust".into()],
+            ..Settings::default()
+        };
+        let channels = client.channels(&[campaign], &settings, None).await.unwrap();
+        assert_eq!(channels.len(), MAX_CHANNELS);
+        assert_eq!(channels[0].identity.id, 999);
+    }
+
+    #[tokio::test]
+    async fn manual_lookup_resolves_identity_and_available_campaigns_without_scanning_directories()
+    {
+        let server = MockServer::start().await;
+        gql_mock(&server, |q| match q["operationName"].as_str().unwrap() {
+            "VideoPlayerStreamInfoOverlayChannel" => {
+                assert_eq!(q["variables"]["channel"], "extra_streamer");
+                json!({"data":{"user":{"id":"999","displayName":"Extra Streamer","stream":{"id":"live","viewersCount":null},"broadcastSettings":{"game":{"id":"1","name":"Rust","slug":"rust"}}}}})
+            },
+            "DropsHighlightService_AvailableDrops" => {
+                assert_eq!(q["variables"]["channelID"], "999");
+                json!({"data":{"channel":{"viewerDropCampaigns":[null,{"id":"one"}]}}})
+            },
+            other => panic!("unexpected operation {other}"),
+        }).await;
+        let client = TwitchClient::new(Arc::new(http(&server)), &session());
+        let resolved = client
+            .resolve_channel("extra_streamer")
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(resolved.channel.identity.id, 999);
+        assert_eq!(resolved.channel.viewers, None);
+        assert_eq!(resolved.channel.game.unwrap().name, "Rust");
+        assert!(resolved.channel.drops_enabled);
+        assert_eq!(resolved.campaigns, HashSet::from(["one".into()]));
+        assert_eq!(server.received_requests().await.unwrap().len(), 2);
+        server.reset().await;
+        gql_mock(&server, |_| json!({"data":{"user":null}})).await;
+        assert!(client.resolve_channel("missing").await.unwrap().is_none());
+    }
 
     fn channel(id: u64) -> Channel {
         Channel {

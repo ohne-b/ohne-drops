@@ -19,17 +19,17 @@ test('Maintenance shows a release notice and notes link without installing anyth
         latest_version: '0.2.0',
         update_available: true,
         check_succeeded: true,
-        download_url: 'https://github.com/ohne-b/ohne-drops/releases/tag/v0.2.0',
+        download_url: 'https://github.com/ohne-b/twitch-drops-miner/releases/tag/v0.2.0',
       },
     }),
   );
   await page.goto('/settings#maintenance');
   const maintenance = page.locator('#maintenance');
   await expect(maintenance.getByText('New version available: 0.2.0')).toBeVisible();
-  await expect(maintenance.getByText('OhneDrops · 0.1.0')).toBeVisible();
+  await expect(maintenance.getByText('Drops Miner · 0.1.0')).toBeVisible();
   await expect(maintenance.getByRole('link', { name: 'Release notes' })).toHaveAttribute(
     'href',
-    'https://github.com/ohne-b/ohne-drops/releases/tag/v0.2.0',
+    'https://github.com/ohne-b/twitch-drops-miner/releases/tag/v0.2.0',
   );
   await expect(maintenance.getByRole('button', { name: /^(Install|Update now)/ })).toHaveCount(0);
   await maintenance.getByRole('button', { name: 'Check for updates' }).click();
@@ -51,7 +51,7 @@ test('failed release checks stay distinct from up-to-date and can be retried', a
         latest_version: successful ? '0.1.0' : null,
         update_available: false,
         check_succeeded: successful,
-        download_url: 'https://github.com/ohne-b/ohne-drops/releases',
+        download_url: 'https://github.com/ohne-b/twitch-drops-miner/releases',
       },
     }),
   );
@@ -87,15 +87,16 @@ test.beforeEach(async ({ request, page }) => {
 test('shared logo loads in the dashboard, login and favicon at responsive sizes', async ({
   page,
 }) => {
-  const brand = page.getByRole('link', { name: 'OhneDrops', exact: true });
-  await expect(page).toHaveTitle('OhneDrops — Twitch Drops Miner');
+  const brand = page.getByRole('link', { name: 'Drops Miner', exact: true });
+  await expect(page).toHaveTitle('Drops Miner');
   await expect(page.getByRole('link', { name: 'GitHub repository' })).toHaveAttribute(
     'href',
-    'https://github.com/ohne-b/ohne-drops',
+    'https://github.com/ohne-b/twitch-drops-miner',
   );
   const logo = brand.locator('img');
+  expect(await brand.evaluate((element) => getComputedStyle(element).fontSize)).toBe('20px');
   const source = await logo.getAttribute('src');
-  expect(source).toMatch(/^\/assets\/ohne-drops-logo-[\w-]+\.svg$/);
+  expect(source).toMatch(/^\/assets\/twitch-drops-miner-logo-[\w-]+\.svg$/);
   await expect(page.locator('link[rel="icon"]')).toHaveAttribute('href', source!);
   await expect
     .poll(() => logo.evaluate((img: HTMLImageElement) => img.naturalWidth))
@@ -112,6 +113,8 @@ test('shared logo loads in the dashboard, login and favicon at responsive sizes'
     expect(header.height).toBe(64);
     expect(mark.y).toBeGreaterThanOrEqual(header.y);
     expect(mark.y + mark.height).toBeLessThanOrEqual(header.y + header.height);
+    const title = (await brand.boundingBox())!;
+    expect(title.x + title.width).toBeLessThanOrEqual(header.x + header.width);
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(
       true,
     );
@@ -1061,12 +1064,70 @@ test('history refreshes after claims and reports clear failure inside its dialog
   expect((await (await request.get('/api/history')).json()).entries).toHaveLength(1);
 });
 
-test('all channels remain available when priorities change', async ({ page, request }) => {
-  await request.post('/api/settings', { headers, data: { games_to_watch: ['rUsT'] } });
-  await expect(page.getByRole('link', { name: 'harbor', exact: true })).toBeVisible();
+test('channel snapshots replace old rows and allow backend-verified special event streams', async ({
+  page,
+  request,
+}) => {
+  await request.post('/api/settings', { headers, data: { games_to_watch: ['Special Events'] } });
+  await request.post('/__test/event', {
+    headers,
+    data: {
+      event: 'channels_batch_update',
+      data: {
+        channels: [
+          {
+            ...snapshot.channels[0],
+            name: 'event-host',
+            login: 'event_host',
+            game: 'Just Chatting',
+            acl_based: true,
+          },
+        ],
+      },
+    },
+  });
+  await expect(page.getByRole('link', { name: 'event-host', exact: true })).toHaveAttribute(
+    'href',
+    'https://www.twitch.tv/event_host',
+  );
+  await expect(page.getByRole('link', { name: 'northwind', exact: true })).toHaveCount(0);
+});
+
+test('manual channel entry accepts a URL, opts into its game and reports invalid or missing channels', async ({
+  page,
+  request,
+}) => {
   await request.post('/api/settings', { headers, data: { games_to_watch: ['Other game'] } });
-  await expect(page.getByRole('link', { name: 'harbor', exact: true })).toBeVisible();
-  await expect(page.getByRole('link', { name: 'northwind', exact: true })).toBeVisible();
+  await page.getByRole('button', { name: 'Mine channel', exact: true }).click();
+  const input = page.getByRole('textbox', { name: 'Twitch channel name or URL' });
+  const mine = page.getByRole('button', { name: 'Mine', exact: true });
+  await input.fill('https://example.com/streamer');
+  await mine.click();
+  await expect(page.getByRole('alert')).toHaveText(
+    'Enter a Twitch channel name or a direct twitch.tv channel URL.',
+  );
+  await input.fill('missing');
+  await mine.click();
+  await expect(page.getByRole('alert')).toHaveText('That Twitch channel was not found.');
+  await page.setViewportSize({ width: 1440, height: 420 });
+  const panel = page.getByRole('region', { name: 'Channels', exact: true });
+  expect((await panel.boundingBox())!.height).toBeGreaterThan(90);
+  await input.scrollIntoViewIfNeeded();
+  await expect(input).toBeInViewport();
+  await page.getByRole('alert').scrollIntoViewIfNeeded();
+  await expect(page.getByRole('alert')).toBeInViewport();
+  await page.screenshot({ path: '../artifacts/manual-channel-short.png' });
+  await input.fill('https://www.twitch.tv/extra_streamer');
+  await mine.click();
+  await expect(page.getByRole('link', { name: 'extra_streamer', exact: true })).toBeVisible();
+  await expect(page.getByText('Manual selection', { exact: true })).toBeVisible();
+  expect((await (await request.get('/api/settings')).json()).games_to_watch).toEqual([
+    'Other game',
+    'Rust',
+  ]);
+  expect((await new AxeBuilder({ page }).include('main').analyze()).violations).toEqual([]);
+  await page.getByRole('button', { name: 'Return to Auto Mode' }).click();
+  await expect(page.getByText('Automatic selection', { exact: true })).toBeVisible();
 });
 
 test('empty selection asks for an explicit mining choice', async ({ page, request }) => {

@@ -1,7 +1,7 @@
 # Contributing
 
 Read this guide before planning, editing, testing or reviewing. Its checklist applies to
-people and coding agents. The canonical repository is `ohne-b/ohne-drops`, targeting
+people and coding agents. The canonical repository is `ohne-b/twitch-drops-miner`, targeting
 `main`. Preserve the project's [MIT license](LICENSE), full upstream license in
 [NOTICE.md](NOTICE.md), attribution and frontend asset licenses. Distribute both root
 license files with production images.
@@ -13,8 +13,8 @@ authorization covers its necessary implementation and cleanup.
 
 ## Report a problem
 
-Search [issues](https://github.com/ohne-b/ohne-drops/issues) and
-[PRs](https://github.com/ohne-b/ohne-drops/pulls) first. Include version/commit, OS,
+Search [issues](https://github.com/ohne-b/twitch-drops-miner/issues) and
+[PRs](https://github.com/ohne-b/twitch-drops-miner/pulls) first. Include version/commit, OS,
 installation method, steps, expected/actual behavior and minimal redacted evidence.
 For mining issues, distinguish displayed progress from Twitch inventory progress; include
 campaign eligibility, filters, selected games and simultaneous manual viewing.
@@ -166,7 +166,7 @@ version/link/date heading and change-list style. Review and merge it under the s
 **Publish release** then runs manually
 from main for that version, requires successful push or manually dispatched validation on the exact commit,
 and uses the `prod` environment. It builds both architectures, publishes
-`ghcr.io/ohne-b/ohne-drops:VERSION`, and creates a `OhneDrops vVERSION` draft release
+`ghcr.io/ohne-b/twitch-drops-miner:VERSION`, and creates a `Twitch Drops Miner vVERSION` draft release
 with the reviewed changelog notes, comparison link and issue link. It attaches and verifies
 `latest.json` before publication. The manifest uses `schemaVersion: 1`, a canonical SemVer
 `version`, and a `notes` link; it contains no installer or executable commands. This applies
@@ -186,7 +186,7 @@ rerun the full workflow over an existing release. If publication succeeded but p
 failed, finish only that promotion:
 
 ```bash
-docker buildx imagetools create --tag ghcr.io/ohne-b/ohne-drops:latest ghcr.io/ohne-b/ohne-drops:VERSION
+docker buildx imagetools create --tag ghcr.io/ohne-b/twitch-drops-miner:latest ghcr.io/ohne-b/twitch-drops-miner:VERSION
 ```
 
 Maintenance reads the latest stable release's manifest with bounded requests and a short

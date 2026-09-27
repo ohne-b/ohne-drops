@@ -58,6 +58,7 @@ pub enum Command {
     Refresh { clear_cache: bool },
     SettingsChanged,
     SelectChannel(u64),
+    MineChannel(String),
     ExitManual,
     ConfirmOAuth,
     Logout,
@@ -79,7 +80,7 @@ pub struct App {
     pub sockets: SocketHub,
     pub shutdown: CancellationToken,
     writes: TaskTracker,
-    settings_slot: Arc<Semaphore>,
+    pub(crate) settings_slot: Arc<Semaphore>,
     releases: releases::Releases,
     commands: mpsc::Sender<CommandRequest>,
     #[cfg(feature = "dashboard-fixture")]
@@ -175,6 +176,54 @@ impl App {
     pub async fn drain_writes(&self) {
         self.writes.close();
         self.writes.wait().await;
+    }
+
+    async fn change_settings(
+        &self,
+        update: impl FnOnce(&SettingsView) -> Result<crate::config::Settings, ApiError>,
+    ) -> Result<SettingsView, ApiError> {
+        let settings = {
+            let mut state = self.snapshot.write().await;
+            let next = update(&state.settings)?;
+            let data = self.data.clone();
+            let saved = next.clone();
+            let revision = random_hex::<16>().map_err(|_| ApiError::unavailable())?;
+            tokio::task::spawn_blocking(move || data.save_settings(&saved))
+                .await
+                .map_err(|_| ApiError::unavailable())?
+                .map_err(|_| ApiError::unavailable())?;
+            state.settings.values = next;
+            state.settings.revision = revision;
+            state.settings.clone()
+        };
+        self.sockets.emit("settings_updated", &settings).await;
+        Ok(settings)
+    }
+
+    // Called by the owned mining task after an explicit Mine channel request.
+    // Append under the same transaction as autosaves, preserving other browsers' edits.
+    pub async fn select_game(
+        &self,
+        game: &str,
+        eligible: impl FnOnce(&crate::config::Settings) -> bool,
+    ) -> Result<SettingsView, ApiError> {
+        let _permit = self
+            .settings_slot
+            .acquire()
+            .await
+            .map_err(|_| ApiError::unavailable())?;
+        self.change_settings(|current| {
+            if !eligible(&current.values) {
+                return Err(ApiError(StatusCode::CONFLICT, "channel_selection_changed"));
+            }
+            let mut next = current.values.clone();
+            if !next.selected(game) {
+                next.games_to_watch.push(game.to_owned());
+            }
+            next.patched(&json!({"games_to_watch":next.games_to_watch}))
+                .map_err(|_| ApiError(StatusCode::BAD_REQUEST, "invalid_settings"))
+        })
+        .await
     }
 }
 
@@ -497,40 +546,34 @@ async fn update_settings(
     // disagreeing. Shutdown drains the transaction before releasing the data lock.
     app.writes
         .spawn(async move {
-            let _permit = permit;
-            save_settings(owned, patch).await
+            let result = save_settings(owned.clone(), patch).await;
+            // The miner can append a manually selected game during reconfiguration.
+            // Never hold the settings transaction while waiting for it to drain.
+            drop(permit);
+            if result.is_ok() {
+                owned.command(Command::SettingsChanged).await?;
+            }
+            result
         })
         .await
         .map_err(|_| ApiError::unavailable())?
 }
 
 async fn save_settings(app: Arc<App>, patch: Value) -> Result<Json<Value>, ApiError> {
-    let settings = {
-        let mut state = app.snapshot.write().await;
-        if patch
-            .get("revision")
-            .is_some_and(|v| !v.is_null() && v.as_str() != Some(state.settings.revision.as_str()))
-        {
-            return Err(ApiError(StatusCode::CONFLICT, "settings_conflict"));
-        }
-        let next = state
-            .settings
-            .values
-            .patched(&patch)
-            .map_err(|_| ApiError(StatusCode::BAD_REQUEST, "invalid_settings"))?;
-        let data = app.data.clone();
-        let saved = next.clone();
-        let revision = random_hex::<16>().map_err(|_| ApiError::unavailable())?;
-        tokio::task::spawn_blocking(move || data.save_settings(&saved))
-            .await
-            .map_err(|_| ApiError::unavailable())?
-            .map_err(|_| ApiError::unavailable())?;
-        state.settings.values = next;
-        state.settings.revision = revision;
-        state.settings.clone()
-    };
-    app.sockets.emit("settings_updated", &settings).await;
-    app.command(Command::SettingsChanged).await?;
+    let settings = app
+        .change_settings(|current| {
+            if patch
+                .get("revision")
+                .is_some_and(|v| !v.is_null() && v.as_str() != Some(current.revision.as_str()))
+            {
+                return Err(ApiError(StatusCode::CONFLICT, "settings_conflict"));
+            }
+            current
+                .values
+                .patched(&patch)
+                .map_err(|_| ApiError(StatusCode::BAD_REQUEST, "invalid_settings"))
+        })
+        .await?;
     Ok(Json(json!({"success":true,"settings":settings})))
 }
 
@@ -539,10 +582,24 @@ async fn select_channel(
     request: Request,
 ) -> Result<Json<Value>, ApiError> {
     #[derive(Deserialize)]
-    struct Selection {
-        channel_id: u64,
+    #[serde(untagged)]
+    enum Selection {
+        Id { channel_id: u64 },
+        Login { channel: String },
     }
-    let Selection { channel_id } = document(request).await?;
+    let selection: Selection = document(request).await?;
+    if app.snapshot.read().await.login.user_id.is_none() {
+        return Err(ApiError(StatusCode::CONFLICT, "twitch_login_required"));
+    }
+    if let Selection::Login { channel } = selection {
+        let login = crate::twitch::channels::channel_login(&channel)
+            .ok_or(ApiError(StatusCode::BAD_REQUEST, "invalid_channel"))?;
+        app.command(Command::MineChannel(login)).await?;
+        return Ok(Json(json!({"success":true})));
+    }
+    let Selection::Id { channel_id } = selection else {
+        unreachable!()
+    };
     if !app
         .snapshot
         .read()

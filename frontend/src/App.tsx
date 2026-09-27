@@ -20,7 +20,7 @@ import History from './pages/History';
 import Activity from './pages/Activity';
 import Settings from './pages/Settings';
 import Login from './pages/Login';
-import logo from './assets/ohne-drops-logo.svg?no-inline';
+import logo from './assets/twitch-drops-miner-logo.svg?no-inline';
 function Shell({ auth, onLogout }: { auth: AuthStatus; onLogout: () => Promise<void> }) {
   const { data, connected } = useMiner();
   const t = useT();
@@ -46,16 +46,19 @@ function Shell({ auth, onLogout }: { auth: AuthStatus; onLogout: () => Promise<v
         {t('skip_content')}
       </a>
       <aside className="border-b border-divider bg-surface lg:sticky lg:top-0 lg:flex lg:h-dvh lg:flex-col lg:overflow-y-auto lg:border-e lg:border-b-0">
-        <div className="flex h-16 shrink-0 items-center justify-between px-5">
-          <NavLink to="/" className="flex items-center gap-3 font-semibold tracking-tight">
+        <div className="flex h-16 shrink-0 items-center justify-between px-4">
+          <NavLink
+            to="/"
+            className="flex items-center gap-2 whitespace-nowrap text-xl font-semibold tracking-tight"
+          >
             <img
               src={logo}
               alt=""
-              width={28}
-              height={36}
-              className="h-9 w-7 shrink-0 object-contain"
+              width={31}
+              height={40}
+              className="h-10 w-[31px] shrink-0 object-contain"
             />
-            OhneDrops
+            Drops Miner
           </NavLink>
         </div>
         <nav
@@ -79,7 +82,7 @@ function Shell({ auth, onLogout }: { auth: AuthStatus; onLogout: () => Promise<v
         <div className="mt-auto hidden border-t border-divider p-4 lg:block">
           <a
             className="inline-flex size-11 items-center justify-center rounded text-muted transition-colors hover:text-text"
-            href="https://github.com/ohne-b/ohne-drops"
+            href="https://github.com/ohne-b/twitch-drops-miner"
             target="_blank"
             rel="noreferrer"
             aria-label="GitHub repository"
