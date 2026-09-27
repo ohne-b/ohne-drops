@@ -7,7 +7,7 @@
 <p align="center">Mine timed Twitch Drops without streaming video or audio.</p>
 
 <p align="center">
-  <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-9146ff" alt="License: MIT"></a>
+  <a href="LICENSE"><img src="https://img.shields.io/badge/license-PolyForm_Strict-9146ff" alt="License: PolyForm Strict"></a>
 </p>
 
 Twitch Drops Miner runs on your own hardware and manages one Twitch account through a
@@ -163,6 +163,7 @@ missing from the list or campaign catalog. A live channel can be watched even wh
 reward is discovered; this does not add games to your saved list. Twitch still determines
 whether any rewards accrue. Manual mode shows a known reward only after Twitch reports
 its progress, and never invents progress for unknown rewards.
+The Mine button stays disabled while Twitch checks a channel; lookup errors appear inline.
 
 Optionally enter **Auto mode after** in minutes (1–1440). The timer starts when the channel
 is selected and continues through dashboard reconnects and connection renewal. Leave it
@@ -174,7 +175,8 @@ also ends manual mode. Automatic selection resumes using your saved games and fi
 stays busy until the refreshed data is published, then briefly shows **Refreshed**, or
 **Refresh failed - Retry** with the reason on hover. Repeated requests share the same
 refresh; reconnecting the dashboard keeps its current status.
-The button's tooltip also shows when the public catalog was last updated.
+The button keeps its icon aligned on the left as its status changes. Its tooltip also shows
+when the public catalog was last updated.
 
 | Page                     | What it shows                                                                             |
 | ------------------------ | ----------------------------------------------------------------------------------------- |
@@ -226,8 +228,7 @@ Run only one miner per data directory and keep it private.
 
 **Settings > Maintenance > Clear All Cache** discards derived campaign/channel state
 and refreshes Twitch inventory and the public catalog. It preserves settings, credentials,
-claim history, and completed campaigns. See [persistent data and migration](docs/operations.md#persistent-data)
-for filenames, compatibility, and recovery details.
+claim history, and completed campaigns.
 
 ## Dashboard password and remote access
 
@@ -259,8 +260,8 @@ It does not provide TLS, support subpaths, or trust forwarded client-IP headers.
 one HTTP(S) root URL without credentials, a query, or a fragment. A reverse proxy must
 forward both HTTP and Socket.IO connections.
 
-See [dashboard protection](docs/operations.md#dashboard-protection) for session storage
-and forgotten-password recovery.
+If you forget the dashboard password, stop the miner and restrict network access. Back up
+and remove only `data/web_auth.json`, restart, then set a new password. Keep all other data.
 
 ## Updating
 
@@ -318,9 +319,8 @@ install a new image. After replacement, inspect `docker compose ps` and
 
 When migrating from the Python version, existing settings, history, completed campaigns,
 and dashboard protection remain compatible. One fresh Twitch device-code login is
-required; old credential files stay untouched for rollback. See
-[operations and upgrades](docs/operations.md) for migration details, including earlier
-development builds labeled `1.3.2`.
+required; old credential files stay untouched for rollback. Earlier development builds
+labeled `1.3.2` need one manual upgrade to join the release series starting at `0.1.0`.
 
 ## Troubleshooting
 
@@ -338,7 +338,7 @@ development builds labeled `1.3.2`.
   writable by UID/GID `1000:1000` and that another miner is not using the same data directory.
 - **Writes or live updates fail behind a proxy:** open the configured `PUBLIC_BASE_URL`
   exactly, check the proxy's Socket.IO support, and review the
-  [protection configuration](docs/operations.md#dashboard-protection).
+  [protection configuration](#dashboard-password-and-remote-access).
 
 ## Contributing
 
@@ -353,7 +353,11 @@ device codes, or a data directory.
 
 ## License and credits
 
-[MIT](LICENSE), copyright 2026 ohne-b (OhneB).
+[PolyForm Strict 1.0.0](LICENSE), copyright 2026 ohne-b (OhneB).
+This is source-available software for noncommercial use. The license does not grant
+permission to modify or redistribute the software; those uses need separate permission.
+Previously published copies retain their original license terms. Third-party components
+retain their own licenses.
 
 Based on [rangermix/TwitchDropsMiner](https://github.com/rangermix/TwitchDropsMiner),
 which builds on [DevilXD/TwitchDropsMiner](https://github.com/DevilXD/TwitchDropsMiner),

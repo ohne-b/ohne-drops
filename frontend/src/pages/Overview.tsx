@@ -17,7 +17,6 @@ import {
   ActionResult,
   dateTime,
   Input,
-  Busy,
 } from '../components/ui';
 export default function Overview() {
   const { data, connected } = useMiner();
@@ -157,7 +156,7 @@ export default function Overview() {
             aria-labelledby="channels-heading"
             tabIndex={0}
           >
-            {(enterChannel || data.manual_mode.pending_channel || data.manual_mode.error) && (
+            {(enterChannel || data.manual_mode.error) && (
               <div className="space-y-3 border-b border-divider p-4">
                 {enterChannel && (
                   <form
@@ -183,6 +182,7 @@ export default function Overview() {
                       />
                       <Button
                         type="submit"
+                        aria-busy={action.busy || !!data.manual_mode.pending_channel}
                         disabled={
                           !connected ||
                           !data.login.user_id ||
@@ -205,13 +205,6 @@ export default function Overview() {
                       onChange={(event) => setManualMinutes(event.target.value)}
                     />
                   </form>
-                )}
-                {data.manual_mode.pending_channel && (
-                  <Busy
-                    label={t('gui.channels.looking_up', {
-                      channel: data.manual_mode.pending_channel,
-                    })}
-                  />
                 )}
                 {data.manual_mode.error && <Notice error>{data.manual_mode.error}</Notice>}
               </div>
