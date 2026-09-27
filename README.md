@@ -228,8 +228,7 @@ Run only one miner per data directory and keep it private.
 
 **Settings > Maintenance > Clear All Cache** discards derived campaign/channel state
 and refreshes Twitch inventory and the public catalog. It preserves settings, credentials,
-claim history, and completed campaigns. See [persistent data and migration](docs/operations.md#persistent-data)
-for filenames, compatibility, and recovery details.
+claim history, and completed campaigns.
 
 ## Dashboard password and remote access
 
@@ -261,8 +260,8 @@ It does not provide TLS, support subpaths, or trust forwarded client-IP headers.
 one HTTP(S) root URL without credentials, a query, or a fragment. A reverse proxy must
 forward both HTTP and Socket.IO connections.
 
-See [dashboard protection](docs/operations.md#dashboard-protection) for session storage
-and forgotten-password recovery.
+If you forget the dashboard password, stop the miner and restrict network access. Back up
+and remove only `data/web_auth.json`, restart, then set a new password. Keep all other data.
 
 ## Updating
 
@@ -320,9 +319,8 @@ install a new image. After replacement, inspect `docker compose ps` and
 
 When migrating from the Python version, existing settings, history, completed campaigns,
 and dashboard protection remain compatible. One fresh Twitch device-code login is
-required; old credential files stay untouched for rollback. See
-[operations and upgrades](docs/operations.md) for migration details, including earlier
-development builds labeled `1.3.2`.
+required; old credential files stay untouched for rollback. Earlier development builds
+labeled `1.3.2` need one manual upgrade to join the release series starting at `0.1.0`.
 
 ## Troubleshooting
 
@@ -340,7 +338,7 @@ development builds labeled `1.3.2`.
   writable by UID/GID `1000:1000` and that another miner is not using the same data directory.
 - **Writes or live updates fail behind a proxy:** open the configured `PUBLIC_BASE_URL`
   exactly, check the proxy's Socket.IO support, and review the
-  [protection configuration](docs/operations.md#dashboard-protection).
+  [protection configuration](#dashboard-password-and-remote-access).
 
 ## Contributing
 
