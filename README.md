@@ -34,8 +34,8 @@ watch events, and claims earned rewards. The Rust executable includes the React 
 ### Docker Compose
 
 > [!NOTE]
-> The new image address is prepared for 0.1.1. Until that release is published and its
-> image is public, [build from a checkout](#build-from-a-checkout) to run these changes.
+> The new image address below is reserved for a future release and is not published yet.
+> [Build from a checkout](#build-from-a-checkout) to run the current changes.
 
 Install Docker with Compose support. In a new directory, save this as `compose.yaml`:
 
@@ -64,8 +64,8 @@ Open <http://127.0.0.1:8080> and follow [First login](#first-login).
 The port mapping limits access to the local machine. For LAN access, bind an explicit
 LAN address and enable [dashboard protection](#dashboard-password-and-remote-access).
 
-Images use GitHub Container Registry at `ghcr.io/ohne-b/twitch-drops-miner` from release
-0.1.1 onward. `latest` follows stable releases; use an explicit version tag to pin a release.
+Future releases will use GitHub Container Registry at `ghcr.io/ohne-b/twitch-drops-miner`.
+`latest` follows stable releases; use an explicit version tag to pin a release.
 The historical 0.1.0 image remains at `ghcr.io/ohne-b/twitch-miner:0.1.0` for rollback.
 Renaming the GitHub repository does not rename that old package or its pull command.
 [Release notes](https://github.com/ohne-b/twitch-drops-miner/releases)
