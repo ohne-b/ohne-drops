@@ -221,7 +221,7 @@
             "shutdown": "Shut down miner",
             "shutdown_help": "This stops the miner and dashboard. Your process manager or Docker restart policy determines whether it restarts automatically.",
             "help_link_accounts": "Link the appropriate game account on",
-            "source_license": "Source code and MIT license",
+            "source_license": "Source code and license",
             "autosave_help": "Changes save automatically.",
             "settings_invalid": "Enter a valid proxy URL and a whole refresh interval from 1 to 1440 minutes.",
             "settings_save_failed": "Changes could not be saved. Your edits are kept here.",

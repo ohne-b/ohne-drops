@@ -7,7 +7,7 @@
 <p align="center">Mine timed Twitch Drops without streaming video or audio.</p>
 
 <p align="center">
-  <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-9146ff" alt="License: MIT"></a>
+  <a href="LICENSE"><img src="https://img.shields.io/badge/license-PolyForm_Strict-9146ff" alt="License: PolyForm Strict"></a>
 </p>
 
 Twitch Drops Miner runs on your own hardware and manages one Twitch account through a
@@ -353,7 +353,11 @@ device codes, or a data directory.
 
 ## License and credits
 
-[MIT](LICENSE), copyright 2026 ohne-b (OhneB).
+[PolyForm Strict 1.0.0](LICENSE), copyright 2026 ohne-b (OhneB).
+This is source-available software for noncommercial use. The license does not grant
+permission to modify or redistribute the software; those uses need separate permission.
+Previously published copies retain their original license terms. Third-party components
+retain their own licenses.
 
 Based on [rangermix/TwitchDropsMiner](https://github.com/rangermix/TwitchDropsMiner),
 which builds on [DevilXD/TwitchDropsMiner](https://github.com/DevilXD/TwitchDropsMiner),
