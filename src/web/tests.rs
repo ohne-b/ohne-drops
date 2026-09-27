@@ -147,61 +147,55 @@ async fn manual_channel_boundary_requires_login_and_rejects_arbitrary_urls() {
         StatusCode::OK
     );
     assert!(test.app.data.settings().unwrap().games_to_watch.is_empty());
-}
 
-#[tokio::test]
-async fn manual_game_commit_rechecks_intent_and_latest_settings_after_waiting_for_an_autosave() {
-    let test = TestApp::new("");
-    for cancel in [false, true] {
-        let permit = test.app.settings_slot.acquire().await.unwrap();
-        let (intent, selected) = tokio::sync::watch::channel(1);
-        let app = test.app.clone();
-        let task = tokio::spawn(async move {
-            app.select_game("Rust", |settings| {
-                *selected.borrow() == 1 && settings.drop_name_blacklist.is_empty()
-            })
+    for duration in [
+        json!(0),
+        json!(-1),
+        json!(1441),
+        json!(1.5),
+        json!("15"),
+        json!(true),
+    ] {
+        assert_eq!(
+            test.call(
+                Method::POST,
+                "/api/channels/select",
+                json!({"channel":"streamer", "duration_minutes":duration}),
+                "",
+                &headers
+            )
             .await
-        });
-        tokio::task::yield_now().await;
-        assert!(!task.is_finished());
-        if cancel {
-            intent.send_replace(2);
-        } else {
-            test.app
-                .snapshot
-                .write()
-                .await
-                .settings
-                .values
-                .drop_name_blacklist = vec!["reward".into()];
-        }
-        let revision = test.app.snapshot.read().await.settings.revision.clone();
-        drop(permit);
-        let error = match task.await.unwrap() {
-            Ok(_) => panic!("superseded selection committed"),
-            Err(error) => error,
-        };
-        assert_eq!(error.1, "channel_selection_changed");
-        assert!(
-            test.app
-                .snapshot
-                .read()
-                .await
-                .settings
-                .values
-                .games_to_watch
-                .is_empty()
+            .0,
+            StatusCode::BAD_REQUEST
         );
-        assert_eq!(test.app.snapshot.read().await.settings.revision, revision);
-        assert!(test.app.data.settings().unwrap().games_to_watch.is_empty());
-        test.app
-            .snapshot
-            .write()
+    }
+    for duration in [Value::Null, json!(1), json!(1440)] {
+        assert_eq!(
+            test.call(
+                Method::POST,
+                "/api/channels/select",
+                json!({"channel":"streamer", "duration_minutes":duration}),
+                "",
+                &headers
+            )
             .await
-            .settings
-            .values
-            .drop_name_blacklist
-            .clear();
+            .0,
+            StatusCode::OK
+        );
+    }
+    for selection in [json!({}), json!({"channel":"streamer", "channel_id":999})] {
+        assert_eq!(
+            test.call(
+                Method::POST,
+                "/api/channels/select",
+                selection,
+                "",
+                &headers
+            )
+            .await
+            .0,
+            StatusCode::BAD_REQUEST
+        );
     }
 }
 

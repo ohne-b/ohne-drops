@@ -92,20 +92,45 @@ impl TwitchClient {
         let mut channel = Channel::offline(identity, false);
         update_stream(&mut channel, user);
         let campaigns = if channel.online() {
-            let response = self
-                .gql(
+            // Reward metadata is optional for an explicit watch request. Keep it
+            // off the critical path after this short attempt; auth still fails closed.
+            match tokio::time::timeout(
+                std::time::Duration::from_secs(2),
+                self.gql(
                     Operation::AvailableDrops
                         .request(json!({"channelID":channel.identity.id.to_string()})),
-                )
-                .await?;
-            values(&response["data"]["channel"]["viewerDropCampaigns"])
-                .filter_map(|v| v["id"].as_str().map(str::to_owned))
-                .collect::<HashSet<_>>()
+                ),
+            )
+            .await
+            {
+                Ok(Ok(response)) => values(&response["data"]["channel"]["viewerDropCampaigns"])
+                    .filter_map(|v| v["id"].as_str().map(str::to_owned))
+                    .collect(),
+                Ok(Err(error @ (TwitchError::Unauthorized | TwitchError::Cancelled))) => {
+                    return Err(error);
+                }
+                _ if self.http.cancel.is_cancelled() => return Err(TwitchError::Cancelled),
+                _ => HashSet::new(),
+            }
         } else {
             HashSet::new()
         };
         channel.drops_enabled = !campaigns.is_empty();
         Ok(Some(ResolvedChannel { channel, campaigns }))
+    }
+
+    pub async fn update_manual_channel(&self, channel: &mut Channel) -> Result<(), TwitchError> {
+        let resolved = self.resolve_channel(&channel.identity.login).await?;
+        let mut fresh = resolved
+            .filter(|r| r.channel.identity.id == channel.identity.id)
+            .map(|r| r.channel)
+            .unwrap_or_else(|| Channel::offline(channel.identity.clone(), channel.acl_based));
+        fresh.acl_based = channel.acl_based;
+        if fresh.broadcast_id == channel.broadcast_id {
+            fresh.beacon_url = channel.beacon_url.clone();
+        }
+        *channel = fresh;
+        Ok(())
     }
 
     pub async fn channels(
@@ -430,21 +455,19 @@ pub fn select_channel(
     settings: &Settings,
     now: DateTime<Utc>,
     current: Option<u64>,
-    manual: Option<(u64, u64)>,
+    manual: Option<u64>,
 ) -> Option<u64> {
+    if let Some(id) = manual {
+        return channels
+            .iter()
+            .find(|c| c.identity.id == id && c.online())
+            .map(|c| c.identity.id);
+    }
     let campaigns: Vec<_> = campaigns
         .iter()
-        .filter(|c| c.can_mine(settings, now) && manual.is_none_or(|(_, game)| c.game.id == game))
+        .filter(|c| c.can_mine(settings, now))
         .collect();
     let eligible = |channel: &&Channel| campaigns.iter().any(|c| c.matches_channel(channel));
-    if let Some((selected, _)) = manual
-        && let Some(channel) = channels
-            .iter()
-            .filter(eligible)
-            .find(|c| c.identity.id == selected)
-    {
-        return Some(channel.identity.id);
-    }
     let best = channels.iter().filter(eligible).min_by_key(|c| {
         (
             channel_priority(c, &campaigns, settings),
@@ -606,6 +629,50 @@ mod tests {
         server.reset().await;
         gql_mock(&server, |_| json!({"data":{"user":null}})).await;
         assert!(client.resolve_channel("missing").await.unwrap().is_none());
+    }
+
+    #[tokio::test]
+    async fn manual_lookup_and_refresh_tolerate_failed_or_slow_metadata_but_propagate_auth() {
+        for error in ["catalog unavailable", "service unavailable", "Unauthorized"] {
+            let server = MockServer::start().await;
+            gql_mock(&server, move |q| match q["operationName"].as_str().unwrap() {
+                "VideoPlayerStreamInfoOverlayChannel" => json!({"data":{"user":{"id":"10","displayName":"Streamer","stream":{"id":"live"}}}}),
+                "DropsHighlightService_AvailableDrops" => json!({"errors":[{"message":error}]}),
+                other => panic!("unexpected operation {other}"),
+            }).await;
+            let client = TwitchClient::new(Arc::new(http(&server)), &session());
+            let lookup = tokio::time::timeout(
+                std::time::Duration::from_secs(4),
+                client.resolve_channel("streamer"),
+            )
+            .await
+            .unwrap();
+            let mut channel = Channel::offline(channel(10).identity, false);
+            let refresh = tokio::time::timeout(
+                std::time::Duration::from_secs(4),
+                client.update_manual_channel(&mut channel),
+            )
+            .await
+            .unwrap();
+            if error == "Unauthorized" {
+                assert!(matches!(lookup, Err(TwitchError::Unauthorized)));
+                assert_eq!(refresh, Err(TwitchError::Unauthorized));
+                assert!(!channel.online());
+            } else {
+                let resolved = lookup.unwrap().unwrap();
+                assert!(resolved.channel.online());
+                assert!(resolved.campaigns.is_empty());
+                refresh.unwrap();
+                assert!(channel.online());
+                assert!(!channel.drops_enabled);
+                if error == "catalog unavailable" {
+                    assert!(
+                        client.update_channels(&mut [channel]).await.is_err(),
+                        "automatic discovery must still require reward evidence"
+                    );
+                }
+            }
+        }
     }
 
     fn channel(id: u64) -> Channel {
@@ -784,7 +851,7 @@ mod tests {
                 &settings,
                 now,
                 None,
-                Some((10, 1))
+                Some(10)
             ),
             Some(10)
         );

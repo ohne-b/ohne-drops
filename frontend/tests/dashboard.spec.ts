@@ -1099,7 +1099,7 @@ test('channel snapshots replace old rows and allow backend-verified special even
   await expect(page.getByRole('link', { name: 'northwind', exact: true })).toHaveCount(0);
 });
 
-test('manual channel entry accepts a URL, opts into its game and reports invalid or missing channels', async ({
+test('manual channel entry accepts a URL and optional timer without selecting games', async ({
   page,
   request,
 }) => {
@@ -1107,6 +1107,8 @@ test('manual channel entry accepts a URL, opts into its game and reports invalid
   await page.getByRole('button', { name: 'Mine channel', exact: true }).click();
   const input = page.getByRole('textbox', { name: 'Twitch channel name or URL' });
   const mine = page.getByRole('button', { name: 'Mine', exact: true });
+  await expect(input).toHaveAttribute('placeholder', 'Twitch channel name or URL');
+  await expect(page.getByText(/Mine an eligible reward from your campaign catalog/)).toHaveCount(0);
   await input.fill('https://example.com/streamer');
   await mine.click();
   await expect(page.getByRole('alert')).toHaveText(
@@ -1124,16 +1126,25 @@ test('manual channel entry accepts a URL, opts into its game and reports invalid
   await expect(page.getByRole('alert')).toBeInViewport();
   await page.screenshot({ path: '../artifacts/manual-channel-short.png' });
   await input.fill('https://www.twitch.tv/extra_streamer');
+  await page.getByRole('spinbutton', { name: 'Auto mode after (minutes, optional)' }).fill('15');
+  const selection = page.waitForRequest(
+    (r) => r.url().endsWith('/api/channels/select') && r.method() === 'POST',
+  );
   await mine.click();
+  expect((await selection).postDataJSON().duration_minutes).toBe(15);
   await expect(page.getByRole('link', { name: 'extra_streamer', exact: true })).toBeVisible();
   await expect(page.getByText('Manual selection', { exact: true })).toBeVisible();
   expect((await (await request.get('/api/settings')).json()).games_to_watch).toEqual([
     'Other game',
-    'Rust',
   ]);
+  await expect(page.getByText('Watching extra_streamer', { exact: true })).toBeVisible();
+  await expect(page.getByText(/^Auto mode at /)).toBeVisible();
+  await expect(page.getByText(/No eligible rewards from your campaign catalog/)).toHaveCount(0);
+  await page.screenshot({ path: '../artifacts/manual-channel-timer-short.png' });
   expect((await new AxeBuilder({ page }).include('main').analyze()).violations).toEqual([]);
   await page.getByRole('button', { name: 'Return to Auto Mode' }).click();
   await expect(page.getByText('Automatic selection', { exact: true })).toBeVisible();
+  await expect(page.getByText(/^Auto mode at /)).toHaveCount(0);
 });
 
 test('empty selection asks for an explicit mining choice', async ({ page, request }) => {

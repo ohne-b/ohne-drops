@@ -105,6 +105,8 @@ pub struct ManualMode {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub channel_name: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
+    pub expires_at: Option<DateTime<Utc>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub pending_channel: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub error: Option<String>,
