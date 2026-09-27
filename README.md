@@ -64,7 +64,7 @@ Open <http://127.0.0.1:8080> and follow [First login](#first-login).
 The port mapping limits access to the local machine. For LAN access, bind an explicit
 LAN address and enable [dashboard protection](#dashboard-password-and-remote-access).
 
-Future releases will use GitHub Container Registry at `ghcr.io/ohne-b/twitch-drops-miner`.
+Release images use GitHub Container Registry at `ghcr.io/ohne-b/twitch-drops-miner`.
 `latest` follows stable releases; use an explicit version tag to pin a release.
 The historical 0.1.0 image remains at `ghcr.io/ohne-b/twitch-miner:0.1.0` for rollback.
 Renaming the GitHub repository does not rename that old package or its pull command.
