@@ -1088,8 +1088,11 @@ impl Mining {
                     return Err(result.err().unwrap());
                 }
                 if self.intent.borrow().manual_revision == revision {
-                    self.manual_pending = None;
                     let error = self.finish_manual(result, requested_at).await;
+                    if self.client.http.cancel.is_cancelled() {
+                        return Err(TwitchError::Cancelled);
+                    }
+                    self.manual_pending = None;
                     self.manual_error = error.map(|key| message(key, &[]));
                     self.publish = true;
                     pool.set_channels(
