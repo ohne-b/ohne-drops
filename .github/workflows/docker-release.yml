@@ -85,7 +85,7 @@ jobs:
         run: |
           # Upload to a draft first: the public release must never lack latest.json.
           gh release create "v${RELEASE_VERSION}" --target "$GITHUB_SHA" --draft \
-            --title "OhneDrops v${RELEASE_VERSION}" --notes-file dist/release/notes.md \
+            --title "Twitch Drops Miner v${RELEASE_VERSION}" --notes-file dist/release/notes.md \
             dist/release/latest.json
           gh release download "v${RELEASE_VERSION}" --pattern latest.json --dir dist/verify
           cmp dist/release/latest.json dist/verify/latest.json

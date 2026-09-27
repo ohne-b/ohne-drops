@@ -232,7 +232,7 @@ async fn public_assets_and_spa_allowlist_preserve_private_api_boundaries() {
         "public, max-age=31536000, immutable"
     );
     let logo = super::Assets::iter()
-        .find(|name| name.starts_with("assets/ohne-drops-logo-") && name.ends_with(".svg"))
+        .find(|name| name.starts_with("assets/twitch-drops-miner-logo-") && name.ends_with(".svg"))
         .expect("Vite emits the shared logo as a hashed asset");
     let (status, headers, body) = test
         .call(Method::GET, &format!("/{logo}"), Value::Null, "", &[])
