@@ -20,7 +20,7 @@ use crate::{
     store::{ClaimJournal, PendingClaim},
     twitch::{
         Endpoints, TwitchClient, TwitchError, TwitchHttp,
-        channels::{ResolvedChannel, game_priority, select_channel},
+        channels::{ResolvedChannel, select_channel},
         inventory::Inventory,
         oauth::{DeviceLogin, Session},
         pubsub::{Event, PubSub},
@@ -43,6 +43,21 @@ struct Intent {
     manual_revision: u64,
     selected: Option<u64>,
     channel_login: Option<String>,
+    manual_duration: Option<Duration>,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+struct ManualSelection {
+    channel: u64,
+    expires_at: Option<Instant>,
+}
+impl ManualSelection {
+    fn new(channel: u64, duration: Option<Duration>) -> Self {
+        Self {
+            channel,
+            expires_at: duration.map(|duration| Instant::now() + duration),
+        }
+    }
 }
 
 struct Generation {
@@ -53,7 +68,7 @@ struct Generation {
 
 #[derive(Default)]
 struct Resume {
-    manual: Option<(u64, u64)>,
+    manual: Option<ManualSelection>,
     channel: Option<ResolvedChannel>,
     lookup: Option<(String, u64)>,
     seen: Intent,
@@ -143,8 +158,8 @@ impl Miner {
                             command=>{
                                 intent.send_modify(|intent|match command {
                                     Command::Refresh{clear_cache}=>{intent.refresh=intent.refresh.wrapping_add(1);if clear_cache{intent.clear=intent.clear.wrapping_add(1);}},
-                                    Command::SelectChannel(id)=>{intent.channel_login=None;intent.selected=Some(id);intent.manual_revision=intent.manual_revision.wrapping_add(1);},
-                                    Command::MineChannel(login)=>{intent.channel_login=Some(login);intent.selected=None;intent.manual_revision=intent.manual_revision.wrapping_add(1);},
+                                    Command::SelectChannel(id,duration)=>{intent.channel_login=None;intent.selected=Some(id);intent.manual_duration=duration;intent.manual_revision=intent.manual_revision.wrapping_add(1);},
+                                    Command::MineChannel(login,duration)=>{intent.channel_login=Some(login);intent.selected=None;intent.manual_duration=duration;intent.manual_revision=intent.manual_revision.wrapping_add(1);},
                                     Command::ExitManual=>{intent.channel_login=None;intent.selected=None;intent.manual_revision=intent.manual_revision.wrapping_add(1);},
                                     _=>{},
                                 });
@@ -218,7 +233,7 @@ impl Miner {
                 self.app.shutdown.cancel();
                 requests.push(request.complete);
             }
-            Command::SelectChannel(_) | Command::MineChannel(_) => {
+            Command::SelectChannel(..) | Command::MineChannel(..) => {
                 let _ = request
                     .complete
                     .send(Err("Twitch login is required".into()));
@@ -450,11 +465,9 @@ struct Mining {
     campaigns: Vec<Campaign>,
     channels: Vec<Channel>,
     channels_loaded: bool,
-    inventory_loaded: bool,
     status: InventoryStatus,
     watching: Option<u64>,
-    manual: Option<(u64, u64)>,
-    resume_manual: Option<(u64, u64)>,
+    manual: Option<ManualSelection>,
     lookup: Option<(String, u64)>,
     manual_pending: Option<String>,
     manual_error: Option<String>,
@@ -483,7 +496,7 @@ struct Mining {
 }
 impl Mining {
     fn restore(&mut self, saved: &Resume) {
-        self.resume_manual = saved.manual;
+        self.manual = saved.manual;
         self.seen = saved.seen.clone();
         self.lookup = saved.lookup.clone();
         self.manual_pending = saved.lookup.as_ref().map(|(login, _)| login.clone());
@@ -495,14 +508,30 @@ impl Mining {
                 extra.channel.identity.clone(),
                 extra.channel.acl_based,
             ));
+            self.refresh_channels
+                .insert(extra.channel.identity.id, Instant::now());
         }
     }
 
     fn resume(&self) -> Resume {
-        let manual = self.manual.or(self.resume_manual);
+        let manual = self.manual;
         Resume {
             manual,
-            channel: manual.and(self.manual_extra.clone()),
+            channel: manual.and_then(|manual| {
+                let channel = self
+                    .channels
+                    .iter()
+                    .find(|c| c.identity.id == manual.channel)?
+                    .clone();
+                Some(ResolvedChannel {
+                    channel,
+                    campaigns: self
+                        .manual_extra
+                        .as_ref()
+                        .map(|extra| extra.campaigns.clone())
+                        .unwrap_or_default(),
+                })
+            }),
             lookup: self
                 .manual_pending
                 .as_ref()
@@ -528,11 +557,9 @@ impl Mining {
             campaigns: vec![],
             channels: vec![],
             channels_loaded: false,
-            inventory_loaded: false,
             status: InventoryStatus::default(),
             watching: None,
             manual: None,
-            resume_manual: None,
             lookup: None,
             manual_pending: None,
             manual_error: None,
@@ -577,6 +604,13 @@ impl Mining {
 
     async fn run(&mut self, pool: &mut PubSub) -> Result<(), TwitchError> {
         self.apply_intent(pool).await;
+        pool.set_channels(
+            &self
+                .channels
+                .iter()
+                .map(|c| c.identity.id)
+                .collect::<Vec<_>>(),
+        );
         let mut tick = tokio::time::interval(Duration::from_secs(1));
         tick.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
         let validate_at = Instant::now() + Duration::from_secs(3600);
@@ -629,10 +663,8 @@ impl Mining {
             self.campaigns.clear();
             self.channels.clear();
             self.channels_loaded = false;
-            self.inventory_loaded = false;
             self.watching = None;
             self.manual = None;
-            self.resume_manual = None;
             self.lookup = None;
             self.manual_pending = None;
             self.manual_error = None;
@@ -663,14 +695,13 @@ impl Mining {
                 .minimum_refresh_interval_minutes;
             self.next_refresh = self.last_inventory + Duration::from_secs(u64::from(minutes) * 60);
         }
-        let settings = self.app.snapshot.read().await.settings.values.clone();
-        self.apply_manual(&intent, &settings);
+        self.apply_manual(&intent);
         let manual_revision = self.seen.manual_revision;
         self.seen = intent;
         self.seen.manual_revision = manual_revision;
     }
 
-    fn apply_manual(&mut self, intent: &Intent, settings: &Settings) {
+    fn apply_manual(&mut self, intent: &Intent) {
         if intent.manual_revision != self.seen.manual_revision
             && let Some(login) = &intent.channel_login
         {
@@ -685,31 +716,19 @@ impl Mining {
         if intent.manual_revision != self.seen.manual_revision
             && (intent.selected.is_none() || self.channels_loaded)
         {
-            self.resume_manual = None;
             self.lookup = None;
             self.manual_pending = None;
             self.manual_error = None;
             self.manual_extra = None;
             self.manual = intent.selected.and_then(|id| {
-                let channel = self.channels.iter().find(|c| c.identity.id == id)?;
-                // The target is an earnable campaign, which can be a special
-                // category different from the channel's streamed game.
-                let game = self
-                    .campaigns
+                self.channels
                     .iter()
-                    .filter(|c| c.can_watch(channel, settings, Utc::now()))
-                    .min_by_key(|c| {
-                        c.first_drop(settings, Utc::now())
-                            .map(|d| d.remaining_minutes())
-                            .unwrap_or(u32::MAX)
-                    })?
-                    .game
-                    .id;
-                Some((id, game))
+                    .find(|c| c.identity.id == id && c.online())?;
+                Some(ManualSelection::new(id, intent.manual_duration))
             });
             self.seen.manual_revision = intent.manual_revision;
             if intent.selected.is_some() && self.manual.is_none() {
-                self.manual_error = Some(message("gui.channels.no_rewards", &[]));
+                self.manual_error = Some(message("gui.channels.offline", &[]));
             }
             self.publish = true;
         }
@@ -827,19 +846,12 @@ impl Mining {
 
     async fn reselect(&mut self, settings: &Settings) {
         let now = Utc::now();
-        if let Some((id, game)) = self.manual
-            && !(self.refresh_channels.contains_key(&id)
-                && self
-                    .campaigns
-                    .iter()
-                    .any(|c| c.game.id == game && c.can_mine(settings, now)))
-            && !self.channels.iter().any(|channel| {
-                self.campaigns
-                    .iter()
-                    .any(|c| c.game.id == game && c.can_watch(channel, settings, now))
-            })
+        if self
+            .manual
+            .is_some_and(|manual| manual.expires_at.is_some_and(|at| Instant::now() >= at))
         {
             self.manual = None;
+            self.manual_extra = None;
             self.publish = true;
         }
         let next = select_channel(
@@ -848,7 +860,7 @@ impl Mining {
             settings,
             now,
             self.watching,
-            self.manual,
+            self.manual.map(|manual| manual.channel),
         );
         if next != self.watching {
             self.cancel_watch();
@@ -856,6 +868,7 @@ impl Mining {
             self.next_watch = Instant::now();
             self.poll_at = None;
             self.last_progress = None;
+            self.claim_wait = None;
             self.publish = true;
             if let Some(channel) = self.channels.iter().find(|c| Some(c.identity.id) == next) {
                 let status = message("status.watching", &[("channel", &channel.identity.name)]);
@@ -868,8 +881,7 @@ impl Mining {
     async fn schedule(&mut self, settings: &Settings) {
         let now = Instant::now();
         let wall = Utc::now();
-        if self.inventory_loaded
-            && !self.busy.contains(&JobKind::Manual)
+        if !self.busy.contains(&JobKind::Manual)
             && let Some((login, revision)) = self.lookup.take()
         {
             let client = self.client.clone();
@@ -965,10 +977,14 @@ impl Mining {
                         .iter()
                         .find(|c| {
                             c.identity.id == channel
-                                && self
+                                && c.online()
+                                && (self.manual.is_some_and(|manual| {
+                                    manual.channel == channel
+                                        && manual.expires_at.is_none_or(|at| now < at)
+                                }) || self
                                     .campaigns
                                     .iter()
-                                    .any(|campaign| campaign.can_watch(c, settings, wall))
+                                    .any(|campaign| campaign.can_watch(c, settings, wall)))
                         })
                         .cloned()
                 {
@@ -986,13 +1002,19 @@ impl Mining {
                 }
             }
         }
+        let manual_update = self
+            .manual
+            .map(|manual| manual.channel)
+            .filter(|id| self.refresh_channels.get(id).is_some_and(|at| now >= *at));
         let updates: Vec<_> = self
             .channels
             .iter()
             .filter(|c| {
-                self.refresh_channels
-                    .get(&c.identity.id)
-                    .is_some_and(|at| now >= *at)
+                manual_update.is_none_or(|id| c.identity.id == id)
+                    && self
+                        .refresh_channels
+                        .get(&c.identity.id)
+                        .is_some_and(|at| now >= *at)
             })
             .cloned()
             .collect();
@@ -1001,7 +1023,12 @@ impl Mining {
             self.spawn(JobKind::Update, async move {
                 let mut updates = updates;
                 let requested_at = Instant::now();
-                let result = client.update_channels(&mut updates).await.map(|()| updates);
+                let result = if manual_update.is_some() {
+                    client.update_manual_channel(&mut updates[0]).await
+                } else {
+                    client.update_channels(&mut updates).await
+                }
+                .map(|()| updates);
                 Job::Update {
                     result,
                     requested_at,
@@ -1046,9 +1073,7 @@ impl Mining {
                 .iter()
                 .find(|c| {
                     Some(c.identity.id)
-                        == self
-                            .watching
-                            .or(self.manual.or(self.resume_manual).map(|(id, _)| id))
+                        == self.watching.or(self.manual.map(|manual| manual.channel))
                 })
                 .cloned();
             self.app.status(message("gui.status.gathering", &[])).await;
@@ -1087,11 +1112,14 @@ impl Mining {
                 ) {
                     return Err(result.err().unwrap());
                 }
-                if self.intent.borrow().manual_revision == revision {
-                    let error = self.finish_manual(result, requested_at).await;
-                    if self.client.http.cancel.is_cancelled() {
-                        return Err(TwitchError::Cancelled);
-                    }
+                if self.client.http.cancel.is_cancelled() {
+                    return Err(TwitchError::Cancelled);
+                }
+                let receiver = self.intent.clone();
+                let intent = receiver.borrow();
+                if intent.manual_revision == revision {
+                    let error = self.finish_manual(result, requested_at, intent.manual_duration);
+                    self.lookup = None;
                     self.manual_pending = None;
                     self.manual_error = error.map(|key| message(key, &[]));
                     self.publish = true;
@@ -1109,7 +1137,6 @@ impl Mining {
                 result: Ok(mut inventory),
                 requested_at,
             } => {
-                self.inventory_loaded = true;
                 for campaign in &mut inventory.campaigns {
                     for drop in &mut campaign.drops {
                         // An issued claim instance remains valid until claimed. Catalog
@@ -1161,7 +1188,7 @@ impl Mining {
                 requested_at,
             } => {
                 self.preserve_channel_events(&mut channels, requested_at);
-                if let Some((id, _)) = self.manual
+                if let Some(ManualSelection { channel: id, .. }) = self.manual
                     && !channels.iter().any(|c| c.identity.id == id)
                     && let Some(current) = self.channels.iter().find(|c| c.identity.id == id)
                 {
@@ -1170,11 +1197,8 @@ impl Mining {
                 }
                 self.channels = channels;
                 self.channels_loaded = true;
-                if let Some(manual) = self.resume_manual.take() {
-                    self.manual = Some(manual);
-                }
                 let intent = self.intent.borrow().clone();
-                self.apply_manual(&intent, &settings);
+                self.apply_manual(&intent);
                 self.channel_events
                     .retain(|id, _| self.channels.iter().any(|c| c.identity.id == *id));
                 self.viewer_events
@@ -1243,7 +1267,7 @@ impl Mining {
                         } else {
                             self.next_watch = now;
                         }
-                    } else if !confirmed {
+                    } else if !confirmed && self.manual.is_none() {
                         let watching = self.channels.iter().find(|c| c.identity.id == channel);
                         for campaign in &mut self.campaigns {
                             if watching
@@ -1351,12 +1375,12 @@ impl Mining {
         }
     }
 
-    async fn finish_manual(
+    fn finish_manual(
         &mut self,
         result: Result<Option<ResolvedChannel>, TwitchError>,
         requested_at: Instant,
+        duration: Option<Duration>,
     ) -> Option<&'static str> {
-        let revision = self.intent.borrow().manual_revision;
         let mut resolved = match result {
             Ok(Some(resolved)) => resolved,
             Ok(None) => return Some("gui.channels.not_found"),
@@ -1366,78 +1390,14 @@ impl Mining {
         if !resolved.channel.online() {
             return Some("gui.channels.offline");
         }
-        let mut settings = self.app.snapshot.read().await.settings.values.clone();
-        let mut campaigns = self.campaigns.clone();
-        extend_discovery(&mut campaigns, &resolved);
-        let now = Utc::now();
-        let game = campaigns
-            .iter()
-            .filter(|c| resolved.campaigns.contains(&c.id))
-            .filter(|c| {
-                let mut candidate = settings.clone();
-                candidate.games_to_watch = vec![c.game.name.clone()];
-                c.can_watch(&resolved.channel, &candidate, now)
-            })
-            .min_by_key(|c| {
-                (
-                    resolved
-                        .channel
-                        .game
-                        .as_ref()
-                        .is_none_or(|g| g.id != c.game.id),
-                    game_priority(&settings, Some(&c.game)),
-                )
-            })
-            .map(|c| c.game.clone());
-        let Some(game) = game else {
-            return Some("gui.channels.no_rewards");
-        };
-        if !settings.selected(&game.name) {
-            match self
-                .app
-                .select_game(&game.name, |current| {
-                    if self.intent.borrow().manual_revision != revision
-                        || self.client.http.cancel.is_cancelled()
-                    {
-                        return false;
-                    }
-                    let mut candidate = current.clone();
-                    candidate.games_to_watch = vec![game.name.clone()];
-                    campaigns.iter().any(|c| {
-                        c.game.id == game.id
-                            && resolved.campaigns.contains(&c.id)
-                            && c.can_watch(&resolved.channel, &candidate, Utc::now())
-                    })
-                })
-                .await
-            {
-                Ok(saved) => settings = saved.values,
-                Err(error) if error.1 == "channel_selection_changed" => {
-                    return (self.intent.borrow().manual_revision == revision)
-                        .then_some("gui.channels.no_rewards");
-                }
-                Err(_) => return Some("gui.channels.selection_failed"),
-            }
-        }
-        if self.intent.borrow().manual_revision != revision {
-            return None;
-        }
         extend_discovery(&mut self.campaigns, &resolved);
-        if !self
-            .campaigns
-            .iter()
-            .any(|c| c.game.id == game.id && c.can_watch(&resolved.channel, &settings, Utc::now()))
-        {
-            return Some("gui.channels.no_rewards");
-        }
         let id = resolved.channel.identity.id;
         self.channels.retain(|c| c.identity.id != id);
         self.channels.insert(0, resolved.channel.clone());
         self.channels
             .truncate(crate::twitch::channels::MAX_CHANNELS);
         self.channel_events.insert(id, Instant::now());
-        self.manual = Some((id, game.id));
-        self.resume_manual = None;
+        self.manual = Some(ManualSelection::new(id, duration));
         self.manual_extra = Some(resolved);
         self.channels_dirty = true;
         None
@@ -1533,7 +1493,11 @@ impl Mining {
         let channels: Vec<_> = self
             .channels
             .iter()
-            .filter(|channel| mineable.iter().any(|c| c.matches_channel(channel)))
+            .filter(|channel| {
+                self.manual
+                    .is_some_and(|manual| manual.channel == channel.identity.id)
+                    || mineable.iter().any(|c| c.matches_channel(channel))
+            })
             .map(|c| c.view(self.watching))
             .collect();
         let wanted = wanted_items(&self.campaigns, settings, now);
@@ -1542,6 +1506,27 @@ impl Mining {
             .iter()
             .find(|c| Some(c.identity.id) == self.watching)
             .and_then(|channel| {
+                if self.manual.is_some() {
+                    // A manual override is not evidence that a particular reward earns.
+                    // Show only a reward Twitch has actually reported in this watch session.
+                    return self.last_progress.as_ref().and_then(|(id, _)| {
+                        self.campaigns
+                            .iter()
+                            .filter(|c| c.active(now) && c.matches_channel(channel))
+                            .find_map(|c| {
+                                c.drops
+                                    .iter()
+                                    .find(|d| {
+                                        d.id == *id
+                                            && !d.claimed
+                                            && d.starts_at <= now
+                                            && now < d.ends_at
+                                            && c.prerequisites_met(d)
+                                    })
+                                    .map(|d| (c, d))
+                            })
+                    });
+                }
                 self.campaigns
                     .iter()
                     .filter(|c| c.can_watch(channel, settings, now))
@@ -1551,19 +1536,25 @@ impl Mining {
         let progress = active.map(|(c, d)| c.progress(d));
         let mut manual = self
             .manual
-            .map(|(_, game)| ManualMode {
-                active: true,
-                game_name: self
-                    .campaigns
-                    .iter()
-                    .find(|c| c.game.id == game)
-                    .map(|c| c.game.name.clone()),
-                channel_name: self
+            .map(|manual| {
+                let channel = self
                     .channels
                     .iter()
-                    .find(|c| Some(c.identity.id) == self.watching)
-                    .map(|c| c.identity.name.clone()),
-                ..ManualMode::default()
+                    .find(|c| c.identity.id == manual.channel);
+                ManualMode {
+                    active: true,
+                    game_name: channel
+                        .and_then(|c| c.game.as_ref())
+                        .map(|g| g.name.clone()),
+                    channel_name: channel.map(|c| c.identity.name.clone()),
+                    expires_at: manual.expires_at.map(|at| {
+                        now + chrono::Duration::from_std(
+                            at.saturating_duration_since(Instant::now()),
+                        )
+                        .unwrap()
+                    }),
+                    ..ManualMode::default()
+                }
             })
             .unwrap_or_default();
         manual.pending_channel = self.manual_pending.clone();

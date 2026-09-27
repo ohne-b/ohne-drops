@@ -42,6 +42,7 @@
             "invalid_request": "Invalid request.",
             "request_failed": "Request failed. Try again.",
             "invalid_channel": "Enter a Twitch channel name or a direct twitch.tv channel URL.",
+            "invalid_manual_duration": "Enter a whole number of minutes from 1 to 1440, or leave the timer empty.",
             "twitch_login_required": "Connect your Twitch account before selecting a channel."
         },
         "status": {
@@ -67,13 +68,13 @@
             "viewers": "viewers",
             "mine_channel": "Mine channel",
             "channel_input": "Twitch channel name or URL",
-            "manual_help": "Mine an eligible reward from your campaign catalog on this channel. Its game will be added to your mining list. Reward filters and channel restrictions still apply.",
+            "manual_timer": "Auto mode after (minutes, optional)",
+            "auto_at": "Auto mode at {time}",
+            "waiting_for_live": "Waiting for {channel} to go live",
             "looking_up": "Preparing {channel}...",
             "not_found": "That Twitch channel was not found.",
             "offline": "That channel is offline. Choose a live channel.",
-            "no_rewards": "No eligible rewards from your campaign catalog are available on this channel. Check its game, campaign restrictions and reward filters.",
-            "lookup_failed": "Could not check that channel with Twitch. Try again.",
-            "selection_failed": "Could not save the game selection. Your previous selection is unchanged."
+            "lookup_failed": "Could not check that channel with Twitch. Try again."
         },
         "settings": {
             "mining_benefits": "Mining Benefits",
@@ -151,7 +152,6 @@
             "interface": "Interface",
             "loading": "Loading…",
             "saving": "Saving…",
-            "saved": "Changes saved.",
             "cancel": "Cancel",
             "close": "Close",
             "retry": "Try again",

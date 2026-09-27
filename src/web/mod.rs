@@ -7,6 +7,7 @@ use std::{
     net::SocketAddr,
     path::PathBuf,
     sync::{Arc, LazyLock},
+    time::Duration,
 };
 
 use anyhow::Result;
@@ -57,8 +58,8 @@ pub fn message(path: &str, replacements: &[(&str, &str)]) -> String {
 pub enum Command {
     Refresh { clear_cache: bool },
     SettingsChanged,
-    SelectChannel(u64),
-    MineChannel(String),
+    SelectChannel(u64, Option<Duration>),
+    MineChannel(String, Option<Duration>),
     ExitManual,
     ConfirmOAuth,
     Logout,
@@ -198,32 +199,6 @@ impl App {
         };
         self.sockets.emit("settings_updated", &settings).await;
         Ok(settings)
-    }
-
-    // Called by the owned mining task after an explicit Mine channel request.
-    // Append under the same transaction as autosaves, preserving other browsers' edits.
-    pub async fn select_game(
-        &self,
-        game: &str,
-        eligible: impl FnOnce(&crate::config::Settings) -> bool,
-    ) -> Result<SettingsView, ApiError> {
-        let _permit = self
-            .settings_slot
-            .acquire()
-            .await
-            .map_err(|_| ApiError::unavailable())?;
-        self.change_settings(|current| {
-            if !eligible(&current.values) {
-                return Err(ApiError(StatusCode::CONFLICT, "channel_selection_changed"));
-            }
-            let mut next = current.values.clone();
-            if !next.selected(game) {
-                next.games_to_watch.push(game.to_owned());
-            }
-            next.patched(&json!({"games_to_watch":next.games_to_watch}))
-                .map_err(|_| ApiError(StatusCode::BAD_REQUEST, "invalid_settings"))
-        })
-        .await
     }
 }
 
@@ -582,24 +557,35 @@ async fn select_channel(
     request: Request,
 ) -> Result<Json<Value>, ApiError> {
     #[derive(Deserialize)]
-    #[serde(untagged)]
-    enum Selection {
-        Id { channel_id: u64 },
-        Login { channel: String },
+    #[serde(deny_unknown_fields)]
+    struct Selection {
+        channel_id: Option<u64>,
+        channel: Option<String>,
+        duration_minutes: Option<u32>,
     }
     let selection: Selection = document(request).await?;
     if app.snapshot.read().await.login.user_id.is_none() {
         return Err(ApiError(StatusCode::CONFLICT, "twitch_login_required"));
     }
-    if let Selection::Login { channel } = selection {
+    if selection
+        .duration_minutes
+        .is_some_and(|minutes| !(1..=1440).contains(&minutes))
+    {
+        return Err(ApiError(StatusCode::BAD_REQUEST, "invalid_manual_duration"));
+    }
+    let duration = selection
+        .duration_minutes
+        .map(|minutes| Duration::from_secs(u64::from(minutes) * 60));
+    if selection.channel.is_some() == selection.channel_id.is_some() {
+        return Err(ApiError::invalid());
+    }
+    if let Some(channel) = selection.channel {
         let login = crate::twitch::channels::channel_login(&channel)
             .ok_or(ApiError(StatusCode::BAD_REQUEST, "invalid_channel"))?;
-        app.command(Command::MineChannel(login)).await?;
+        app.command(Command::MineChannel(login, duration)).await?;
         return Ok(Json(json!({"success":true})));
     }
-    let Selection::Id { channel_id } = selection else {
-        unreachable!()
-    };
+    let channel_id = selection.channel_id.unwrap();
     if !app
         .snapshot
         .read()
@@ -610,7 +596,8 @@ async fn select_channel(
     {
         return Err(ApiError(StatusCode::NOT_FOUND, "channel_not_found"));
     }
-    app.command(Command::SelectChannel(channel_id)).await?;
+    app.command(Command::SelectChannel(channel_id, duration))
+        .await?;
     Ok(Json(json!({"success":true})))
 }
 
