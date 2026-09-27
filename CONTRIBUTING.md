@@ -165,6 +165,10 @@ checks/policy to appear complete.
 Version ownership is `Cargo.toml` and `Cargo.lock`. **Prepare release**, manually run on
 main, uses `PUBLISHER_TOKEN` to create a draft version PR whose checks run normally. The
 token needs repository contents/PR access; configure it as a secret, never in source.
+If it is not configured, a maintainer can prepare the same draft PR locally: start a
+`feat/release-VERSION` branch from current main, run `node .github/scripts/release.mjs bump VERSION`,
+commit the version files, and push using their existing GitHub login. The same review
+and validation requirements apply.
 Add a concise, reviewed `CHANGELOG.md` entry to that draft PR, matching the existing
 version/link/date heading and change-list style. Review and merge it under the same policy.
 **Publish release** then runs manually
