@@ -87,6 +87,76 @@ impl Drop for TestApp {
 }
 
 #[tokio::test]
+async fn refresh_acknowledgement_does_not_mean_completion_and_requests_coalesce() {
+    use crate::dto::RefreshState;
+    let test = TestApp::new("");
+    let headers = [("x-tdm-request", "1")];
+    assert_eq!(
+        test.call(Method::POST, "/api/reload", json!({}), "", &headers)
+            .await
+            .0,
+        StatusCode::CONFLICT
+    );
+    test.app.snapshot.write().await.login.user_id = Some(42);
+    for _ in 0..2 {
+        assert_eq!(
+            test.call(Method::POST, "/api/reload", json!({}), "", &headers)
+                .await
+                .0,
+            StatusCode::OK
+        );
+        let state = test.app.snapshot.read().await;
+        assert_eq!(state.inventory_refresh.sequence, 1);
+        assert_eq!(state.inventory_refresh.state, RefreshState::Refreshing);
+    }
+    test.app.finish_inventory_refresh(1, None).await;
+    assert_eq!(
+        test.app.snapshot.read().await.inventory_refresh.state,
+        RefreshState::Refreshed
+    );
+    test.app.refresh_inventory().await.unwrap();
+    test.app.finish_inventory_refresh(1, None).await;
+    assert_eq!(
+        test.app.snapshot.read().await.inventory_refresh.state,
+        RefreshState::Refreshing
+    );
+    test.app
+        .finish_inventory_refresh(3, Some("catalog unavailable".into()))
+        .await;
+    let state = test.app.snapshot.read().await;
+    assert_eq!(state.inventory_refresh.state, RefreshState::Failed);
+    assert_eq!(
+        state.inventory_refresh.error.as_deref(),
+        Some("catalog unavailable")
+    );
+}
+
+#[tokio::test]
+async fn refresh_command_failure_is_retryable_and_disconnected_callers_do_not_cancel_accepted_work()
+{
+    use crate::dto::RefreshState;
+    let dir = tempfile::tempdir().unwrap();
+    let (app, mut receiver) = App::open(dir.path().to_owned(), "").unwrap();
+    app.snapshot.write().await.login.user_id = Some(42);
+    let owned = app.clone();
+    let caller = tokio::spawn(async move { owned.refresh_inventory().await });
+    let command = receiver.recv().await.unwrap();
+    caller.abort();
+    let _ = caller.await;
+    command.complete.send(Ok(())).unwrap();
+    app.finish_inventory_refresh(1, None).await;
+    drop(receiver);
+    for _ in 0..2 {
+        assert!(app.refresh_inventory().await.is_err());
+        assert_eq!(
+            app.snapshot.read().await.inventory_refresh.state,
+            RefreshState::Failed
+        );
+    }
+    app.drain_writes().await;
+}
+
+#[tokio::test]
 async fn manual_channel_boundary_requires_login_and_rejects_arbitrary_urls() {
     let test = TestApp::new("");
     let headers = [("x-tdm-request", "1")];

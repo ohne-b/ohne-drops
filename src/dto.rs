@@ -115,9 +115,26 @@ pub struct ManualMode {
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]
 pub struct InventoryStatus {
     pub available: bool,
-    #[serde(default)]
-    pub recovered: usize,
     pub checked_at: Option<DateTime<Utc>>,
+    #[serde(default)]
+    pub catalog_updated_at: Option<DateTime<Utc>>,
+}
+
+#[derive(Clone, Copy, Debug, Default, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum RefreshState {
+    #[default]
+    Idle,
+    Refreshing,
+    Refreshed,
+    Failed,
+}
+
+#[derive(Clone, Debug, Default, Serialize, Deserialize)]
+pub struct InventoryRefresh {
+    pub sequence: u64,
+    pub state: RefreshState,
+    pub error: Option<String>,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -171,6 +188,8 @@ pub struct Snapshot {
     pub current_drop: Option<Progress>,
     pub wanted_items: Vec<WantedGame>,
     pub inventory_status: InventoryStatus,
+    #[serde(default)]
+    pub inventory_refresh: InventoryRefresh,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]

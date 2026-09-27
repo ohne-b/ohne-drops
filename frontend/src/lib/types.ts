@@ -123,8 +123,13 @@ export interface ManualMode {
 }
 export interface InventoryStatus {
   available: boolean;
-  recovered?: number;
   checked_at: string | null;
+  catalog_updated_at?: string | null;
+}
+export interface InventoryRefresh {
+  sequence: number;
+  state: 'idle' | 'refreshing' | 'refreshed' | 'failed';
+  error: string | null;
 }
 export interface Snapshot {
   status: string;
@@ -137,6 +142,7 @@ export interface Snapshot {
   current_drop: Progress | null;
   wanted_items: WantedGame[];
   inventory_status?: InventoryStatus;
+  inventory_refresh?: InventoryRefresh;
 }
 export interface HistoryEntry {
   image_url?: string;
@@ -175,6 +181,7 @@ export interface ServerEvents {
   inventory_clear: () => void;
   inventory_batch_update: (data: { campaigns: Campaign[] }) => void;
   inventory_status: (data: InventoryStatus) => void;
+  inventory_refresh: (data: InventoryRefresh) => void;
   drop_update: (data: {
     campaign_id: string;
     campaign: Partial<Campaign>;

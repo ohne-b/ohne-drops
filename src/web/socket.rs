@@ -90,7 +90,11 @@ impl SocketHub {
                 if let Some(app) = weak.upgrade()
                     && app.sockets.authorized(&socket).await
                 {
-                    let _ = app.command(command.clone()).await;
+                    if matches!(command, Command::Refresh { clear_cache: false }) {
+                        let _ = app.refresh_inventory().await;
+                    } else {
+                        let _ = app.command(command.clone()).await;
+                    }
                 }
             });
         }

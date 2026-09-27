@@ -149,7 +149,7 @@ export default function Campaigns() {
           </Link>
         ))}
       </nav>
-      {data.inventory_status?.available === false && !data.inventory_status.recovered && (
+      {data.inventory_status?.available === false && data.inventory_status.checked_at && (
         <Notice error>{t('campaigns_unavailable')}</Notice>
       )}
       <div className="flex flex-wrap gap-3">

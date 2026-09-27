@@ -16,11 +16,11 @@ use tokio_util::sync::CancellationToken;
 use crate::{
     config::Settings,
     domain::{Campaign, Channel, wanted_items},
-    dto::{InventoryStatus, Login, ManualMode},
+    dto::{InventoryStatus, Login, ManualMode, RefreshState},
     store::{ClaimJournal, PendingClaim},
     twitch::{
         Endpoints, TwitchClient, TwitchError, TwitchHttp,
-        channels::{ResolvedChannel, select_channel},
+        channels::select_channel,
         inventory::Inventory,
         oauth::{DeviceLogin, Session},
         pubsub::{Event, PubSub},
@@ -69,7 +69,7 @@ struct Generation {
 #[derive(Default)]
 struct Resume {
     manual: Option<ManualSelection>,
-    channel: Option<ResolvedChannel>,
+    channel: Option<Channel>,
     lookup: Option<(String, u64)>,
     seen: Intent,
 }
@@ -177,6 +177,8 @@ impl Miner {
                             },
                             Ok(Err(TwitchError::Cancelled))|Ok(Ok(()))=>{},
                             Ok(Err(error))=>{
+                                let sequence=self.app.snapshot.read().await.inventory_refresh.sequence;
+                                self.app.finish_inventory_refresh(sequence,Some(message("gui.redesign.refresh_failed_detail",&[]))).await;
                                 self.app.console(message("gui.backend.twitch_error",&[("error",&error.to_string())])).await;
                                 tokio::select!{_=self.app.shutdown.cancelled()=>{},_=tokio::time::sleep(Duration::from_secs(5))=>{}}
                             },
@@ -269,6 +271,9 @@ async fn reset_session(app: &App) {
         };
         state.campaigns = archived;
         state.inventory_status = InventoryStatus::default();
+        state.inventory_refresh.sequence += 1;
+        state.inventory_refresh.state = RefreshState::Idle;
+        state.inventory_refresh.error = None;
         state.settings.games_available.clear();
     }
     let state = app.snapshot.read().await.clone();
@@ -406,11 +411,12 @@ enum Job {
     Manual {
         revision: u64,
         requested_at: Instant,
-        result: Box<Result<Option<ResolvedChannel>, TwitchError>>,
+        result: Box<Result<Option<Channel>, TwitchError>>,
     },
     Inventory {
         result: Result<Inventory, TwitchError>,
         requested_at: chrono::DateTime<Utc>,
+        refresh_sequence: u64,
     },
     Channels {
         result: Result<Vec<Channel>, TwitchError>,
@@ -442,19 +448,6 @@ struct CompletedJob {
     job: Job,
 }
 
-fn extend_discovery(campaigns: &mut [Campaign], resolved: &ResolvedChannel) {
-    for campaign in campaigns {
-        if resolved.campaigns.contains(&campaign.id)
-            && let Some(channels) = &mut campaign.discovery_channels
-            && !channels
-                .iter()
-                .any(|c| c.id == resolved.channel.identity.id)
-        {
-            channels.push(resolved.channel.identity.clone());
-        }
-    }
-}
-
 struct Mining {
     app: Arc<App>,
     client: TwitchClient,
@@ -471,7 +464,6 @@ struct Mining {
     lookup: Option<(String, u64)>,
     manual_pending: Option<String>,
     manual_error: Option<String>,
-    manual_extra: Option<ResolvedChannel>,
     jobs: JoinSet<CompletedJob>,
     busy: HashSet<JobKind>,
     watch_abort: Option<tokio::task::AbortHandle>,
@@ -491,6 +483,7 @@ struct Mining {
     claim_retry: HashMap<String, Instant>,
     claim_wait: Option<(String, Instant, u8)>,
     last_inventory: Instant,
+    next_unknown_refresh: Instant,
     next_transition: Option<chrono::DateTime<Utc>>,
     pending_claims: Vec<PendingClaim>,
 }
@@ -500,16 +493,13 @@ impl Mining {
         self.seen = saved.seen.clone();
         self.lookup = saved.lookup.clone();
         self.manual_pending = saved.lookup.as_ref().map(|(login, _)| login.clone());
-        self.manual_extra = saved.channel.clone();
         if let Some(extra) = &saved.channel {
-            // Keep identity and direct campaign evidence, but require fresh stream
+            // Keep identity, but require fresh stream
             // eligibility in this network generation before watching again.
-            self.channels.push(Channel::offline(
-                extra.channel.identity.clone(),
-                extra.channel.acl_based,
-            ));
+            self.channels
+                .push(Channel::offline(extra.identity.clone(), extra.acl_based));
             self.refresh_channels
-                .insert(extra.channel.identity.id, Instant::now());
+                .insert(extra.identity.id, Instant::now());
         }
     }
 
@@ -518,19 +508,10 @@ impl Mining {
         Resume {
             manual,
             channel: manual.and_then(|manual| {
-                let channel = self
-                    .channels
+                self.channels
                     .iter()
-                    .find(|c| c.identity.id == manual.channel)?
-                    .clone();
-                Some(ResolvedChannel {
-                    channel,
-                    campaigns: self
-                        .manual_extra
-                        .as_ref()
-                        .map(|extra| extra.campaigns.clone())
-                        .unwrap_or_default(),
-                })
+                    .find(|c| c.identity.id == manual.channel)
+                    .cloned()
             }),
             lookup: self
                 .manual_pending
@@ -563,7 +544,6 @@ impl Mining {
             lookup: None,
             manual_pending: None,
             manual_error: None,
-            manual_extra: None,
             jobs: JoinSet::new(),
             busy: HashSet::new(),
             watch_abort: None,
@@ -583,6 +563,7 @@ impl Mining {
             claim_retry: HashMap::new(),
             claim_wait: None,
             last_inventory: now,
+            next_unknown_refresh: now,
             next_transition: None,
             pending_claims: vec![],
         }
@@ -668,7 +649,6 @@ impl Mining {
             self.lookup = None;
             self.manual_pending = None;
             self.manual_error = None;
-            self.manual_extra = None;
             self.poll_at = None;
             self.claim_wait = None;
             self.refresh_channels.clear();
@@ -679,7 +659,8 @@ impl Mining {
             self.publish = true;
         }
         if intent.refresh != self.seen.refresh {
-            self.refresh = true;
+            self.refresh |=
+                intent.clear != self.seen.clear || !self.busy.contains(&JobKind::Inventory);
             self.next_retry = Instant::now();
         }
         if intent.settings != self.seen.settings {
@@ -719,7 +700,6 @@ impl Mining {
             self.lookup = None;
             self.manual_pending = None;
             self.manual_error = None;
-            self.manual_extra = None;
             self.manual = intent.selected.and_then(|id| {
                 self.channels
                     .iter()
@@ -820,6 +800,12 @@ impl Mining {
             self.publish = true;
             true
         } else {
+            // Both PubSub and CurrentDrop can reveal rewards missing from the catalog.
+            // Coalesce unknown IDs so repeated progress cannot flood inventory requests.
+            if Instant::now() >= self.next_unknown_refresh {
+                self.next_unknown_refresh = Instant::now() + Duration::from_secs(60);
+                self.refresh = true;
+            }
             false
         }
     }
@@ -851,7 +837,6 @@ impl Mining {
             .is_some_and(|manual| manual.expires_at.is_some_and(|at| Instant::now() >= at))
         {
             self.manual = None;
-            self.manual_extra = None;
             self.publish = true;
         }
         let next = select_channel(
@@ -1049,16 +1034,17 @@ impl Mining {
         }
         if self.refresh || now >= self.next_refresh {
             self.refresh = false;
+            let (refresh_sequence, _) = self.app.begin_inventory_refresh().await;
             let client = self.client.clone();
-            let settings = settings.clone();
             self.app
                 .status(message("gui.status.fetching_inventory", &[]))
                 .await;
             self.spawn(JobKind::Inventory, async move {
                 let requested_at = Utc::now();
                 Job::Inventory {
-                    result: client.inventory(&settings).await,
+                    result: client.inventory().await,
                     requested_at,
+                    refresh_sequence,
                 }
             });
             return;
@@ -1136,7 +1122,17 @@ impl Mining {
             Job::Inventory {
                 result: Ok(mut inventory),
                 requested_at,
+                refresh_sequence,
             } => {
+                if !inventory.status.available {
+                    for previous in &self.campaigns {
+                        if (previous.active(Utc::now()) || previous.upcoming(Utc::now()))
+                            && !inventory.campaigns.iter().any(|c| c.id == previous.id)
+                        {
+                            inventory.campaigns.push(previous.clone());
+                        }
+                    }
+                }
                 for campaign in &mut inventory.campaigns {
                     for drop in &mut campaign.drops {
                         // An issued claim instance remains valid until claimed. Catalog
@@ -1167,9 +1163,6 @@ impl Mining {
                         }
                     }
                 }
-                if let Some(extra) = &self.manual_extra {
-                    extend_discovery(&mut inventory.campaigns, extra);
-                }
                 self.campaigns = inventory.campaigns;
                 self.status = inventory.status;
                 self.recover_claims(&inventory.awards).await?;
@@ -1180,7 +1173,15 @@ impl Mining {
                         u64::from(settings.minimum_refresh_interval_minutes) * 60,
                     );
                 self.channels_dirty = true;
-                self.publish = true;
+                self.publish(&settings).await?;
+                self.publish = false;
+                self.app
+                    .finish_inventory_refresh(
+                        refresh_sequence,
+                        (!self.status.available)
+                            .then(|| message("gui.redesign.campaigns_unavailable", &[])),
+                    )
+                    .await;
                 None
             }
             Job::Channels {
@@ -1339,8 +1340,16 @@ impl Mining {
             }
             Job::Notification(result) => result.err(),
             Job::Inventory {
-                result: Err(error), ..
+                result: Err(error),
+                refresh_sequence,
+                ..
             } => {
+                self.app
+                    .finish_inventory_refresh(
+                        refresh_sequence,
+                        Some(message("gui.redesign.refresh_failed_detail", &[])),
+                    )
+                    .await;
                 self.refresh = true;
                 Some(error)
             }
@@ -1377,7 +1386,7 @@ impl Mining {
 
     fn finish_manual(
         &mut self,
-        result: Result<Option<ResolvedChannel>, TwitchError>,
+        result: Result<Option<Channel>, TwitchError>,
         requested_at: Instant,
         duration: Option<Duration>,
     ) -> Option<&'static str> {
@@ -1386,19 +1395,17 @@ impl Mining {
             Ok(None) => return Some("gui.channels.not_found"),
             Err(_) => return Some("gui.channels.lookup_failed"),
         };
-        self.preserve_channel_events(std::slice::from_mut(&mut resolved.channel), requested_at);
-        if !resolved.channel.online() {
+        self.preserve_channel_events(std::slice::from_mut(&mut resolved), requested_at);
+        if !resolved.online() {
             return Some("gui.channels.offline");
         }
-        extend_discovery(&mut self.campaigns, &resolved);
-        let id = resolved.channel.identity.id;
+        let id = resolved.identity.id;
         self.channels.retain(|c| c.identity.id != id);
-        self.channels.insert(0, resolved.channel.clone());
+        self.channels.insert(0, resolved.clone());
         self.channels
             .truncate(crate::twitch::channels::MAX_CHANNELS);
         self.channel_events.insert(id, Instant::now());
         self.manual = Some(ManualSelection::new(id, duration));
-        self.manual_extra = Some(resolved);
         self.channels_dirty = true;
         None
     }

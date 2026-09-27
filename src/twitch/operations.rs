@@ -3,8 +3,6 @@ use serde_json::{Value, json};
 #[derive(Clone, Copy)]
 pub enum Operation {
     Inventory,
-    Campaigns,
-    CampaignDetails,
     GameDirectory,
     StreamInfo,
     CurrentDrop,
@@ -16,7 +14,7 @@ pub enum Operation {
 impl Operation {
     pub fn request(self, mut variables: Value) -> Value {
         match self {
-            Self::Inventory | Self::Campaigns => variables["fetchRewardCampaigns"] = false.into(),
+            Self::Inventory => variables["fetchRewardCampaigns"] = false.into(),
             Self::CurrentDrop => variables["channelLogin"] = "".into(),
             _ => {}
         }
@@ -24,14 +22,6 @@ impl Operation {
             Self::Inventory => (
                 "Inventory",
                 "d86775d0ef16a63a33ad52e80eaff963b2d5b72fada7c991504a57496e1d8e4b",
-            ),
-            Self::Campaigns => (
-                "ViewerDropsDashboard",
-                "5a4da2ab3d5b47c9f9ce864e727b2cb346af1e3ea8b897fe8f704a97ff017619",
-            ),
-            Self::CampaignDetails => (
-                "DropCampaignDetails",
-                "039277bf98f3130929262cc7c6efd9c141ca3749cb6dca442fc8ead9a53f77c1",
             ),
             Self::GameDirectory => (
                 "DirectoryPage_Game",
@@ -81,22 +71,10 @@ mod tests {
                 json!({"fetchRewardCampaigns":false}),
             ),
             (
-                Operation::Campaigns,
-                json!({}),
-                "ViewerDropsDashboard",
-                json!({"fetchRewardCampaigns":false}),
-            ),
-            (
                 Operation::CurrentDrop,
                 json!({"channelID":"10"}),
                 "DropCurrentSessionContext",
                 json!({"channelID":"10","channelLogin":""}),
-            ),
-            (
-                Operation::CampaignDetails,
-                json!({"channelLogin":"42","dropID":"campaign"}),
-                "DropCampaignDetails",
-                json!({"channelLogin":"42","dropID":"campaign"}),
             ),
             (
                 Operation::StreamInfo,

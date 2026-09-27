@@ -22,18 +22,18 @@ mod protocol_regressions {
         let server = MockServer::start().await;
         gql_mock(&server, |q| match q["operationName"].as_str().unwrap() {
             "Inventory" => json!({"data":{"currentUser":{"inventory":{"dropCampaignsInProgress":[],"gameEventDrops":[]}}}}),
-            "ViewerDropsDashboard" => json!({"data":{"currentUser":{"dropCampaigns":[]}}}),
             "DropCurrentSessionContext" => json!({"data":{"currentUser":{"dropCurrentSession":null}}}),
             _ => unreachable!(),
         }).await;
         let client = TwitchClient::new(Arc::new(http(&server)), &session());
-        client.inventory(&Settings::default()).await.unwrap();
+        client.inventory().await.unwrap();
         client.current_drop(10).await.unwrap();
         let bodies: Vec<serde_json::Value> = server
             .received_requests()
             .await
             .unwrap()
             .iter()
+            .filter(|r| r.method == "POST")
             .map(|r| r.body_json().unwrap())
             .collect();
         assert_eq!(
@@ -41,23 +41,26 @@ mod protocol_regressions {
             "Inventory request: {}",
             bodies[0]
         );
-        assert_eq!(bodies[1]["variables"]["fetchRewardCampaigns"], false);
-        assert_eq!(bodies[2]["variables"]["channelLogin"], "");
+        assert_eq!(bodies[1]["variables"]["channelLogin"], "");
+        assert_eq!(bodies.len(), 2);
     }
 
     #[tokio::test]
     async fn null_ancestor_keeps_independent_batch_neighbor() {
         let server = MockServer::start().await;
-        Mock::given(method("POST")).and(path("/gql"))
-          .respond_with(ResponseTemplate::new(200).set_body_json(json!([
-            {"data":{"user":null},"errors":[{"message":"server error","path":["user","dropCampaign"]}]},
-            {"data":{"user":{"dropCampaign":{"id":"valid-neighbor"}}}}
-          ]))).mount(&server).await;
+        Mock::given(method("POST"))
+            .and(path("/gql"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(json!([
+              {"data":{"user":null},"errors":[{"message":"server error","path":["user","stream"]}]},
+              {"data":{"user":{"stream":{"id":"valid-neighbor"}}}}
+            ])))
+            .mount(&server)
+            .await;
         let client = TwitchClient::new(Arc::new(http(&server)), &session());
         let response = client
             .batch(vec![
-                Operation::CampaignDetails.request(json!({})),
-                Operation::CampaignDetails.request(json!({})),
+                Operation::StreamInfo.request(json!({})),
+                Operation::StreamInfo.request(json!({})),
             ])
             .await;
         assert!(
@@ -65,7 +68,7 @@ mod protocol_regressions {
             "valid neighboring detail was discarded: {response:?}"
         );
         assert_eq!(
-            response.unwrap()[1]["data"]["user"]["dropCampaign"]["id"],
+            response.unwrap()[1]["data"]["user"]["stream"]["id"],
             "valid-neighbor"
         );
     }
@@ -105,34 +108,6 @@ mod protocol_regressions {
             "{inflight} simultaneous requests reached the server before any completed"
         );
     }
-
-    #[tokio::test]
-    async fn incomplete_recovery_does_not_poison_later_complete_record() {
-        let server = MockServer::start().await;
-        gql_mock(&server, |q| match q["operationName"].as_str().unwrap() {
-            "Inventory" => json!({"data":{"currentUser":{"inventory":{"dropCampaignsInProgress":[],"gameEventDrops":[]}}}}),
-            "ViewerDropsDashboard" => json!({"data":{"currentUser":{"dropCampaigns":null}}}),
-            "DropsDiscoveryGames" => json!({"data":{"games":{"edges":[{"cursor":"end","node":{"streams":{"edges":[
-                {"node":{"broadcaster":{"id":"10","login":"first","displayName":"First"}}},
-                {"node":{"broadcaster":{"id":"11","login":"second","displayName":"Second"}}}
-            ]}}}],"pageInfo":{"hasNextPage":false}}}}),
-            "ChannelDropsRecovery" => {
-                let mut campaign=campaign_json("shared");
-                campaign.as_object_mut().unwrap().remove("self");
-                campaign["timeBasedDrops"][0].as_object_mut().unwrap().remove("self");
-                let id=q["variables"]["channelID"].as_str().unwrap();
-                if id=="10" {campaign.as_object_mut().unwrap().remove("timeBasedDrops");}
-                json!({"data":{"channel":{"id":id,"viewerDropCampaigns":[campaign]}}})
-            },
-            _ => unreachable!(),
-        }).await;
-        let client = TwitchClient::new(Arc::new(http(&server)), &session());
-        let inventory = client.inventory(&Settings::default()).await.unwrap();
-        assert_eq!(
-            inventory.status.recovered, 1,
-            "the second source supplied the complete campaign"
-        );
-    }
 }
 
 use crate::config::Settings;
@@ -167,6 +142,14 @@ pub(crate) async fn gql_mock(
     server: &MockServer,
     handler: impl Fn(&serde_json::Value) -> serde_json::Value + Send + Sync + 'static,
 ) {
+    Mock::given(method("GET"))
+        .and(path("/catalog"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "lastUpdatedAt": chrono::Utc::now().to_rfc3339(), "data": []
+        })))
+        .with_priority(255)
+        .mount(server)
+        .await;
     Mock::given(method("POST"))
         .and(path("/gql"))
         .respond_with(move |request: &wiremock::Request| {

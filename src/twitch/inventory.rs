@@ -1,40 +1,10 @@
-use std::{
-    collections::{BTreeMap, HashMap, HashSet},
-    time::Duration,
-};
+use std::collections::{BTreeMap, HashMap, HashSet};
 
 use chrono::{DateTime, Utc};
 use serde_json::{Value, json};
 
-use super::{
-    TwitchClient, TwitchError,
-    operations::{Operation, directory},
-};
-use crate::{
-    config::Settings,
-    domain::{Campaign, ChannelIdentity, Game, number},
-    dto::InventoryStatus,
-};
-
-const GAMES_QUERY: &str = r#"query DropsDiscoveryGames($after: Cursor) {
-  games(first: 100, after: $after) {
-    edges { cursor node { streams(first: 3, options: {systemFilters: [DROPS_ENABLED]}) {
-      edges { node { broadcaster { id login displayName } } }
-    } } }
-    pageInfo { hasNextPage }
-  }
-}"#;
-const RECOVERY_QUERY: &str = r#"query ChannelDropsRecovery($channelID: ID!) {
-  channel(id: $channelID) { id viewerDropCampaigns {
-    id name status startAt endAt accountLinkURL
-    game { id name displayName slug boxArtURL }
-    allow { isEnabled channels { id name displayName } }
-    timeBasedDrops {
-      id name startAt endAt requiredMinutesWatched preconditionDrops { id }
-      benefitEdges { benefit { id name distributionType imageAssetURL } }
-    }
-  } }
-}"#;
+use super::{TwitchClient, TwitchError, catalog::Catalog, operations::Operation};
+use crate::{domain::Campaign, dto::InventoryStatus};
 
 pub struct Inventory {
     pub campaigns: Vec<Campaign>,
@@ -43,8 +13,14 @@ pub struct Inventory {
 }
 
 impl TwitchClient {
-    pub async fn inventory(&self, settings: &Settings) -> Result<Inventory, TwitchError> {
-        let response = self.gql(Operation::Inventory.request(json!({}))).await?;
+    pub async fn inventory(&self) -> Result<Inventory, TwitchError> {
+        let (response, public) =
+            tokio::try_join!(self.gql(Operation::Inventory.request(json!({}))), async {
+                match self.http.catalog().await {
+                    Err(TwitchError::Cancelled) => Err(TwitchError::Cancelled),
+                    result => Ok(result.ok()),
+                }
+            },)?;
         let inventory = response
             .pointer("/data/currentUser/inventory")
             .filter(|v| v.is_object())
@@ -57,95 +33,29 @@ impl TwitchClient {
                 ))
             })
             .collect();
-        let mut account = records(&inventory["dropCampaignsInProgress"]);
-        let response = self.gql(Operation::Campaigns.request(json!({}))).await?;
-        let catalog = response
-            .pointer("/data/currentUser/dropCampaigns")
-            .and_then(Value::as_array);
-        let summaries: BTreeMap<String, Value> = catalog
-            .into_iter()
-            .flatten()
-            .filter(|v| matches!(v["status"].as_str(), Some("ACTIVE" | "UPCOMING")))
-            .filter_map(|v| Some((v["id"].as_str()?.to_owned(), v.clone())))
-            .collect();
-        let ids: Vec<_> = summaries.keys().collect();
-        let mut fetched = HashSet::new();
-        for ids in ids.chunks(20) {
-            let queries: Vec<_> = ids
-                .iter()
-                .map(|id| {
-                    Operation::CampaignDetails
-                        .request(json!({"channelLogin":self.user_id.to_string(),"dropID":id}))
-                })
-                .collect();
-            for response in self.batch(queries).await? {
-                let Some(mut detail) = response
-                    .pointer("/data/user/dropCampaign")
-                    .filter(|v| v.is_object())
-                    .cloned()
-                else {
-                    continue;
-                };
-                let Some(id) = detail["id"]
-                    .as_str()
-                    .filter(|id| ids.iter().any(|requested| requested.as_str() == *id))
-                    .map(str::to_owned)
-                else {
-                    continue;
-                };
-                fill_missing(&mut detail, &summaries[&id]);
-                if let Some(ongoing) = account.get_mut(&id) {
-                    fill_missing(ongoing, &detail);
-                } else {
-                    account.insert(id.clone(), detail);
+        let now = Utc::now();
+        let mut campaigns = BTreeMap::new();
+        let mut account_ids = HashSet::new();
+        let mut account_complete = inventory["dropCampaignsInProgress"].is_array();
+        for record in values(&inventory["dropCampaignsInProgress"]) {
+            // Even a damaged account record must not be replaced by public account assumptions.
+            if let Some(id) = record["id"].as_str() {
+                account_complete &= account_ids.insert(id.to_owned());
+            }
+            match Campaign::parse(record, &awards, now) {
+                Ok(campaign) => {
+                    campaigns.insert(campaign.id.clone(), campaign);
                 }
-                fetched.insert(id);
+                Err(_) => account_complete = false,
             }
         }
-        let now = Utc::now();
-        let mut campaigns: BTreeMap<_, _> = account
-            .iter()
-            .filter_map(|(id, v)| {
-                Campaign::parse(v, &awards, now)
-                    .ok()
-                    .map(|c| (id.clone(), c))
-            })
-            .collect();
-        let available = catalog.is_some()
-            && summaries
-                .keys()
-                .all(|id| fetched.contains(id) && campaigns.contains_key(id));
-        let mut recovered = 0;
-        // An authoritative empty catalog does not need speculative channel discovery.
-        if !available && catalog.is_none_or(|v| !v.is_empty()) {
-            let mut slugs = Vec::new();
-            let mut seen = HashSet::new();
-            for slug in account
-                .values()
-                .chain(summaries.values())
-                .filter_map(|v| Game::parse(&v["game"]).ok())
-                .map(|g| g.slug)
-                .chain(settings.games_to_watch.iter().map(|s| Game::slug(s)))
-            {
-                if !slug.is_empty() && seen.insert(slug.clone()) {
-                    slugs.push(slug);
-                }
-            }
-            for (id, mut raw) in self.recover_campaigns(&slugs).await? {
-                // Never blend metadata-only recovery into an account record, including
-                // an incomplete one. That would manufacture certainty about its rewards.
-                if account.contains_key(&id) || catalog.is_some() && !summaries.contains_key(&id) {
-                    continue;
-                }
-                if let Some(account) = summaries.get(&id).and_then(|v| v.get("self")) {
-                    raw["self"] = account.clone();
-                }
-                if let Ok(campaign) = Campaign::parse(&raw, &awards, now)
-                    && (campaign.active(now) || campaign.upcoming(now))
-                    && campaign.drops.iter().any(|d| d.watch_reward())
-                {
+        let catalog = public.and_then(|v| Catalog::parse(v, &awards, now).ok());
+        let available = account_complete && catalog.as_ref().is_some_and(|c| c.complete);
+        let catalog_updated_at = catalog.as_ref().map(|c| c.updated_at);
+        if let Some(catalog) = catalog {
+            for (id, campaign) in catalog.campaigns {
+                if !account_ids.contains(&id) {
                     campaigns.insert(id, campaign);
-                    recovered += 1;
                 }
             }
         }
@@ -154,8 +64,8 @@ impl TwitchClient {
             awards,
             status: InventoryStatus {
                 available,
-                recovered,
                 checked_at: Some(now),
+                catalog_updated_at,
             },
         })
     }
@@ -172,269 +82,333 @@ impl TwitchClient {
             _ => Err(TwitchError::InvalidResponse),
         }
     }
-
-    async fn recover_campaigns(
-        &self,
-        slugs: &[String],
-    ) -> Result<BTreeMap<String, Value>, TwitchError> {
-        let mut discovered = BTreeMap::new();
-        let scan = self.scan_campaigns(slugs, &mut discovered);
-        match tokio::time::timeout(Duration::from_secs(60), scan).await {
-            Ok(Err(error @ (TwitchError::Unauthorized | TwitchError::Cancelled))) => {
-                return Err(error);
-            }
-            Ok(Ok(())) => {}
-            _ => tracing::warn!("Live-channel campaign discovery is incomplete"),
-        }
-        Ok(discovered)
-    }
-
-    async fn scan_campaigns(
-        &self,
-        slugs: &[String],
-        discovered: &mut BTreeMap<String, Value>,
-    ) -> Result<(), TwitchError> {
-        let mut channels = BTreeMap::new();
-        for slugs in slugs[..slugs.len().min(100)].chunks(20) {
-            for response in self
-                .batch(slugs.iter().map(|slug| directory(slug, 3)).collect())
-                .await?
-            {
-                collect_channels(&response["data"]["game"], &mut channels);
-            }
-        }
-        let mut cursor = Value::Null;
-        for _ in 0..5 {
-            let response = self.gql(json!({"operationName":"DropsDiscoveryGames","query":GAMES_QUERY,"variables":{"after":cursor}})).await?;
-            let games = &response["data"]["games"];
-            for edge in values(&games["edges"]).take(100) {
-                collect_channels(&edge["node"], &mut channels);
-            }
-            let next = values(&games["edges"])
-                .filter_map(|v| v["cursor"].as_str())
-                .next_back();
-            if games["pageInfo"]["hasNextPage"] != true
-                || next.is_none_or(|s| s.is_empty() || cursor == s)
-            {
-                break;
-            }
-            cursor = next.unwrap().into();
-        }
-        let ids: Vec<_> = channels.keys().copied().collect();
-        for ids in ids.chunks(20) {
-            let queries = ids.iter().map(|id|json!({"operationName":"ChannelDropsRecovery","query":RECOVERY_QUERY,"variables":{"channelID":id.to_string()}})).collect();
-            for response in self.batch(queries).await? {
-                let source = &response["data"]["channel"];
-                let Some(channel) = number(&source["id"])
-                    .filter(|id| ids.contains(id))
-                    .and_then(|id| channels.get(&id))
-                else {
-                    continue;
-                };
-                for raw in values(&source["viewerDropCampaigns"]) {
-                    let Some(id) = raw["id"].as_str().filter(|id| !id.is_empty()) else {
-                        continue;
-                    };
-                    if !matches!(raw["status"].as_str(), Some("ACTIVE" | "UPCOMING"))
-                        || !raw["game"].is_object()
-                        || raw["timeBasedDrops"].as_array().is_none_or(Vec::is_empty)
-                        || Campaign::parse(raw, &HashMap::new(), Utc::now()).is_err()
-                    {
-                        continue;
-                    }
-                    let value = discovered.entry(id.to_owned()).or_insert_with(|| {
-                        let mut raw = raw.clone();
-                        raw["self"] = json!({"isAccountConnected":null});
-                        raw["discovery_channels"] = json!([]);
-                        raw
-                    });
-                    value["discovery_channels"].as_array_mut().unwrap().push(json!({"id":channel.id.to_string(),"login":channel.login,"displayName":channel.name}));
-                }
-            }
-        }
-        Ok(())
-    }
 }
 
 pub(crate) fn values(value: &Value) -> impl DoubleEndedIterator<Item = &Value> {
     value.as_array().into_iter().flatten()
 }
-fn records(value: &Value) -> BTreeMap<String, Value> {
-    values(value)
-        .filter_map(|v| Some((v["id"].as_str()?.to_owned(), v.clone())))
-        .collect()
-}
-fn collect_channels(game: &Value, channels: &mut BTreeMap<u64, ChannelIdentity>) {
-    for raw in values(&game["streams"]["edges"]).take(3) {
-        if let Ok(channel) = ChannelIdentity::parse(&raw["node"]["broadcaster"]) {
-            channels.insert(channel.id, channel);
-        }
-    }
-}
-fn fill_missing(primary: &mut Value, secondary: &Value) {
-    if let (Some(primary), Some(secondary)) = (primary.as_object_mut(), secondary.as_object()) {
-        for (key, value) in secondary {
-            if let Some(existing) = primary.get_mut(key) {
-                fill_missing(existing, value);
-            } else {
-                primary.insert(key.clone(), value.clone());
-            }
-        }
-    }
-}
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::twitch::tests::{campaign_json, gql_mock, http, session};
-    use std::sync::Arc;
-    use wiremock::MockServer;
+    use crate::{
+        config::Settings,
+        twitch::tests::{campaign_json, gql_mock, http, session},
+    };
+    use std::{sync::Arc, time::Duration};
+    use wiremock::{
+        Mock, MockServer, ResponseTemplate,
+        matchers::{method, path},
+    };
 
-    fn streams() -> Value {
-        json!({"streams":{"edges":[null,{"node":null},{"node":{"broadcaster":{"id":"10","login":"streamer","displayName":"Streamer"}}}]}})
+    fn feed(records: Vec<Value>) -> Value {
+        json!({"lastUpdatedAt":Utc::now().to_rfc3339(), "data":[{
+            "gameId":"1", "gameBoxArtURL":"https://static-cdn.jtvnw.net/rust.png", "rewards":records
+        }]})
     }
-    fn metadata(id: &str) -> Value {
-        let mut value = campaign_json(id);
-        value.as_object_mut().unwrap().remove("self");
-        value["timeBasedDrops"][0]
-            .as_object_mut()
-            .unwrap()
-            .remove("self");
-        value
+
+    async fn catalog(server: &MockServer, response: ResponseTemplate) {
+        Mock::given(method("GET"))
+            .and(path("/catalog"))
+            .respond_with(response)
+            .mount(server)
+            .await;
+    }
+
+    async fn account(server: &MockServer, records: Value) {
+        gql_mock(server, move |q| {
+            assert_eq!(q["operationName"], "Inventory", "only account inventory goes to Twitch");
+            json!({"data":{"currentUser":{"inventory":{"dropCampaignsInProgress":records,"gameEventDrops":[]}}}})
+        }).await;
     }
 
     #[tokio::test]
-    async fn live_recovery_preserves_account_progress_and_discovery_never_selects_games() {
+    async fn public_catalog_and_account_inventory_are_isolated_and_discovery_never_selects_games() {
         let server = MockServer::start().await;
-        gql_mock(&server,|query|match query["operationName"].as_str().unwrap() {
-            "Inventory"=>json!({"data":{"currentUser":{"inventory":{"dropCampaignsInProgress":[campaign_json("owned")],"gameEventDrops":[]}}}}),
-            "ViewerDropsDashboard"=>json!({"data":{"currentUser":{"dropCampaigns":null}}}),
-            "DirectoryPage_Game"=>json!({"data":{"game":streams()}}),
-            "DropsDiscoveryGames"=>json!({"data":{"games":{"edges":[null,{"cursor":"end","node":streams()}],"pageInfo":{"hasNextPage":false}}}}),
-            "ChannelDropsRecovery"=> {
-                assert!(!query["query"].as_str().unwrap().contains("self"));
-                let records:Vec<_>=(0..48).map(|i|metadata(&format!("recovered{i}"))).chain([metadata("owned")]).collect();
-                json!({"data":{"channel":{"id":"10","viewerDropCampaigns":records}}})
-            },_=>panic!("unexpected query"),
-        }).await;
-        let client = TwitchClient::new(Arc::new(http(&server)), &session());
-        let settings = Settings::default();
-        let inventory = client.inventory(&settings).await.unwrap();
-        assert!(!inventory.status.available);
-        assert_eq!(inventory.status.recovered, 48);
-        assert_eq!(inventory.campaigns.len(), 49);
+        account(&server, json!([campaign_json("owned")])).await;
+        let mut records: Vec<_> = (0..145)
+            .map(|i| campaign_json(&format!("public{i}")))
+            .collect();
+        let mut forged = campaign_json("owned");
+        forged["self"]["isAccountConnected"] = false.into();
+        forged["timeBasedDrops"][0]["self"]["isClaimed"] = true.into();
+        records.push(forged);
+        records[0]["timeBasedDrops"][0]["self"] =
+            json!({"isClaimed":true,"currentMinutesWatched":60,"dropInstanceID":"forged"});
+        catalog(
+            &server,
+            ResponseTemplate::new(200).set_body_json(feed(records)),
+        )
+        .await;
+        let http = Arc::new(http(&server));
+        http.jar
+            .add_cookie_str("auth-token=private; Path=/", &http.endpoints.tv);
+        let client = TwitchClient::new(http, &session());
+        let inventory = client.inventory().await.unwrap();
+        assert!(inventory.status.available);
+        assert!(inventory.status.catalog_updated_at.is_some());
+        assert_eq!(inventory.campaigns.len(), 146);
         let owned = inventory
             .campaigns
             .iter()
             .find(|c| c.id == "owned")
             .unwrap();
+        assert_eq!(owned.linked, Some(true));
         assert_eq!(owned.drops[0].confirmed_minutes, 12);
-        assert!(owned.drops[0].confirmed_at.is_some());
-        let recovered = inventory
+        assert!(!owned.drops[0].claimed);
+        let public = inventory
             .campaigns
             .iter()
-            .find(|c| c.id == "recovered0")
+            .find(|c| c.id == "public0")
             .unwrap();
-        assert_eq!(recovered.linked, None);
-        assert!(recovered.drops[0].confirmed_at.is_none());
-        assert_eq!(recovered.discovery_channels.as_ref().unwrap().len(), 1);
-        assert!(settings.games_to_watch.is_empty());
-        assert!(
-            crate::domain::wanted_items(&inventory.campaigns, &settings, Utc::now()).is_empty()
+        assert_eq!(public.linked, None);
+        assert_eq!(
+            public.game.image_url,
+            "https://static-cdn.jtvnw.net/rust.png"
         );
+        assert!(!public.drops[0].claimed);
+        assert!(public.drops[0].claim_id.is_none() && public.drops[0].confirmed_at.is_none());
+        assert_eq!(public.drops[0].confirmed_minutes, 0);
+        assert!(
+            crate::domain::wanted_items(&inventory.campaigns, &Settings::default(), Utc::now())
+                .is_empty()
+        );
+        let requests = server.received_requests().await.unwrap();
+        assert_eq!(
+            requests.len(),
+            2,
+            "one catalog GET and one Inventory query, no scans/details"
+        );
+        let request = requests
+            .iter()
+            .find(|r| r.url.path() == "/catalog")
+            .unwrap();
+        for header in [
+            "authorization",
+            "cookie",
+            "client-id",
+            "client-session-id",
+            "x-device-id",
+            "origin",
+        ] {
+            assert!(
+                !request.headers.contains_key(header),
+                "public request leaked {header}"
+            );
+        }
+        assert!(request.body.is_empty() && request.url.query().is_none());
     }
 
     #[tokio::test]
-    async fn null_details_recover_only_catalog_ids_but_empty_catalog_never_scans() {
-        for empty in [false, true] {
+    async fn unavailable_stale_invalid_and_empty_public_feeds_keep_account_evidence() {
+        for mode in [
+            "empty",
+            "unauthorized",
+            "redirect",
+            "malformed",
+            "stale",
+            "future",
+            "null_groups",
+            "invalid_neighbor",
+        ] {
             let server = MockServer::start().await;
-            gql_mock(&server, move |query|match query["operationName"].as_str().unwrap() {
-                "Inventory"=>json!({"data":{"currentUser":{"inventory":{"dropCampaignsInProgress":[campaign_json("owned")],"gameEventDrops":[]}}}}),
-                "ViewerDropsDashboard"=>json!({"data":{"currentUser":{"dropCampaigns":if empty {vec![]} else {vec![campaign_json("listed")]}}}}),
-                "DropCampaignDetails"=>json!({"data":{"user":{"dropCampaign":null}}}),
-                "DirectoryPage_Game"=>json!({"data":{"game":streams()}}),
-                "DropsDiscoveryGames"=>json!({"data":{"games":null}}),
-                "ChannelDropsRecovery"=>json!({"data":{"channel":{"id":"10","viewerDropCampaigns":[metadata("listed"),metadata("stray")]}}}),
-                _=>panic!("unexpected query"),
-            }).await;
-            let client = TwitchClient::new(Arc::new(http(&server)), &session());
-            let inventory = client.inventory(&Settings::default()).await.unwrap();
-            assert_eq!(inventory.status.available, empty);
-            assert!(inventory.campaigns.iter().any(|c| c.id == "owned"));
-            assert!(!inventory.campaigns.iter().any(|c| c.id == "stray"));
-            if empty {
-                assert_eq!(server.received_requests().await.unwrap().len(), 2);
-            } else {
+            account(&server, json!([campaign_json("owned")])).await;
+            let mut payload = feed(vec![]);
+            match mode {
+                "stale" => {
+                    payload["lastUpdatedAt"] = (Utc::now() - chrono::Duration::minutes(31))
+                        .to_rfc3339()
+                        .into()
+                }
+                "future" => {
+                    payload["lastUpdatedAt"] = (Utc::now() + chrono::Duration::minutes(6))
+                        .to_rfc3339()
+                        .into()
+                }
+                "null_groups" => payload["data"] = Value::Null,
+                "invalid_neighbor" => {
+                    payload["data"][0]["rewards"] = json!([null, campaign_json("new")])
+                }
+                _ => {}
+            }
+            let response = match mode {
+                "unauthorized" => ResponseTemplate::new(401),
+                "redirect" => ResponseTemplate::new(302)
+                    .insert_header("Location", format!("{}/private", server.uri())),
+                "malformed" => ResponseTemplate::new(200).set_body_string("not json"),
+                _ => ResponseTemplate::new(200).set_body_json(payload),
+            };
+            catalog(&server, response).await;
+            let inventory = TwitchClient::new(Arc::new(http(&server)), &session())
+                .inventory()
+                .await
+                .unwrap();
+            assert_eq!(inventory.status.available, mode == "empty", "{mode}");
+            assert_eq!(
+                inventory.campaigns.len(),
+                if mode == "invalid_neighbor" { 2 } else { 1 }
+            );
+            let owned = inventory
+                .campaigns
+                .iter()
+                .find(|c| c.id == "owned")
+                .unwrap();
+            assert_eq!(owned.drops[0].confirmed_minutes, 12);
+            assert!(
+                server
+                    .received_requests()
+                    .await
+                    .unwrap()
+                    .iter()
+                    .all(|r| r.url.path() != "/private")
+            );
+        }
+    }
+
+    #[tokio::test]
+    async fn malformed_account_records_are_partial_and_cannot_be_replaced_by_public_assumptions() {
+        for mode in ["damaged", "null_collection", "null_neighbor", "missing_id"] {
+            let server = MockServer::start().await;
+            let mut damaged = campaign_json("damaged");
+            damaged["timeBasedDrops"] = Value::Null;
+            let records = match mode {
+                "null_collection" => Value::Null,
+                "null_neighbor" => json!([null, campaign_json("owned")]),
+                "missing_id" => json!([{"id":null}, campaign_json("owned")]),
+                _ => json!([damaged, campaign_json("owned")]),
+            };
+            account(&server, records).await;
+            catalog(
+                &server,
+                ResponseTemplate::new(200)
+                    .set_body_json(feed(vec![campaign_json("damaged"), campaign_json("new")])),
+            )
+            .await;
+            let inventory = TwitchClient::new(Arc::new(http(&server)), &session())
+                .inventory()
+                .await
+                .unwrap();
+            assert!(!inventory.status.available);
+            assert!(inventory.campaigns.iter().any(|c| c.id == "new"));
+            if mode == "damaged" {
+                assert!(!inventory.campaigns.iter().any(|c| c.id == "damaged"));
+            }
+            if mode != "null_collection" {
                 assert_eq!(
                     inventory
                         .campaigns
                         .iter()
-                        .find(|c| c.id == "listed")
+                        .find(|c| c.id == "owned")
                         .unwrap()
-                        .linked,
-                    Some(true)
+                        .drops[0]
+                        .confirmed_minutes,
+                    12
                 );
             }
         }
     }
 
+    #[test]
+    fn public_metadata_keeps_real_restrictions_and_only_twitch_awards_can_infer_claims() {
+        let now = Utc::now();
+        let mut raw = campaign_json("new");
+        raw["allow"] = json!({"isEnabled":true,"channels":[{"id":"10","name":"only_streamer"}]});
+        raw["timeBasedDrops"][0]["preconditionDrops"] = json!([{"id":"prerequisite"}]);
+        let awards = HashMap::from([("benefit-new".to_owned(), now)]);
+        let catalog = Catalog::parse(feed(vec![raw]), &awards, now).unwrap();
+        let campaign = &catalog.campaigns["new"];
+        assert!(campaign.drops[0].claimed);
+        assert!(campaign.drops[0].claim_id.is_none());
+        assert_eq!(campaign.linked, None);
+        assert_eq!(campaign.allowed_channels[0].login, "only_streamer");
+        assert_eq!(campaign.drops[0].prerequisites, ["prerequisite"]);
+        for mode in [
+            "missing_acl",
+            "empty_acl",
+            "null_acl_neighbor",
+            "missing_dependencies",
+            "missing_benefits",
+            "duplicate",
+            "invalid_dates",
+            "invalid_game",
+            "channel_url",
+        ] {
+            let mut broken = campaign_json("bad");
+            match mode {
+                "missing_acl" => broken["allow"] = Value::Null,
+                "empty_acl" => broken["allow"] = json!({"isEnabled":true,"channels":[]}),
+                "null_acl_neighbor" => {
+                    broken["allow"] =
+                        json!({"isEnabled":true,"channels":[null,{"id":"10","name":"known"}]})
+                }
+                "missing_dependencies" => {
+                    broken["timeBasedDrops"][0]
+                        .as_object_mut()
+                        .unwrap()
+                        .remove("preconditionDrops");
+                }
+                "missing_benefits" => broken["timeBasedDrops"][0]["benefitEdges"] = Value::Null,
+                "invalid_dates" => broken["endAt"] = broken["startAt"].clone(),
+                "invalid_game" => broken["game"] = json!("not an object"),
+                "channel_url" => {
+                    broken["allow"] = json!({"isEnabled":true,"channels":[{"id":"10","name":"https://outside.invalid/path"}]})
+                }
+                _ => {}
+            }
+            let mut records = vec![campaign_json("healthy"), broken.clone()];
+            if mode == "duplicate" {
+                records.push(broken);
+            }
+            let catalog = Catalog::parse(feed(records), &HashMap::new(), now).unwrap();
+            assert!(!catalog.complete, "{mode}");
+            assert_eq!(catalog.campaigns.len(), 1, "{mode}");
+            assert!(catalog.campaigns.contains_key("healthy"));
+        }
+    }
+
     #[tokio::test]
-    async fn account_details_fill_only_missing_fields_and_subscription_recovery_is_omitted() {
+    async fn twitch_auth_and_cancellation_interrupt_slow_public_requests() {
         let server = MockServer::start().await;
-        gql_mock(&server,|query|match query["operationName"].as_str().unwrap() {
-            "Inventory"=> {let mut campaign=campaign_json("owned");campaign.as_object_mut().unwrap().remove("accountLinkURL");
-                json!({"data":{"currentUser":{"inventory":{"dropCampaignsInProgress":[campaign],"gameEventDrops":[]}}}})},
-            "ViewerDropsDashboard"=>json!({"data":{"currentUser":{"dropCampaigns":[campaign_json("owned"),campaign_json("subscription")]}}}),
-            "DropCampaignDetails"=>if query["variables"]["dropID"]=="owned" {
-                let mut campaign=campaign_json("owned");campaign["timeBasedDrops"][0]["self"]["currentMinutesWatched"]=59.into();campaign["accountLinkURL"]="https://example.com".into();
-                json!({"data":{"user":{"dropCampaign":campaign}}})
-            }else {json!({"data":{"user":null}})},
-            "DirectoryPage_Game"=>json!({"data":{"game":streams()}}),
-            "DropsDiscoveryGames"=>json!({"data":{"games":null}}),
-            "ChannelDropsRecovery"=> {let mut campaign=metadata("subscription");campaign["timeBasedDrops"][0]["requiredMinutesWatched"]=0.into();
-                json!({"data":{"channel":{"id":"10","viewerDropCampaigns":[campaign,null]}}})},
-            _=>panic!("unexpected query"),
-        }).await;
-        let client = TwitchClient::new(Arc::new(http(&server)), &session());
-        let inventory = client.inventory(&Settings::default()).await.unwrap();
-        assert_eq!(inventory.campaigns.len(), 1);
-        assert_eq!(inventory.campaigns[0].drops[0].confirmed_minutes, 12);
-        assert_eq!(inventory.campaigns[0].link_url, "https://example.com");
-        assert!(!inventory.status.available);
+        gql_mock(&server, |_| json!({"errors":[{"message":"Unauthorized"}]})).await;
+        catalog(
+            &server,
+            ResponseTemplate::new(200)
+                .set_delay(Duration::from_secs(20))
+                .set_body_json(feed(vec![])),
+        )
+        .await;
+        let http = Arc::new(http(&server));
+        let client = TwitchClient::new(http.clone(), &session());
+        assert!(matches!(
+            tokio::time::timeout(Duration::from_secs(1), client.inventory())
+                .await
+                .unwrap(),
+            Err(TwitchError::Unauthorized)
+        ));
+        http.cancel.cancel();
+        assert!(matches!(
+            client.inventory().await,
+            Err(TwitchError::Cancelled)
+        ));
     }
 
     #[tokio::test]
-    async fn recovery_preserves_earlier_batches_but_propagates_authentication_and_cancellation() {
-        for auth in [false, true] {
-            let server = MockServer::start().await;
-            gql_mock(&server,move|query|match query["operationName"].as_str().unwrap() {
-                "DropsDiscoveryGames"=> {
-                    let edges:Vec<_>=(1..=21).map(|i|json!({"cursor":i.to_string(),"node":{"streams":{"edges":[{"node":{"broadcaster":{"id":i.to_string(),"login":format!("stream{i}")}}}]}}})).collect();
-                    json!({"data":{"games":{"edges":edges,"pageInfo":{"hasNextPage":false}}}})
-                },
-                "ChannelDropsRecovery"=>if query["variables"]["channelID"]=="21" {
-                    json!({"errors":[{"message":if auth {"Unauthorized"} else {"unknown error"}}]})
-                }else {json!({"data":{"channel":{"id":query["variables"]["channelID"],"viewerDropCampaigns":[metadata("found")]}}})},
-                _=>panic!("unexpected query"),
-            }).await;
-            let client = TwitchClient::new(Arc::new(http(&server)), &session());
-            let result = client.recover_campaigns(&[]).await;
-            if auth {
-                assert!(matches!(result, Err(TwitchError::Unauthorized)));
-            } else {
-                assert_eq!(
-                    result.unwrap()["found"]["discovery_channels"]
-                        .as_array()
-                        .unwrap()
-                        .len(),
-                    20
-                );
-            }
-            client.http.cancel.cancel();
-            assert!(matches!(
-                client.recover_campaigns(&[]).await,
-                Err(TwitchError::Cancelled)
-            ));
-        }
+    async fn public_body_and_record_limits_reject_excess_without_losing_inventory() {
+        let server = MockServer::start().await;
+        account(&server, json!([campaign_json("owned")])).await;
+        catalog(
+            &server,
+            ResponseTemplate::new(200).set_body_bytes(vec![b' '; super::super::MAX_BODY + 1]),
+        )
+        .await;
+        let inventory = TwitchClient::new(Arc::new(http(&server)), &session())
+            .inventory()
+            .await
+            .unwrap();
+        assert!(!inventory.status.available);
+        assert_eq!(inventory.campaigns.len(), 1);
+        assert!(
+            Catalog::parse(feed(vec![Value::Null; 2001]), &HashMap::new(), Utc::now()).is_err()
+        );
     }
 }

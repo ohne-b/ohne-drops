@@ -134,6 +134,19 @@ Use `--help` for host, port, data directory, and log directory options.
 Login uses Twitch's Smart TV device authorization flow. The saved session survives
 restarts; enter your Twitch password only on Twitch's authorization page.
 
+Campaign discovery uses the [SunkwiBOT public catalog](https://github.com/SunkwiBOT/twitch-drops-api).
+It supplies game/reward metadata, dates, prerequisites and participating channels. Account
+progress, linkage and claims come from Twitch through your device-code session; Twitch
+credentials and identifiers are never sent to the catalog service. Discovery never selects
+games automatically. The miner does not query Twitch's gated catalog/detail endpoints or
+scan live channels to reconstruct the catalog.
+
+The public feed is a third-party dependency, and its coverage can vary or lag Twitch,
+including upcoming or account-specific campaigns. Refresh rejects feed timestamps older
+than 30 minutes or over 5 minutes in the future. Failed, stale or malformed responses keep
+known active/upcoming campaigns in memory while preserving fresh Twitch inventory. A
+restart still needs the feed to rediscover campaigns outside your Twitch inventory.
+
 > [!WARNING]
 > Avoid watching Twitch manually with the same account while mining. Simultaneous
 > viewing can interfere with drop progress.
@@ -156,6 +169,12 @@ is selected and continues through dashboard reconnects and connection renewal. L
 blank to watch until **Return to Auto Mode**. If the channel goes offline, manual mode
 waits for it to return; the timer continues. Logout, cache clearing or a process restart
 also ends manual mode. Automatic selection resumes using your saved games and filters.
+
+**Refresh inventory** in Overview and Maintenance shows its progress in the button. It
+stays busy until the refreshed data is published, then briefly shows **Refreshed**, or
+**Refresh failed - Retry** with the reason on hover. Repeated requests share the same
+refresh; reconnecting the dashboard keeps its current status.
+The button's tooltip also shows when the public catalog was last updated.
 
 | Page                     | What it shows                                                                             |
 | ------------------------ | ----------------------------------------------------------------------------------------- |
@@ -206,8 +225,8 @@ claim history, and interrupted-claim recovery records live in the data directory
 Run only one miner per data directory and keep it private.
 
 **Settings > Maintenance > Clear All Cache** discards derived campaign/channel state
-and refreshes from Twitch. It preserves settings, credentials, claim history, and
-completed campaigns. See [persistent data and migration](docs/operations.md#persistent-data)
+and refreshes Twitch inventory and the public catalog. It preserves settings, credentials,
+claim history, and completed campaigns. See [persistent data and migration](docs/operations.md#persistent-data)
 for filenames, compatibility, and recovery details.
 
 ## Dashboard password and remote access
@@ -305,10 +324,11 @@ development builds labeled `1.3.2`.
 
 ## Troubleshooting
 
-- **No campaigns appear:** clear the campaign filters and check **Activity**. Twitch can
-  return an incomplete catalog; live-channel discovery may improve coverage but cannot
-  guarantee every campaign appears. Clearing cache or logging in again cannot repair
-  an upstream catalog restriction.
+- **No campaigns appear:** clear the campaign filters and check **Activity**. The public
+  catalog can be unavailable, stale or incomplete; **Refresh inventory** reports a failed
+  or partial refresh in its button. Previously known active campaigns stay available during
+  a partial refresh, and manual watching still works. Reauthorizing Twitch or clearing cache
+  cannot repair a catalog-service outage or add campaigns missing from its feed.
 - **Mining is idle:** select a game, check account linking, campaign dates, prerequisites,
   reward filters, and ignore rules. Progress requires an eligible live channel.
 - **Progress seems stuck:** compare Twitch's inventory with the dashboard's confirmed
