@@ -115,7 +115,7 @@ fn public_campaign(
     if restricted
         && record["allow"]["channels"]
             .as_array()
-            .is_none_or(Vec::is_empty)
+            .is_none_or(|channels| channels.is_empty() || channels.iter().any(Value::is_null))
     {
         return None;
     }

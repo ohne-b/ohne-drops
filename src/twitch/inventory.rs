@@ -325,6 +325,7 @@ mod tests {
         for mode in [
             "missing_acl",
             "empty_acl",
+            "null_acl_neighbor",
             "missing_dependencies",
             "missing_benefits",
             "duplicate",
@@ -336,6 +337,10 @@ mod tests {
             match mode {
                 "missing_acl" => broken["allow"] = Value::Null,
                 "empty_acl" => broken["allow"] = json!({"isEnabled":true,"channels":[]}),
+                "null_acl_neighbor" => {
+                    broken["allow"] =
+                        json!({"isEnabled":true,"channels":[null,{"id":"10","name":"known"}]})
+                }
                 "missing_dependencies" => {
                     broken["timeBasedDrops"][0]
                         .as_object_mut()
