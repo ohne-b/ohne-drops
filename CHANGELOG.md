@@ -1,5 +1,19 @@
 # Changelog
 
+## [v0.1.1](https://github.com/ohne-b/twitch-drops-miner/releases/tag/v0.1.1) — 2026-09-27
+
+- show only eligible selected-game channels and prioritize special-event campaigns correctly
+- add manual channel entry by Twitch name or URL, with explicit game selection and eligibility checks
+- refresh changed channels promptly, retry failures, preserve manual choices during refresh, and send smaller viewer updates
+- rename the product to Twitch Drops Miner and enlarge the dashboard's Drops Miner title
+- publish only to `ghcr.io/ohne-b/twitch-drops-miner`, retaining old images for rollback
+- add the shared purple logo, refresh documentation, and preserve upstream license notices
+
+Keep the existing `twitch-drops-miner` Compose service, container name and data/log mounts.
+Source installations now use the `twitch-drops-miner` executable. No new login or data
+migration is required from 0.1.0. The historical `ghcr.io/ohne-b/twitch-miner:0.1.0`
+image remains available; change the image address to receive this release.
+
 ## [v0.1.0](https://github.com/ohne-b/twitch-drops-miner/releases/tag/v0.1.0) — 2026-09-26
 
 - introduce the standalone Rust backend with the React dashboard and original Twitch device-code login
