@@ -61,6 +61,7 @@ pub fn channel_login(input: &str) -> Option<String> {
         .then(|| login.to_ascii_lowercase())
 }
 
+#[derive(Clone)]
 pub struct ResolvedChannel {
     pub channel: Channel,
     pub campaigns: HashSet<String>,
@@ -144,6 +145,11 @@ impl TwitchClient {
                 );
             }
         }
+        if let Some(current) = current {
+            channels
+                .entry(current.identity.id)
+                .or_insert_with(|| Channel::offline(current.identity.clone(), current.acl_based));
+        }
         let mut restricted: Vec<_> = channels.into_values().collect();
         // Check the participating lists before trimming: an offline popular game
         // must not hide a live participant farther down its campaign ACL.
@@ -192,16 +198,13 @@ impl TwitchClient {
         });
         // Preserve the watched row through a settings rebuild. Eligibility is still
         // checked against the new settings before another beacon can be sent.
-        if let Some(current) = current {
-            if let Some(index) = channels
+        if let Some(current) = current
+            && let Some(index) = channels
                 .iter()
                 .position(|c| c.identity.id == current.identity.id)
-            {
-                let current = channels.remove(index);
-                channels.insert(0, current);
-            } else {
-                channels.insert(0, current.clone());
-            }
+        {
+            let current = channels.remove(index);
+            channels.insert(0, current);
         }
         channels.truncate(MAX_CHANNELS);
         Ok(channels)

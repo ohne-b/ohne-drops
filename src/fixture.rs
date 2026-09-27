@@ -122,7 +122,7 @@ async fn commands(app: Arc<App>, mut receiver: mpsc::Receiver<CommandRequest>) {
                         ..ManualMode::default()
                     }
                 } else {
-                    let _ = app.select_game("Rust").await;
+                    let _ = app.select_game("Rust", |_| true).await;
                     let channels = {
                         let mut state = app.snapshot.write().await;
                         for c in &mut state.channels {

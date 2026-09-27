@@ -7,7 +7,8 @@ use tokio::{sync::Mutex, time::Instant};
 use tokio_util::sync::CancellationToken;
 
 const RELEASES: &str = "https://github.com/ohne-b/twitch-drops-miner/releases";
-const MANIFEST: &str = "https://github.com/ohne-b/twitch-drops-miner/releases/latest/download/latest.json";
+const MANIFEST: &str =
+    "https://github.com/ohne-b/twitch-drops-miner/releases/latest/download/latest.json";
 const MAX_MANIFEST: usize = 64 * 1024;
 const CHECK_INTERVAL: Duration = Duration::from_secs(30);
 

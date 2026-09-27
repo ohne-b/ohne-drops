@@ -150,6 +150,62 @@ async fn manual_channel_boundary_requires_login_and_rejects_arbitrary_urls() {
 }
 
 #[tokio::test]
+async fn manual_game_commit_rechecks_intent_and_latest_settings_after_waiting_for_an_autosave() {
+    let test = TestApp::new("");
+    for cancel in [false, true] {
+        let permit = test.app.settings_slot.acquire().await.unwrap();
+        let (intent, selected) = tokio::sync::watch::channel(1);
+        let app = test.app.clone();
+        let task = tokio::spawn(async move {
+            app.select_game("Rust", |settings| {
+                *selected.borrow() == 1 && settings.drop_name_blacklist.is_empty()
+            })
+            .await
+        });
+        tokio::task::yield_now().await;
+        assert!(!task.is_finished());
+        if cancel {
+            intent.send_replace(2);
+        } else {
+            test.app
+                .snapshot
+                .write()
+                .await
+                .settings
+                .values
+                .drop_name_blacklist = vec!["reward".into()];
+        }
+        let revision = test.app.snapshot.read().await.settings.revision.clone();
+        drop(permit);
+        let error = match task.await.unwrap() {
+            Ok(_) => panic!("superseded selection committed"),
+            Err(error) => error,
+        };
+        assert_eq!(error.1, "channel_selection_changed");
+        assert!(
+            test.app
+                .snapshot
+                .read()
+                .await
+                .settings
+                .values
+                .games_to_watch
+                .is_empty()
+        );
+        assert_eq!(test.app.snapshot.read().await.settings.revision, revision);
+        assert!(test.app.data.settings().unwrap().games_to_watch.is_empty());
+        test.app
+            .snapshot
+            .write()
+            .await
+            .settings
+            .values
+            .drop_name_blacklist
+            .clear();
+    }
+}
+
+#[tokio::test]
 async fn public_assets_and_spa_allowlist_preserve_private_api_boundaries() {
     let test = TestApp::new("");
     assert_eq!(

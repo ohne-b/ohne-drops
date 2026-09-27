@@ -202,13 +202,20 @@ impl App {
 
     // Called by the owned mining task after an explicit Mine channel request.
     // Append under the same transaction as autosaves, preserving other browsers' edits.
-    pub async fn select_game(&self, game: &str) -> Result<SettingsView, ApiError> {
+    pub async fn select_game(
+        &self,
+        game: &str,
+        eligible: impl FnOnce(&crate::config::Settings) -> bool,
+    ) -> Result<SettingsView, ApiError> {
         let _permit = self
             .settings_slot
             .acquire()
             .await
             .map_err(|_| ApiError::unavailable())?;
         self.change_settings(|current| {
+            if !eligible(&current.values) {
+                return Err(ApiError(StatusCode::CONFLICT, "channel_selection_changed"));
+            }
             let mut next = current.values.clone();
             if !next.selected(game) {
                 next.games_to_watch.push(game.to_owned());

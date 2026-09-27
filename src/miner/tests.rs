@@ -459,6 +459,81 @@ fn external_channel(miner: &Mining) -> ResolvedChannel {
 }
 
 #[tokio::test]
+async fn renewal_keeps_pending_requests_and_restores_confirmed_channel_after_failed_replacement() {
+    let server = MockServer::start().await;
+    let (_dir, mut miner, intent, mut pool) = miner(&server).await;
+    intent.send_modify(|v| {
+        v.manual_revision = 1;
+        v.channel_login = Some("extra_streamer".into());
+    });
+    miner.apply_intent(&pool).await;
+    let pending = miner.resume();
+    let (_other_dir, mut renewed, _other_intent, mut other_pool) = self::miner(&server).await;
+    renewed.restore(&pending);
+    assert_eq!(renewed.lookup, Some(("extra_streamer".into(), 1)));
+    assert_eq!(renewed.manual_pending.as_deref(), Some("extra_streamer"));
+    let resolved = external_channel(&miner);
+    miner
+        .complete(
+            Job::Manual {
+                revision: 1,
+                requested_at: Instant::now(),
+                result: Box::new(Ok(Some(resolved))),
+            },
+            &pool,
+        )
+        .await
+        .unwrap();
+    intent.send_modify(|v| {
+        v.manual_revision = 2;
+        v.channel_login = Some("missing".into());
+    });
+    miner.apply_intent(&pool).await;
+    miner
+        .complete(
+            Job::Manual {
+                revision: 2,
+                requested_at: Instant::now(),
+                result: Box::new(Ok(None)),
+            },
+            &pool,
+        )
+        .await
+        .unwrap();
+    let saved = miner.resume();
+    assert_eq!(
+        saved.channel.as_ref().unwrap().channel.identity.login,
+        "extra_streamer"
+    );
+    assert!(saved.lookup.is_none());
+    renewed.channels.clear();
+    renewed.restore(&saved);
+    renewed.intent = intent.subscribe();
+    renewed.app = miner.app.clone();
+    renewed.channels_loaded = false;
+    assert!(!renewed.channels[0].online());
+    assert_eq!(renewed.manual_pending, None);
+    gql_mock(&server, |q| match q["operationName"].as_str().unwrap() {
+        "VideoPlayerStreamInfoOverlayChannel" => {
+            assert_eq!(q["variables"]["channel"], "extra_streamer");
+            json!({"data":{"user":{"stream":{"id":"fresh"},"broadcastSettings":{"game":{"id":"1","name":"Rust"}}}}})
+        },
+        "DropsHighlightService_AvailableDrops" => json!({"data":{"channel":{"viewerDropCampaigns":[{"id":"one"}]}}}),
+        "DirectoryPage_Game" => json!({"data":{"game":{"streams":{"edges":[]}}}}),
+        other => panic!("unexpected operation {other}"),
+    }).await;
+    renewed.channels_dirty = true;
+    let settings = renewed.app.snapshot.read().await.settings.values.clone();
+    renewed.schedule(&settings).await;
+    finish_job(&mut renewed, &other_pool).await;
+    renewed.reselect(&settings).await;
+    assert_eq!(renewed.manual, Some((999, 1)));
+    assert_eq!(renewed.watching, Some(999));
+    pool.close().await;
+    other_pool.close().await;
+}
+
+#[tokio::test]
 async fn manual_mode_waits_for_category_confirmation_and_pending_login_waits_for_initial_inventory()
 {
     let server = MockServer::start().await;
@@ -577,7 +652,7 @@ async fn manual_channel_selects_only_its_game_preserves_settings_and_survives_ca
             Job::Manual {
                 revision: 1,
                 requested_at,
-                result: Ok(Some(resolved)),
+                result: Box::new(Ok(Some(resolved))),
             },
             &pool,
         )
@@ -674,7 +749,7 @@ async fn manual_lookup_rejects_offline_acl_filtered_and_stale_results_without_se
             Job::Manual {
                 revision: 1,
                 requested_at,
-                result: Ok(Some(resolved)),
+                result: Box::new(Ok(Some(resolved))),
             },
             &pool,
         )

@@ -144,49 +144,6 @@ export default function Overview() {
               </div>
             </div>
             <Search value={search} onChange={setSearch} label={t('search_channels')} />
-            {enterChannel && (
-              <form
-                className="space-y-2"
-                onSubmit={(event) => {
-                  event.preventDefault();
-                  void action.run(() => request('/api/channels/select', { channel: channelInput }));
-                }}
-              >
-                <label htmlFor="manual-channel" className="text-[13px] font-medium">
-                  {t('gui.channels.channel_input')}
-                </label>
-                <div className="flex gap-2">
-                  <Input
-                    id="manual-channel"
-                    aria-describedby="manual-channel-help"
-                    value={channelInput}
-                    maxLength={256}
-                    onChange={(event) => setChannelInput(event.target.value)}
-                  />
-                  <Button
-                    type="submit"
-                    disabled={
-                      !connected ||
-                      !data.login.user_id ||
-                      !channelInput.trim() ||
-                      action.busy ||
-                      !!data.manual_mode.pending_channel
-                    }
-                  >
-                    {t('mine')}
-                  </Button>
-                </div>
-                <p id="manual-channel-help" className="muted">
-                  {t('gui.channels.manual_help')}
-                </p>
-              </form>
-            )}
-            {data.manual_mode.pending_channel && (
-              <Busy
-                label={t('gui.channels.looking_up', { channel: data.manual_mode.pending_channel })}
-              />
-            )}
-            {data.manual_mode.error && <Notice error>{data.manual_mode.error}</Notice>}
           </div>
           <div
             className="min-h-0 max-h-[440px] overflow-y-auto focus-visible:bg-field xl:max-h-none xl:flex-1"
@@ -194,6 +151,57 @@ export default function Overview() {
             aria-labelledby="channels-heading"
             tabIndex={0}
           >
+            {(enterChannel || data.manual_mode.pending_channel || data.manual_mode.error) && (
+              <div className="space-y-3 border-b border-divider p-4">
+                {enterChannel && (
+                  <form
+                    className="space-y-2"
+                    onSubmit={(event) => {
+                      event.preventDefault();
+                      void action.run(() =>
+                        request('/api/channels/select', { channel: channelInput }),
+                      );
+                    }}
+                  >
+                    <label htmlFor="manual-channel" className="text-[13px] font-medium">
+                      {t('gui.channels.channel_input')}
+                    </label>
+                    <div className="flex gap-2">
+                      <Input
+                        id="manual-channel"
+                        aria-describedby="manual-channel-help"
+                        value={channelInput}
+                        maxLength={256}
+                        onChange={(event) => setChannelInput(event.target.value)}
+                      />
+                      <Button
+                        type="submit"
+                        disabled={
+                          !connected ||
+                          !data.login.user_id ||
+                          !channelInput.trim() ||
+                          action.busy ||
+                          !!data.manual_mode.pending_channel
+                        }
+                      >
+                        {t('mine')}
+                      </Button>
+                    </div>
+                    <p id="manual-channel-help" className="muted">
+                      {t('gui.channels.manual_help')}
+                    </p>
+                  </form>
+                )}
+                {data.manual_mode.pending_channel && (
+                  <Busy
+                    label={t('gui.channels.looking_up', {
+                      channel: data.manual_mode.pending_channel,
+                    })}
+                  />
+                )}
+                {data.manual_mode.error && <Notice error>{data.manual_mode.error}</Notice>}
+              </div>
+            )}
             {channels.map((channel) => (
               <div className="row flex-wrap sm:flex-nowrap" key={channel.id}>
                 <Art url={channel.game_icon} />
