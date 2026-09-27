@@ -14,6 +14,8 @@ Twitch Drops Miner runs on your own hardware and manages one Twitch account thro
 web dashboard. It discovers campaigns, watches eligible live channels through Twitch
 watch events, and claims earned rewards. The Rust executable includes the React dashboard.
 
+![Drops Miner dashboard showing mining progress, live channels and upcoming rewards](.github/assets/dashboard-overview.webp)
+
 > [!NOTE]
 > This is a hobby project for personal use on your own hardware and home network.
 > Support is best effort. VPS, cloud hosting, and services operated for other users are
