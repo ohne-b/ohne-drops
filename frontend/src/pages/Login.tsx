@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import logo from '../assets/twitch-miner-logo.svg?no-inline';
+import logo from '../assets/ohne-drops-logo.svg?no-inline';
 import { useT } from '../lib/i18n';
 import { request } from '../lib/api';
 import { Button, Check, Field, Input, Notice, useAction, ActionResult } from '../components/ui';
@@ -25,7 +25,7 @@ export default function Login({
             height={48}
             className="h-12 w-9 shrink-0 object-contain"
           />
-          <span className="font-semibold tracking-tight">Twitch miner</span>
+          <span className="font-semibold tracking-tight">OhneDrops</span>
         </div>
         <h1 className="text-[22px] font-semibold">{t('gui.auth.login_title')}</h1>
         <p className="mb-6 mt-2 text-muted">{t('login_description')}</p>

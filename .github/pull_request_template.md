@@ -28,7 +28,7 @@
 
 ## Contribution checklist
 
-- [ ] I followed [CONTRIBUTING.md](https://github.com/ohne-b/twitch-miner/blob/main/CONTRIBUTING.md).
+- [ ] I followed [CONTRIBUTING.md](https://github.com/ohne-b/ohne-drops/blob/main/CONTRIBUTING.md).
 - [ ] This branch incorporates the latest canonical `main`.
 - [ ] The diff is focused and free of secrets, local data, and unrelated changes.
 - [ ] Applicable unit, frontend, and regression checks pass, or docs-only checks are recorded.

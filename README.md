@@ -1,8 +1,8 @@
 <p align="center">
-  <img src="frontend/src/assets/twitch-miner-logo.svg" width="128" alt="Twitch Drops Miner logo">
+  <img src="frontend/src/assets/ohne-drops-logo.svg" width="128" alt="OhneDrops logo">
 </p>
 
-<h1 align="center">Twitch Drops Miner</h1>
+<h1 align="center">OhneDrops — Twitch Drops Miner</h1>
 
 <p align="center">Mine timed Twitch Drops without streaming video or audio.</p>
 
@@ -10,7 +10,7 @@
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-9146ff" alt="License: MIT"></a>
 </p>
 
-Twitch Drops Miner runs on your own hardware and manages one Twitch account through a
+OhneDrops runs on your own hardware and manages one Twitch account through a
 web dashboard. It discovers campaigns, watches eligible live channels through Twitch
 watch events, and claims earned rewards. The Rust executable includes the React dashboard.
 
@@ -38,7 +38,7 @@ Install Docker with Compose support. In a new directory, save this as `compose.y
 ```yaml
 services:
   twitch-drops-miner:
-    image: ghcr.io/ohne-b/twitch-miner:latest
+    image: ghcr.io/ohne-b/twitch-miner:0.1.0
     container_name: twitch-drops-miner
     user: "1000:1000"
     ports:
@@ -60,10 +60,11 @@ Open <http://127.0.0.1:8080> and follow [First login](#first-login).
 The port mapping limits access to the local machine. For LAN access, bind an explicit
 LAN address and enable [dashboard protection](#dashboard-password-and-remote-access).
 
-Images are also published on [Docker Hub](https://hub.docker.com/r/ohneb/twitch-miner)
-as `ohneb/twitch-miner`. Use `latest` for the stable release or a version tag to pin an
-installation. [Release notes](https://github.com/ohne-b/twitch-miner/releases) and the
-[changelog](CHANGELOG.md) describe changes between versions.
+Images are published on GitHub Container Registry. The example pins the existing 0.1.0
+release, which predates the OhneDrops rename. Future releases will use
+`ghcr.io/ohne-b/ohne-drops`; that image name is not published yet. Build from source below
+to use the current renamed dashboard. [Release notes](https://github.com/ohne-b/ohne-drops/releases)
+and the [changelog](CHANGELOG.md) describe changes between versions.
 
 <details>
 <summary>Build the Docker image from a checkout</summary>
@@ -72,8 +73,8 @@ The repository's [docker-compose.yml](docker-compose.yml) builds the image local
 uses the same data paths, user, and loopback port mapping. With Git and Docker installed:
 
 ```bash
-git clone https://github.com/ohne-b/twitch-miner.git
-cd twitch-miner
+git clone https://github.com/ohne-b/ohne-drops.git
+cd ohne-drops
 ```
 
 Create writable `data` and `logs` directories as above, then run:
@@ -90,8 +91,8 @@ Install [Rust through rustup](https://rustup.rs/), Node.js 24, and Git. Windows 
 also require the Visual Studio C++ build tools. The repository pins the Rust toolchain.
 
 ```bash
-git clone https://github.com/ohne-b/twitch-miner.git
-cd twitch-miner
+git clone https://github.com/ohne-b/ohne-drops.git
+cd ohne-drops
 npm --prefix frontend ci
 npm --prefix frontend run build
 cargo run --locked -- --host 127.0.0.1
@@ -101,7 +102,7 @@ Open <http://127.0.0.1:8080>. Data and logs go to `data/` and `logs/` relative t
 working directory. After building the frontend, create a release executable with:
 
 ```bash
-cargo build --release --locked --bin twitch-miner
+cargo build --release --locked --bin ohne-drops
 ```
 
 The executable in `target/release/` embeds the dashboard and runs without Node.js.
@@ -220,6 +221,16 @@ and forgotten-password recovery.
 
 ## Updating
 
+The project was renamed from Twitch Drops Miner to **OhneDrops**. Existing data, login,
+settings and history need no migration for this rename. Keep the existing Compose service
+and container name (`twitch-drops-miner`), mounts and project directory when upgrading.
+The executable is now `ohne-drops`; update custom service commands if you run it directly.
+Existing source checkouts can update their remote with:
+
+```bash
+git remote set-url origin https://github.com/ohne-b/ohne-drops.git
+```
+
 **Settings > Maintenance** checks the latest stable release and links to its notes.
 Installation is manual. A failed update check is reported separately from an up-to-date
 installation.
@@ -292,7 +303,7 @@ and independent review. [AGENTS.md](AGENTS.md) contains the repository's agent i
 Backend tests use temporary storage and mock transports; browser tests start their own
 offline fixture. Never use a live miner or real credentials for automated checks.
 
-Report reproducible problems through [GitHub issues](https://github.com/ohne-b/twitch-miner/issues).
+Report reproducible problems through [GitHub issues](https://github.com/ohne-b/ohne-drops/issues).
 Include the version, installation method, and redacted evidence; never upload credentials,
 device codes, or a data directory.
 

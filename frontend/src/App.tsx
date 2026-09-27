@@ -20,7 +20,7 @@ import History from './pages/History';
 import Activity from './pages/Activity';
 import Settings from './pages/Settings';
 import Login from './pages/Login';
-import logo from './assets/twitch-miner-logo.svg?no-inline';
+import logo from './assets/ohne-drops-logo.svg?no-inline';
 function Shell({ auth, onLogout }: { auth: AuthStatus; onLogout: () => Promise<void> }) {
   const { data, connected } = useMiner();
   const t = useT();
@@ -55,7 +55,7 @@ function Shell({ auth, onLogout }: { auth: AuthStatus; onLogout: () => Promise<v
               height={36}
               className="h-9 w-7 shrink-0 object-contain"
             />
-            Twitch miner
+            OhneDrops
           </NavLink>
         </div>
         <nav
@@ -79,7 +79,7 @@ function Shell({ auth, onLogout }: { auth: AuthStatus; onLogout: () => Promise<v
         <div className="mt-auto hidden border-t border-divider p-4 lg:block">
           <a
             className="inline-flex size-11 items-center justify-center rounded text-muted transition-colors hover:text-text"
-            href="https://github.com/ohne-b/twitch-miner"
+            href="https://github.com/ohne-b/ohne-drops"
             target="_blank"
             rel="noreferrer"
             aria-label="GitHub repository"
