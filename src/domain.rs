@@ -24,11 +24,17 @@ pub fn number(value: &Value) -> Option<u64> {
 }
 
 fn timestamp(value: &Value, key: &str) -> Result<DateTime<Utc>, InvalidData> {
-    value[key]
+    let at: DateTime<Utc> = value[key]
         .as_str()
         .ok_or(InvalidData)?
         .parse()
-        .map_err(|_| InvalidData)
+        .map_err(|_| InvalidData)?;
+    // Every campaign/drop date must support scheduling lead time and claim grace.
+    at.checked_sub_signed(Duration::hours(1))
+        .ok_or(InvalidData)?;
+    at.checked_add_signed(Duration::hours(24))
+        .ok_or(InvalidData)?;
+    Ok(at)
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -699,6 +705,31 @@ mod tests {
         c.drops[0].mark_claimed(now());
         assert_eq!(c.first_drop(&selected(), now()).unwrap().id, "second");
         assert_eq!(c.policy(&selected()).remaining_minutes(), 60);
+    }
+
+    #[test]
+    fn campaign_and_drop_dates_leave_room_for_scheduling_and_claim_deadlines() {
+        for path in [
+            "/startAt",
+            "/endAt",
+            "/timeBasedDrops/0/startAt",
+            "/timeBasedDrops/0/endAt",
+        ] {
+            for at in [DateTime::<Utc>::MIN_UTC, DateTime::<Utc>::MAX_UTC] {
+                let mut raw = raw_campaign(vec![raw_drop("coat", &[])]);
+                *raw.pointer_mut(path).unwrap() = json!(at.to_rfc3339());
+                assert!(
+                    Campaign::parse(&raw, &HashMap::new(), now()).is_err(),
+                    "{path}: {at}"
+                );
+            }
+        }
+        let mut raw = raw_campaign(vec![raw_drop("coat", &[])]);
+        raw["startAt"] = json!((DateTime::<Utc>::MIN_UTC + Duration::hours(1)).to_rfc3339());
+        raw["endAt"] = json!((DateTime::<Utc>::MAX_UTC - Duration::hours(24)).to_rfc3339());
+        let mut campaign = Campaign::parse(&raw, &HashMap::new(), now()).unwrap();
+        campaign.drops[0].claim_id = Some("instance".into());
+        assert!(campaign.drops[0].can_claim(campaign.ends_at, now()));
     }
 
     #[test]

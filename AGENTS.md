@@ -69,6 +69,8 @@ embed it and run without a build tool/runtime companion. Production builds never
   the configured proxy/timeouts, and bounded retries within 30 seconds. Cap bodies at 16 MiB
   and campaigns at 2000. Reject timestamps older than 30 minutes or over 5 minutes ahead.
   Strip public campaign/drop `self` records; preserve real ACLs, dependencies and timing.
+  Reject mixed-null enabled ACLs. Shared domain parsing rejects campaign/drop dates without
+  room for the scheduler's one-hour lead and the claim journal's 24-hour grace period.
   Missing restrictions/dependencies, malformed/null entries and duplicate IDs are partial,
   not empty success. Keep known active/upcoming records on partial refresh; valid empty
   feeds are authoritative. A feed 401/403 never logs out Twitch; Twitch auth/cancellation

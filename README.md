@@ -225,8 +225,8 @@ claim history, and interrupted-claim recovery records live in the data directory
 Run only one miner per data directory and keep it private.
 
 **Settings > Maintenance > Clear All Cache** discards derived campaign/channel state
-and refreshes from Twitch. It preserves settings, credentials, claim history, and
-completed campaigns. See [persistent data and migration](docs/operations.md#persistent-data)
+and refreshes Twitch inventory and the public catalog. It preserves settings, credentials,
+claim history, and completed campaigns. See [persistent data and migration](docs/operations.md#persistent-data)
 for filenames, compatibility, and recovery details.
 
 ## Dashboard password and remote access
