@@ -9,7 +9,7 @@ build/test/deployment path. There is no interpreter, old backend source, old tes
 unused compatibility layer, or second runtime in the production image.
 
 The user authorized the rewrite, repository cleanup, conventional commits, a pull request
-to `ohne-b/ohne-drops`, independent review, and merge after checks. Implementation uses
+to `ohne-b/twitch-drops-miner`, independent review, and merge after checks. Implementation uses
 one agent. Independent review remains separate. No home-server deployment is authorized.
 
 Confirmed decisions:
@@ -362,7 +362,7 @@ durable claims, migration and packaging changes after fixes. The final recheck i
 26 miner tests and four independent full-owner probes covering queued channel selection,
 exit from manual mode, another network restart and logout during reload.
 
-[Validation on that revision](https://github.com/ohne-b/ohne-drops/actions/runs/36249547135)
+[Validation on that revision](https://github.com/ohne-b/twitch-drops-miner/actions/runs/36249547135)
 passed Rust fmt/Clippy, 94 library tests and one executable test, frontend format/type/build,
 six frontend unit tests, 43 browser/accessibility tests, five automation tests, version/lock
 agreement, and production amd64/arm64 image builds with isolated health and ownership checks.
@@ -373,7 +373,7 @@ The current tree removes retired source/tooling, unused messages and obsolete do
 Old local environments and artifacts were moved outside the checkout without touching user
 data. README focuses on setup/use; operations and contribution details have dedicated guides.
 
-[PR #12](https://github.com/ohne-b/ohne-drops/pull/12) records the final tested/reviewed head
+[PR #12](https://github.com/ohne-b/twitch-drops-miner/pull/12) records the final tested/reviewed head
 and merge checks, including later documentation-only changes. No release or home-server
 deployment is part of this rewrite. The local update helper is reviewed and tested separately,
 then pinned to the merged revision for the operator's interactive PowerShell/sudo execution.

@@ -90,7 +90,7 @@
             "remove_game": "Remove {game}"
         },
         "help": {
-            "about": "About OhneDrops",
+            "about": "About Drops Miner",
             "about_text": "This application automatically mines timed Twitch drops without downloading stream data."
         },
         "wanted": {

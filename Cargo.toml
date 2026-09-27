@@ -1,18 +1,18 @@
 [package]
-name = "ohne-drops"
+name = "twitch-drops-miner"
 version = "0.1.0"
 edition = "2024"
 rust-version = "1.94"
 license = "MIT"
 description = "A self-hosted Twitch Drops miner with a React dashboard"
-repository = "https://github.com/ohne-b/ohne-drops"
-default-run = "ohne-drops"
+repository = "https://github.com/ohne-b/twitch-drops-miner"
+default-run = "twitch-drops-miner"
 
 [features]
 dashboard-fixture = []
 
 [[bin]]
-name = "ohne-drops"
+name = "twitch-drops-miner"
 path = "src/main.rs"
 
 [[bin]]
