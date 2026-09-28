@@ -6,7 +6,7 @@ use std::{
 use chrono::{DateTime, Utc};
 use serde_json::Value;
 
-use super::{TwitchError, TwitchHttp};
+use super::{TwitchError, TwitchHttp, diagnostics};
 use crate::domain::Campaign;
 
 const MAX_CAMPAIGNS: usize = 2000;
@@ -18,6 +18,7 @@ pub(super) struct Catalog {
 }
 
 impl TwitchHttp {
+    #[tracing::instrument(skip_all, fields(operation = "PublicCatalog"))]
     pub(super) async fn catalog(&self) -> Result<Value, TwitchError> {
         // One inventory job owns this request. Bound retries and body reads together.
         tokio::time::timeout(Duration::from_secs(30), async {
@@ -34,10 +35,16 @@ impl TwitchHttp {
             if !response.status().is_success() {
                 return Err(TwitchError::InvalidResponse);
             }
-            serde_json::from_slice(response.body()).map_err(|_| TwitchError::InvalidResponse)
+            diagnostics::json(response.body(), response.status().as_u16())
         })
         .await
-        .map_err(|_| TwitchError::Network)?
+        .map_err(|_| {
+            tracing::warn!(
+                timeout_seconds = 30,
+                "Public catalog request exceeded total deadline"
+            );
+            TwitchError::Network
+        })?
     }
 }
 
@@ -50,16 +57,37 @@ impl Catalog {
         let updated_at: DateTime<Utc> = payload["lastUpdatedAt"]
             .as_str()
             .and_then(|v| v.parse().ok())
-            .ok_or(TwitchError::InvalidResponse)?;
+            .ok_or_else(|| {
+                diagnostics::invalid(
+                    "PublicCatalog",
+                    "lastUpdatedAt must be an RFC3339 timestamp",
+                    payload.get("lastUpdatedAt"),
+                )
+            })?;
         if updated_at < now - chrono::Duration::minutes(30)
             || updated_at > now + chrono::Duration::minutes(5)
         {
+            tracing::warn!(
+                operation = "PublicCatalog",
+                age_seconds = (now - updated_at).num_seconds(),
+                "Catalog timestamp is outside the freshness window (-300..1800 seconds)"
+            );
             return Err(TwitchError::InvalidResponse);
         }
-        let groups = payload["data"]
-            .as_array()
-            .ok_or(TwitchError::InvalidResponse)?;
+        let groups = payload["data"].as_array().ok_or_else(|| {
+            diagnostics::invalid(
+                "PublicCatalog",
+                "data must be an array",
+                payload.get("data"),
+            )
+        })?;
         if groups.len() > MAX_CAMPAIGNS {
+            tracing::warn!(
+                operation = "PublicCatalog",
+                groups = groups.len(),
+                limit = MAX_CAMPAIGNS,
+                "Catalog group limit exceeded"
+            );
             return Err(TwitchError::InvalidResponse);
         }
         let mut catalog = Self {
@@ -69,21 +97,33 @@ impl Catalog {
         };
         let mut count = 0;
         let mut seen = HashSet::new();
+        let mut invalid_groups = 0usize;
+        let mut invalid_records = 0usize;
+        let mut duplicates = 0usize;
         for group in groups {
             let Some(records) = group["rewards"].as_array() else {
+                invalid_groups += 1;
                 catalog.complete = false;
                 continue;
             };
             count += records.len();
             if count > MAX_CAMPAIGNS {
+                tracing::warn!(
+                    operation = "PublicCatalog",
+                    records = count,
+                    limit = MAX_CAMPAIGNS,
+                    "Catalog campaign limit exceeded"
+                );
                 return Err(TwitchError::InvalidResponse);
             }
             for record in records {
                 let Some(campaign) = public_campaign(record.clone(), group, awards, now) else {
+                    invalid_records += 1;
                     catalog.complete = false;
                     continue;
                 };
                 if !seen.insert(campaign.id.clone()) {
+                    duplicates += 1;
                     catalog.complete = false;
                     catalog.campaigns.remove(&campaign.id);
                     continue;
@@ -92,6 +132,15 @@ impl Catalog {
                     catalog.campaigns.insert(campaign.id.clone(), campaign);
                 }
             }
+        }
+        if !catalog.complete {
+            tracing::warn!(
+                operation = "PublicCatalog",
+                invalid_groups,
+                invalid_records,
+                duplicates,
+                "Public catalog is partial: malformed groups/records or duplicate IDs"
+            );
         }
         Ok(catalog)
     }

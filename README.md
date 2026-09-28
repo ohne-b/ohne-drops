@@ -324,6 +324,23 @@ labeled `1.3.2` need one manual upgrade to join the release series starting at `
 
 ## Troubleshooting
 
+Detailed upstream diagnostics are written to the server's stderr (Docker logs) and the
+rotating `logs/TDM.*.log` files, not the dashboard's Activity page. They are enabled at
+normal verbosity. For a recent failure:
+
+```bash
+docker compose logs --since=30m --tail=200 twitch-drops-miner
+```
+
+The logs identify GraphQL operations, HTTP status/retry attempts, JSON syntax errors and
+positions, invalid progress fields/types, beacon failures, typed network causes, and
+catalog freshness/partial-data failures. Known GraphQL error messages are retained;
+unknown messages are withheld and fingerprinted so repeated errors can be matched.
+Raw responses, request variables, URLs, headers and credentials are not logged. These
+diagnostics cannot recover past responses or prove that Twitch awarded watch time.
+The existing file rotation retains at most five daily log files; Docker log retention
+depends on your Compose logging configuration.
+
 - **No campaigns appear:** clear the campaign filters and check **Activity**. The public
   catalog can be unavailable, stale or incomplete; **Refresh inventory** reports a failed
   or partial refresh in its button. Previously known active campaigns stay available during

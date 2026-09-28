@@ -1,5 +1,6 @@
 mod catalog;
 pub mod channels;
+mod diagnostics;
 pub mod inventory;
 pub mod oauth;
 pub mod operations;
@@ -238,6 +239,7 @@ impl TwitchHttp {
         self.execute_with(&self.client, request, retry).await
     }
 
+    #[tracing::instrument(skip_all, fields(endpoint))]
     async fn execute_with(
         &self,
         client: &reqwest::Client,
@@ -245,6 +247,16 @@ impl TwitchHttp {
         retry: bool,
     ) -> Result<http::Response<Vec<u8>>, TwitchError> {
         let request = request.build().map_err(|_| TwitchError::Configuration)?;
+        let endpoint = if request.url() == &self.endpoints.gql {
+            "twitch_graphql"
+        } else if request.url() == &self.endpoints.catalog {
+            "public_catalog"
+        } else if request.url().origin() == self.endpoints.oauth.origin() {
+            "twitch_oauth"
+        } else {
+            "twitch_page_or_beacon"
+        };
+        tracing::Span::current().record("endpoint", endpoint);
         for attempt in 0..5 {
             let sending = request.try_clone().ok_or(TwitchError::Configuration)?;
             let result = tokio::select! { biased;
@@ -253,12 +265,22 @@ impl TwitchHttp {
             };
             let response = match result {
                 Ok(response) => response,
-                Err(_) if retry && attempt < 4 => {
-                    self.sleep(Duration::from_secs(1 << attempt)).await?;
-                    continue;
+                Err(error) => {
+                    diagnostics::network(&error, "send", attempt + 1);
+                    if retry && attempt < 4 {
+                        self.sleep(Duration::from_secs(1 << attempt)).await?;
+                        continue;
+                    }
+                    return Err(TwitchError::Network);
                 }
-                Err(_) => return Err(TwitchError::Network),
             };
+            if !response.status().is_success() {
+                tracing::warn!(
+                    status = response.status().as_u16(),
+                    attempt = attempt + 1,
+                    "Upstream HTTP response is unsuccessful"
+                );
+            }
             if retry
                 && attempt < 4
                 && (response.status().is_server_error()
@@ -273,7 +295,7 @@ impl TwitchHttp {
                 self.sleep(Duration::from_secs(delay)).await?;
                 continue;
             }
-            return self.read_response(response).await;
+            return self.read_response(response, attempt + 1).await;
         }
         Err(TwitchError::Network)
     }
@@ -281,6 +303,7 @@ impl TwitchHttp {
     async fn read_response(
         &self,
         mut response: reqwest::Response,
+        attempt: usize,
     ) -> Result<http::Response<Vec<u8>>, TwitchError> {
         let status = response.status();
         let mut headers = response.headers().clone();
@@ -304,10 +327,18 @@ impl TwitchHttp {
         loop {
             let chunk = tokio::select! { biased;
                 _=self.cancel.cancelled()=>return Err(TwitchError::Cancelled),
-                chunk=response.chunk()=>chunk.map_err(|_|TwitchError::Network)?,
+                chunk=response.chunk()=>chunk.map_err(|error| {
+                    diagnostics::network(&error, "read_body", attempt);
+                    TwitchError::Network
+                })?,
             };
             let Some(chunk) = chunk else { break };
             if bytes.len() + chunk.len() > MAX_BODY {
+                tracing::warn!(
+                    status = status.as_u16(),
+                    limit = MAX_BODY,
+                    "Upstream response exceeds body limit"
+                );
                 return Err(TwitchError::InvalidResponse);
             }
             bytes.extend_from_slice(&chunk);
@@ -420,6 +451,7 @@ impl TwitchClient {
         &self.access_token
     }
 
+    #[tracing::instrument(skip_all, fields(operation = diagnostics::operation(&operation)))]
     pub async fn gql(&self, operation: Value) -> Result<Value, TwitchError> {
         let _permit = tokio::select! {biased;
             _=self.http.cancel.cancelled()=>return Err(TwitchError::Cancelled),
@@ -440,15 +472,37 @@ impl TwitchClient {
                 )
                 .await?;
             success(response.status())?;
-            let mut response: Value = serde_json::from_slice(response.body())
-                .map_err(|_| TwitchError::InvalidResponse)?;
+            let mut response = diagnostics::json(response.body(), response.status().as_u16())?;
             let retry = if let Some(batch) = response.as_array_mut() {
                 let mut retry = false;
-                for item in batch {
+                let mut reported = 0;
+                for (index, item) in batch.iter_mut().enumerate() {
+                    if item.get("error").is_some()
+                        || item["errors"]
+                            .as_array()
+                            .is_some_and(|errors| !errors.is_empty())
+                    {
+                        if reported < 4 {
+                            diagnostics::graphql(
+                                item,
+                                diagnostics::operation(&operation[index]),
+                                attempt,
+                                index,
+                            );
+                        }
+                        reported += 1;
+                    }
                     retry |= gql_errors(item, attempt)?;
+                }
+                if reported > 4 {
+                    tracing::warn!(
+                        omitted = reported - 4,
+                        "Additional GraphQL batch diagnostics omitted"
+                    );
                 }
                 retry
             } else {
+                diagnostics::graphql(&response, diagnostics::operation(&operation), attempt, 0);
                 gql_errors(&mut response, attempt)?
             };
             if !retry {
@@ -464,7 +518,11 @@ impl TwitchClient {
 
 fn gql_errors(response: &mut Value, attempt: u32) -> Result<bool, TwitchError> {
     if !response.is_object() {
-        return Err(TwitchError::InvalidResponse);
+        return Err(diagnostics::invalid(
+            "GraphQL",
+            "expected response object",
+            Some(response),
+        ));
     }
     if response.get("error").is_some() {
         return Err(TwitchError::GraphQl);
