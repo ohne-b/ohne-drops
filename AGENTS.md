@@ -82,7 +82,8 @@ embed it and run without a build tool/runtime companion. Production builds never
   feeds are authoritative. A feed 401/403 never logs out Twitch; Twitch auth/cancellation
   failures propagate. Coverage can vary, and restarts need the feed for non-inventory
   campaigns. Never claim relogin/cache clearing repairs feed coverage. Unknown
-  PubSub/CurrentDrop progress queues inventory refresh at most once per minute.
+  PubSub/CurrentDrop progress queues inventory refresh at most once per minute. Fully
+  confirmed progress uses the same bound and never implies a claim.
 - Unknown linkage is null and unknown progress has no confirmed timestamp. Infer claims from
   awards only when every benefit has evidence in the drop's time window and no explicit
   account record contradicts it.
@@ -112,8 +113,10 @@ embed it and run without a build tool/runtime companion. Production builds never
   or Retry-After bounded to 1..60 seconds). Retry the identical payload, never an acknowledged
   204 or ordinary 4xx, and never count retries as progress. Exhaustion returns to owned watch
   recovery. No playlists/video/audio downloads. Confirm via PubSub or CurrentDrop, distinguish
-  estimates, and recover at 15 unconfirmed estimates. Only currently eligible drop progress
-  suppresses fallback. Failed/unacknowledged beacons invalidate the owned channel's cached
+  estimates, and recover at 15 unconfirmed estimates. Only incomplete, currently eligible
+  drop progress suppresses channel-specific polling. CurrentDrop evidence for the watched
+  channel selects the displayed policy-allowed reward without proving a claim.
+  Failed/unacknowledged beacons invalidate the owned channel's cached
   address. Three consecutive current-stream watch failures renew the network generation;
   successful acknowledgements reset this count. Late request results cannot overwrite newer
   account/stream events or restore invalidated beacon addresses.

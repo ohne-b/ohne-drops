@@ -187,6 +187,10 @@ refresh; reconnecting the dashboard keeps its current status.
 The button keeps its icon aligned on the left as its status changes. Its tooltip also shows
 when the public catalog was last updated.
 
+At 100% confirmed watch progress, the miner refreshes account evidence and keeps polling
+the watched channel so **Mining** can follow Twitch to the next reward. The completed reward
+remains unclaimed until Twitch supplies claim evidence or a claim succeeds.
+
 | Page                     | What it shows                                                                             |
 | ------------------------ | ----------------------------------------------------------------------------------------- |
 | **Overview**             | Mining progress, live channels, and the **Up next** reward queue.                         |

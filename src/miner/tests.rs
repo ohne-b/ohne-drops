@@ -62,6 +62,21 @@ async fn finish_job(mining: &mut Mining, pool: &PubSub) {
     mining.complete(completed.job, pool).await.unwrap();
 }
 
+fn add_sequential_reward(mining: &mut Mining, id: &str) {
+    let first = &mining.campaigns[0].drops[0];
+    let mut next = first.clone();
+    next.id = id.into();
+    next.name = "Next reward".into();
+    next.confirmed_minutes = 0;
+    next.estimated_minutes = 0;
+    next.confirmed_at = None;
+    next.claimed = false;
+    next.claimed_at = None;
+    next.claim_id = None;
+    next.prerequisites = vec![first.id.clone()];
+    mining.campaigns[0].drops.push(next);
+}
+
 #[tokio::test]
 async fn refresh_finishes_after_publication_and_partial_or_failed_requests_keep_known_campaigns() {
     let server = MockServer::start().await;
@@ -195,6 +210,190 @@ async fn unknown_progress_requests_inventory_without_fabricating_rewards_or_repe
     tokio::time::advance(Duration::from_secs(60)).await;
     assert!(!miner.confirm("unknown", 3));
     assert!(miner.refresh);
+    pool.close().await;
+}
+
+#[tokio::test]
+async fn completed_progress_polls_and_publishes_twitch_reported_next_reward_without_claiming() {
+    let server = MockServer::start().await;
+    gql_mock(&server, |q| match q["operationName"].as_str().unwrap() {
+        "DropCurrentSessionContext" => json!({"data":{"currentUser":{"dropCurrentSession":{
+            "dropID":"next-reward","currentMinutesWatched":3
+        }}}}),
+        other => panic!("unexpected operation {other}"),
+    })
+    .await;
+    let (dir, mut miner, _intent, mut pool) = miner(&server).await;
+    add_sequential_reward(&mut miner, "next-reward");
+    let mut independent = miner.campaigns[0].drops[1].clone();
+    independent.id = "independent-reward".into();
+    independent.prerequisites.clear();
+    miner.campaigns[0].drops.push(independent);
+    let settings = select(&mut miner).await;
+
+    miner
+        .event(Event::Progress {
+            id: "drop-one".into(),
+            minutes: 60,
+        })
+        .await
+        .unwrap();
+    miner
+        .event(Event::Progress {
+            id: "independent-reward".into(),
+            minutes: 3,
+        })
+        .await
+        .unwrap();
+    miner.poll_at = Some(Instant::now());
+    miner.next_watch = Instant::now() + WATCH_INTERVAL;
+    miner.schedule(&settings).await;
+    assert!(
+        miner.busy.contains(&JobKind::Poll),
+        "generic PubSub progress suppressed channel-specific CurrentDrop polling"
+    );
+    finish_job(&mut miner, &pool).await;
+    miner.publish(&settings).await.unwrap();
+
+    let state = miner.app.snapshot.read().await;
+    assert_eq!(state.current_drop.as_ref().unwrap().drop_id, "next-reward");
+    assert_eq!(state.current_drop.as_ref().unwrap().confirmed_minutes, 3);
+    drop(state);
+    assert!(!miner.campaigns[0].drops[0].claimed);
+    assert!(
+        miner.refresh,
+        "completion did not queue account reconciliation"
+    );
+    assert_eq!(History::load(dir.path()).total(), 0);
+    pool.close().await;
+}
+
+#[tokio::test(start_paused = true)]
+async fn completed_progress_reconciliation_is_coalesced_and_waits_for_claim_evidence() {
+    let server = MockServer::start().await;
+    gql_mock(&server, |q| match q["operationName"].as_str().unwrap() {
+        "DropCurrentSessionContext" => json!({"data":{"currentUser":{"dropCurrentSession":{
+            "dropID":"drop-one","currentMinutesWatched":60
+        }}}}),
+        other => panic!("unexpected operation {other}"),
+    })
+    .await;
+    let (dir, mut miner, _intent, mut pool) = miner(&server).await;
+    let settings = select(&mut miner).await;
+
+    for expected in [true, false] {
+        miner.refresh = false;
+        miner
+            .event(Event::Progress {
+                id: "drop-one".into(),
+                minutes: 60,
+            })
+            .await
+            .unwrap();
+        assert_eq!(miner.refresh, expected);
+    }
+    tokio::time::advance(Duration::from_secs(59)).await;
+    miner
+        .event(Event::Progress {
+            id: "drop-one".into(),
+            minutes: 60,
+        })
+        .await
+        .unwrap();
+    assert!(!miner.refresh);
+    tokio::time::advance(Duration::from_secs(1)).await;
+    miner
+        .event(Event::Progress {
+            id: "drop-one".into(),
+            minutes: 60,
+        })
+        .await
+        .unwrap();
+    assert!(miner.refresh);
+
+    miner
+        .complete(
+            Job::Inventory {
+                result: Err(TwitchError::Network),
+                requested_at: Utc::now(),
+                refresh_sequence: 0,
+            },
+            &pool,
+        )
+        .await
+        .unwrap();
+    assert!(!miner.campaigns[0].drops[0].claimed);
+    assert_eq!(miner.campaigns[0].drops[0].confirmed_minutes, 60);
+    assert_eq!(History::load(dir.path()).total(), 0);
+    tokio::time::advance(Duration::from_secs(10)).await;
+    miner.poll_at = Some(Instant::now());
+    miner.next_watch = Instant::now() + WATCH_INTERVAL;
+    miner.schedule(&settings).await;
+    assert!(
+        miner.busy.contains(&JobKind::Poll),
+        "a failed completion refresh stopped the next CurrentDrop poll"
+    );
+    finish_job(&mut miner, &pool).await;
+
+    let mut raw = campaign_json("one");
+    raw["timeBasedDrops"][0]["self"]["currentMinutesWatched"] = 60.into();
+    let unclaimed = Campaign::parse(&raw, &HashMap::new(), Utc::now()).unwrap();
+    miner
+        .complete(
+            Job::Inventory {
+                result: Ok(Inventory {
+                    campaigns: vec![unclaimed],
+                    status: InventoryStatus {
+                        available: true,
+                        ..InventoryStatus::default()
+                    },
+                    awards: HashMap::new(),
+                }),
+                requested_at: Utc::now(),
+                refresh_sequence: 0,
+            },
+            &pool,
+        )
+        .await
+        .unwrap();
+    assert!(!miner.campaigns[0].drops[0].claimed);
+    assert_eq!(History::load(dir.path()).total(), 0);
+    miner.refresh = false;
+    tokio::time::advance(Duration::from_secs(50)).await;
+    miner
+        .event(Event::Progress {
+            id: "drop-one".into(),
+            minutes: 60,
+        })
+        .await
+        .unwrap();
+    assert!(
+        miner.refresh,
+        "delayed unclaimed evidence was never reconciled again"
+    );
+
+    raw["timeBasedDrops"][0]["self"]["isClaimed"] = true.into();
+    let claimed = Campaign::parse(&raw, &HashMap::new(), Utc::now()).unwrap();
+    miner
+        .complete(
+            Job::Inventory {
+                result: Ok(Inventory {
+                    campaigns: vec![claimed],
+                    status: InventoryStatus {
+                        available: true,
+                        ..InventoryStatus::default()
+                    },
+                    awards: HashMap::new(),
+                }),
+                requested_at: Utc::now(),
+                refresh_sequence: 0,
+            },
+            &pool,
+        )
+        .await
+        .unwrap();
+    assert!(miner.campaigns[0].drops[0].claimed);
+    assert_eq!(History::load(dir.path()).total(), 1);
     pool.close().await;
 }
 
@@ -1897,6 +2096,67 @@ async fn late_poll_cannot_erase_newer_pubsub_progress() {
         minutes, 31,
         "poll begun before PubSub confirmation must not replace it"
     );
+}
+
+#[tokio::test]
+async fn channel_specific_next_reward_survives_late_old_and_other_channel_progress() {
+    let server = MockServer::start().await;
+    let (_dir, mut miner, _intent, mut pool) = miner(&server).await;
+    add_sequential_reward(&mut miner, "next-reward");
+    let mut other = Campaign::parse(&campaign_json("other"), &HashMap::new(), Utc::now()).unwrap();
+    other.game.id = 2;
+    other.game.name = "Other game".into();
+    miner.campaigns.push(other);
+    let settings = select(&mut miner).await;
+    let stale_request = Instant::now() - Duration::from_secs(1);
+
+    miner
+        .complete(
+            Job::Poll {
+                requested_at: Instant::now(),
+                channel: 10,
+                result: Ok(Some(("next-reward".into(), 3))),
+            },
+            &pool,
+        )
+        .await
+        .unwrap();
+    miner.last_progress = None;
+    miner
+        .complete(
+            Job::Poll {
+                requested_at: stale_request,
+                channel: 10,
+                result: Ok(Some(("drop-one".into(), 60))),
+            },
+            &pool,
+        )
+        .await
+        .unwrap();
+    for id in ["drop-one", "drop-other"] {
+        miner
+            .event(Event::Progress {
+                id: id.into(),
+                minutes: 60,
+            })
+            .await
+            .unwrap();
+    }
+    miner.publish(&settings).await.unwrap();
+
+    assert_eq!(
+        miner
+            .app
+            .snapshot
+            .read()
+            .await
+            .current_drop
+            .as_ref()
+            .unwrap()
+            .drop_id,
+        "next-reward"
+    );
+    pool.close().await;
 }
 
 #[tokio::test]

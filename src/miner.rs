@@ -15,7 +15,7 @@ use tokio_util::sync::CancellationToken;
 
 use crate::{
     config::Settings,
-    domain::{Campaign, Channel, MAX_ESTIMATED_MINUTES, wanted_items},
+    domain::{Campaign, Channel, Drop, MAX_ESTIMATED_MINUTES, wanted_items},
     dto::{InventoryStatus, Login, ManualMode, RefreshState},
     store::{ClaimJournal, PendingClaim},
     twitch::{
@@ -30,6 +30,7 @@ use crate::{
 
 const WATCH_INTERVAL: Duration = Duration::from_secs(59);
 const PROGRESS_DELAY: Duration = Duration::from_secs(20);
+const PROGRESS_REFRESH_INTERVAL: Duration = Duration::from_secs(60);
 const CHANNEL_DELAY: Duration = Duration::from_secs(2);
 
 #[cfg(test)]
@@ -477,6 +478,7 @@ struct Mining {
     next_watch: Instant,
     poll_at: Option<Instant>,
     last_progress: Option<(String, Instant)>,
+    current_progress: Option<(String, u64, Instant)>,
     next_retry: Instant,
     refresh_channels: HashMap<u64, Instant>,
     channel_events: HashMap<u64, Instant>,
@@ -486,7 +488,7 @@ struct Mining {
     claim_retry: HashMap<String, Instant>,
     claim_wait: Option<(String, Instant, u8)>,
     last_inventory: Instant,
-    next_unknown_refresh: Instant,
+    next_progress_refresh: Instant,
     next_transition: Option<chrono::DateTime<Utc>>,
     pending_claims: Vec<PendingClaim>,
 }
@@ -559,6 +561,7 @@ impl Mining {
             next_watch: now,
             poll_at: None,
             last_progress: None,
+            current_progress: None,
             next_retry: now,
             refresh_channels: HashMap::new(),
             channel_events: HashMap::new(),
@@ -568,7 +571,7 @@ impl Mining {
             claim_retry: HashMap::new(),
             claim_wait: None,
             last_inventory: now,
-            next_unknown_refresh: now,
+            next_progress_refresh: now,
             next_transition: None,
             pending_claims: vec![],
         }
@@ -656,6 +659,7 @@ impl Mining {
             self.manual_pending = None;
             self.manual_error = None;
             self.poll_at = None;
+            self.current_progress = None;
             self.claim_wait = None;
             self.refresh_channels.clear();
             self.channel_events.clear();
@@ -806,18 +810,70 @@ impl Mining {
             .find(|d| d.id == id)
         {
             drop.confirm(minutes, Utc::now());
+            let completed = !drop.claimed
+                && drop.watch_reward()
+                && drop.confirmed_minutes >= drop.required_minutes;
             self.last_progress = Some((id.to_owned(), Instant::now()));
             self.publish = true;
+            if completed {
+                self.request_progress_refresh();
+            }
             true
         } else {
             // Both PubSub and CurrentDrop can reveal rewards missing from the catalog.
-            // Coalesce unknown IDs so repeated progress cannot flood inventory requests.
-            if Instant::now() >= self.next_unknown_refresh {
-                self.next_unknown_refresh = Instant::now() + Duration::from_secs(60);
-                self.refresh = true;
-            }
+            self.request_progress_refresh();
             false
         }
+    }
+
+    fn request_progress_refresh(&mut self) {
+        let now = Instant::now();
+        if now >= self.next_progress_refresh {
+            self.next_progress_refresh = now + PROGRESS_REFRESH_INTERVAL;
+            self.refresh = true;
+        }
+    }
+
+    fn confirmed_complete(&self, id: &str) -> bool {
+        self.campaigns
+            .iter()
+            .flat_map(|campaign| &campaign.drops)
+            .find(|drop| drop.id == id)
+            .is_some_and(|drop| {
+                !drop.claimed
+                    && drop.watch_reward()
+                    && drop.confirmed_minutes >= drop.required_minutes
+            })
+    }
+
+    fn reported_drop<'a>(
+        &'a self,
+        id: &str,
+        channel: u64,
+        settings: &Settings,
+        now: chrono::DateTime<Utc>,
+    ) -> Option<(&'a Campaign, &'a Drop)> {
+        let channel = self
+            .channels
+            .iter()
+            .find(|candidate| candidate.identity.id == channel)?;
+        self.campaigns.iter().find_map(|campaign| {
+            if !campaign.active(now) || !campaign.matches_channel(channel) {
+                return None;
+            }
+            let policy = campaign.mining_policy(settings, now);
+            campaign
+                .drops
+                .iter()
+                .find(|drop| {
+                    drop.id == id
+                        && policy.mineable.contains(id)
+                        && drop.estimated_minutes < MAX_ESTIMATED_MINUTES
+                        && drop.starts_at <= now
+                        && now < drop.ends_at
+                })
+                .map(|drop| (campaign, drop))
+        })
     }
     fn progress_eligible(&self, id: &str, channel: u64, settings: &Settings) -> bool {
         let now = Utc::now();
@@ -864,6 +920,7 @@ impl Mining {
             self.next_watch = Instant::now();
             self.poll_at = None;
             self.last_progress = None;
+            self.current_progress = None;
             self.claim_wait = None;
             self.publish = true;
             if let Some(channel) = self.channels.iter().find(|c| Some(c.identity.id) == next) {
@@ -953,6 +1010,12 @@ impl Mining {
                         || self.last_progress.as_ref().is_none_or(|(id, at)| {
                             now.duration_since(*at) >= WATCH_INTERVAL
                                 || !self.progress_eligible(id, channel, settings)
+                                || self.confirmed_complete(id)
+                                || !self.current_progress.as_ref().is_some_and(
+                                    |(current, current_channel, _)| {
+                                        *current_channel == channel && current == id
+                                    },
+                                )
                         })
                     {
                         let client = self.client.clone();
@@ -1188,6 +1251,16 @@ impl Mining {
                 self.campaigns = inventory.campaigns;
                 self.status = inventory.status;
                 self.recover_claims(&inventory.awards).await?;
+                if self
+                    .current_progress
+                    .as_ref()
+                    .is_some_and(|(id, channel, _)| {
+                        self.reported_drop(id, *channel, &settings, Utc::now())
+                            .is_none()
+                    })
+                {
+                    self.current_progress = None;
+                }
                 let observed_at = Utc::now();
                 let entries = self
                     .campaigns
@@ -1324,13 +1397,33 @@ impl Mining {
                 if self.watching == Some(channel) {
                     let current = result.as_ref().ok().and_then(|v| v.as_ref());
                     let newer_progress = self.last_progress.as_ref().is_some_and(|(id, at)| {
-                        *at > requested_at && self.progress_eligible(id, channel, &settings)
+                        *at > requested_at
+                            && self
+                                .reported_drop(id, channel, &settings, Utc::now())
+                                .is_some()
                     });
-                    let confirmed = newer_progress
-                        || current.is_some_and(|(id, minutes)| {
-                            let eligible = self.progress_eligible(id, channel, &settings);
-                            self.confirm(id, *minutes) && eligible
-                        });
+                    let newer_current =
+                        self.current_progress
+                            .as_ref()
+                            .is_some_and(|(_, current_channel, at)| {
+                                *current_channel == channel && *at > requested_at
+                            });
+                    let confirmed = if newer_progress || newer_current {
+                        true
+                    } else if let Some((id, minutes)) = current {
+                        let known = self.confirm(id, *minutes);
+                        let reported = known
+                            && self
+                                .reported_drop(id, channel, &settings, Utc::now())
+                                .is_some();
+                        self.current_progress = reported.then(|| (id.clone(), channel, now));
+                        reported
+                    } else {
+                        if result.is_ok() {
+                            self.current_progress = None;
+                        }
+                        false
+                    };
                     if let Some((claimed, _, attempts)) = self.claim_wait.take() {
                         if current.is_some_and(|(id, _)| id == &claimed) && attempts < 7 {
                             self.claim_wait =
@@ -1614,11 +1707,19 @@ impl Mining {
                             })
                     });
                 }
-                self.campaigns
-                    .iter()
-                    .filter(|c| c.can_watch(channel, settings, now))
-                    .filter_map(|c| c.first_drop(settings, now).map(|d| (c, d)))
-                    .min_by_key(|(_, d)| d.remaining_minutes())
+                self.current_progress
+                    .as_ref()
+                    .filter(|(_, current_channel, _)| *current_channel == channel.identity.id)
+                    .and_then(|(id, _, _)| {
+                        self.reported_drop(id, channel.identity.id, settings, now)
+                    })
+                    .or_else(|| {
+                        self.campaigns
+                            .iter()
+                            .filter(|c| c.can_watch(channel, settings, now))
+                            .filter_map(|c| c.first_drop(settings, now).map(|d| (c, d)))
+                            .min_by_key(|(_, d)| d.remaining_minutes())
+                    })
             });
         let progress = active.map(|(c, d)| c.progress(d));
         let mut manual = self
