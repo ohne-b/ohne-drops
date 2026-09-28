@@ -189,6 +189,12 @@ when the public catalog was last updated.
 
 ### Games, filters, and ignored rewards
 
+Campaigns shows its filtered count beside the page title. Open **Filters** for
+**All games** and **Clear filters**. The sort control offers **Default** (active campaigns
+with confirmed progress first), **Newest** (latest campaign start), **Ending Soonest**,
+**Most Drops** (total drops), and **A-Z** (campaign name). Sorting stays in the page URL
+through searches, tab changes and reloads; it does not change mining priorities.
+
 In **Game priorities**, drag games into order or focus a drag handle and use the arrow
 keys. The first game has the highest priority. Settings save silently; if a save
 fails or another browser changes the same settings, your edits stay available for **Retry**.
