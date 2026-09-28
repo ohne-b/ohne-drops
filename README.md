@@ -215,9 +215,9 @@ expiry alone does not count as completion. Older history without completion evid
 appears separately as **Older recorded rewards**.
 
 The **Mining** card prefers current Twitch-reported reward progress. Confirmed watch
-completion releases automatic watching of that reward and prompts inventory reconciliation;
-estimates alone do neither. Missing claim evidence is checked again at most once per minute,
-without pausing watch events. Twitch must confirm a claim before it unlocks prerequisites,
+completion releases automatic watching of that reward and prompts inventory reconciliation.
+Automatic checks for missing claim evidence are coalesced to at most once per minute,
+without pausing watch events. Estimates never prove a claim. Twitch must confirm it before it unlocks prerequisites,
 completes a campaign or enters **History**. Reported successor progress can appear while
 that claim evidence is still pending.
 

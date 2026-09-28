@@ -412,6 +412,17 @@ impl Campaign {
             .all(|id| self.drops.iter().any(|d| &d.id == id && d.claimed))
     }
 
+    pub fn needs_claim_refresh(&self, now: DateTime<Utc>) -> bool {
+        !self.upcoming(now)
+            && now < self.ends_at + Duration::hours(24)
+            && self.drops.iter().any(|d| {
+                !d.claimed
+                    && d.watch_reward()
+                    && (d.confirmed_minutes >= d.required_minutes
+                        || d.confirmed_minutes > 0 && !self.prerequisites_met(d))
+            })
+    }
+
     pub fn drop_eligible(
         &self,
         drop: &Drop,

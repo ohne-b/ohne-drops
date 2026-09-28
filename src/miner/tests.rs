@@ -232,6 +232,27 @@ async fn completed_transition_uses_successor_evidence_even_when_final_progress_a
     );
     assert!(!miner.campaigns[0].drops[0].claimed);
     assert_eq!(History::load(dir.path()).total(), 0);
+    miner
+        .event(Event::Progress {
+            id: "drop-one".into(),
+            minutes: 59,
+        })
+        .await
+        .unwrap();
+    miner.publish(&settings).await.unwrap();
+    assert_eq!(
+        miner
+            .app
+            .snapshot
+            .read()
+            .await
+            .current_drop
+            .as_ref()
+            .unwrap()
+            .drop_id,
+        "next",
+        "duplicate old progress must not replace the reported successor"
+    );
     pool.close().await;
 }
 
@@ -276,6 +297,86 @@ async fn completed_transition_reconciles_and_releases_channel_without_unlocking_
 }
 
 #[tokio::test]
+async fn completed_transition_rejects_old_polls_after_same_channel_stream_replacement() {
+    for rebuild in [false, true] {
+        let server = MockServer::start().await;
+        let (_dir, mut miner, _intent, mut pool) = miner(&server).await;
+        let settings = select(&mut miner).await;
+        let update_started = Instant::now();
+        let poll_started = Instant::now();
+        let mut channels = miner.channels.clone();
+        channels[0].broadcast_id = Some("stream2".into());
+        let update = if rebuild {
+            Job::Channels {
+                result: Ok(channels),
+                requested_at: update_started,
+            }
+        } else {
+            Job::Update {
+                result: Ok(channels),
+                requested_at: update_started,
+            }
+        };
+        miner.complete(update, &pool).await.unwrap();
+        miner
+            .complete(
+                Job::Poll {
+                    channel: 10,
+                    requested_at: poll_started,
+                    result: Ok(Some(("drop-one".into(), 40))),
+                },
+                &pool,
+            )
+            .await
+            .unwrap();
+        assert_eq!(
+            miner.campaigns[0].drops[0].confirmed_minutes, 12,
+            "a poll from stream1 changed progress after stream2 was published"
+        );
+        assert!(miner.last_progress.is_none());
+        miner.reselect(&settings).await;
+        assert_eq!(miner.watching, Some(10));
+        pool.close().await;
+    }
+}
+
+#[tokio::test]
+async fn completed_transition_retains_expired_claim_evidence_on_partial_inventory() {
+    let server = MockServer::start().await;
+    let (_dir, mut miner, _intent, mut pool) = miner(&server).await;
+    let settings = select(&mut miner).await;
+    miner.confirm("drop-one", 60, &settings);
+    miner.campaigns[0].ends_at = Utc::now() - chrono::Duration::seconds(1);
+    miner
+        .complete(
+            Job::Inventory {
+                result: Ok(Inventory {
+                    campaigns: vec![],
+                    awards: HashMap::new(),
+                    status: InventoryStatus::default(),
+                }),
+                requested_at: Utc::now(),
+                refresh_sequence: 0,
+            },
+            &pool,
+        )
+        .await
+        .unwrap();
+    assert_eq!(
+        miner.campaigns.len(),
+        1,
+        "partial refresh must preserve unresolved completion through the claim grace period"
+    );
+    assert!(!miner.campaigns[0].drops[0].claimed);
+    miner.refresh = false;
+    miner.next_progress_refresh = Instant::now();
+    miner.busy.insert(JobKind::Inventory);
+    miner.schedule(&settings).await;
+    assert!(miner.refresh);
+    pool.close().await;
+}
+
+#[tokio::test]
 async fn completed_transition_recovers_failed_and_delayed_inventory_and_claim_evidence() {
     use std::sync::atomic::{AtomicUsize, Ordering};
     for auto_claimed in [false, true] {
@@ -291,7 +392,7 @@ async fn completed_transition_recovers_failed_and_delayed_inventory_and_claim_ev
                     return json!({"data":{"currentUser":{"inventory":null}}});
                 }
                 let mut campaign = campaign_json("one");
-                campaign["timeBasedDrops"][0]["self"]["currentMinutesWatched"] = json!(60);
+                campaign["timeBasedDrops"][0]["self"]["currentMinutesWatched"] = json!(59);
                 if attempt >= 2 {
                     campaign["timeBasedDrops"][0]["self"]["isClaimed"] = json!(auto_claimed);
                     if !auto_claimed {

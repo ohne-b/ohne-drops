@@ -85,6 +85,7 @@ embed it and run without a build tool/runtime companion. Production builds never
   PubSub/CurrentDrop progress shares a coalesced, at-most-once-per-minute inventory refresh
   with confirmed watch completion and reported successors awaiting prerequisite claim evidence.
   Retry unresolved evidence through the claim grace period, including after failed refreshes,
+  retaining unresolved expired campaigns when a partial refresh omits them.
   without blocking watch cadence. Only account claim evidence unlocks prerequisites or History.
 - Unknown linkage is null and unknown progress has no confirmed timestamp. Infer claims from
   awards only when every benefit has evidence in the drop's time window and no explicit
@@ -123,12 +124,16 @@ embed it and run without a build tool/runtime companion. Production builds never
   Successful inventory refreshes clear stale estimate ceilings on refreshed and retained
   drops, preserving confirmed progress and evidence newer than the request. Failed
   refreshes must not clear the ceiling or fabricate confirmation.
+  Lagging inventory cannot reduce confirmed minutes for unchanged watch requirements;
+  retain fresh account claim evidence and issued instance IDs independently.
   Confirmed watch completion is no longer watch-eligible, but remains unclaimed until account
   evidence arrives. The automatic Mining card prefers current eligible Twitch reports;
   reported successor progress may display before prerequisite claim reconciliation, without
   granting watch eligibility. Validate CurrentDrop's returned channel and reject polls older
   than the current watch, stream/account refresh or accepted progress. Unrelated/regressive
-  progress must not restore an old card. Estimates alone never imply completion or a claim.
+  progress must not restore an old card; duplicate PubSub progress cannot displace a reported
+  successor or postpone polling. Stream replacements fence old polls even on the same channel.
+  Estimates alone never imply completion or a claim.
 - Claims require account-issued instance IDs, skip upcoming campaigns and stop at the strict
   campaign-end + 24-hour deadline. Earned claims are independent of mining/ignore selection.
   Persist the account-scoped intent before RPC, then its success receipt and history. Keep the

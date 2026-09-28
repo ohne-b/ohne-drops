@@ -815,8 +815,9 @@ impl Mining {
         {
             // Delayed progress cannot undo confirmed completion or restore an old card.
             if minutes < drop.confirmed_minutes {
-                return true;
+                return false;
             }
+            let advanced = minutes > drop.confirmed_minutes;
             drop.confirm(minutes, Utc::now());
             let completed = !drop.claimed
                 && drop.watch_reward()
@@ -825,8 +826,9 @@ impl Mining {
                 .watching
                 .and_then(|channel| self.reported_drop(id, channel, settings));
             let blocked = reported.is_some_and(|(c, d)| !c.prerequisites_met(d));
-            if reported.is_some()
-                || eligible
+            if reported.is_some() && (advanced || self.last_progress.is_none())
+                || completed
+                    && eligible
                     && self
                         .last_progress
                         .as_ref()
@@ -936,16 +938,7 @@ impl Mining {
         let wall = Utc::now();
         // Retry delayed/missing claim evidence even if completion left no watchable channel.
         if now >= self.next_progress_refresh
-            && self.campaigns.iter().any(|c| {
-                !c.upcoming(wall)
-                    && wall < c.ends_at + chrono::Duration::hours(24)
-                    && c.drops.iter().any(|d| {
-                        !d.claimed
-                            && d.watch_reward()
-                            && (d.confirmed_minutes >= d.required_minutes
-                                || d.confirmed_minutes > 0 && !c.prerequisites_met(d))
-                    })
-            })
+            && self.campaigns.iter().any(|c| c.needs_claim_refresh(wall))
         {
             self.request_progress_refresh();
         }
@@ -1213,7 +1206,9 @@ impl Mining {
             } => {
                 if !inventory.status.available {
                     for previous in &self.campaigns {
-                        if (previous.active(Utc::now()) || previous.upcoming(Utc::now()))
+                        if (previous.active(Utc::now())
+                            || previous.upcoming(Utc::now())
+                            || previous.needs_claim_refresh(Utc::now()))
                             && !inventory.campaigns.iter().any(|c| c.id == previous.id)
                         {
                             inventory.campaigns.push(previous.clone());
@@ -1239,16 +1234,25 @@ impl Mining {
                             .and_then(|c| c.drops.iter().find(|d| d.id == drop.id))
                             && !drop.claimed
                             && previous.required_minutes == drop.required_minutes
-                            && previous
+                        {
+                            if previous
                                 .confirmed_at
                                 .is_some_and(|at| at > requested_at || drop.confirmed_at.is_none())
-                        {
-                            drop.confirmed_minutes = previous.confirmed_minutes;
-                            drop.confirmed_at = previous.confirmed_at;
-                            drop.estimated_minutes = previous.estimated_minutes;
-                            drop.claimed = previous.claimed;
-                            drop.claimed_at = previous.claimed_at;
-                            drop.claim_id = previous.claim_id.clone();
+                            {
+                                drop.confirmed_minutes = previous.confirmed_minutes;
+                                drop.confirmed_at = previous.confirmed_at;
+                                drop.estimated_minutes = previous.estimated_minutes;
+                                drop.claimed = previous.claimed;
+                                drop.claimed_at = previous.claimed_at;
+                                drop.claim_id = previous.claim_id.clone();
+                            } else if !previous.claimed
+                                && previous.confirmed_minutes > drop.confirmed_minutes
+                            {
+                                // Inventory can lag CurrentDrop/PubSub even when requested later.
+                                // Retain watch evidence, but keep new claim state and instance IDs.
+                                drop.confirmed_minutes = previous.confirmed_minutes;
+                                drop.confirmed_at = previous.confirmed_at;
+                            }
                         }
                         // A completed refresh must release the estimate ceiling, including
                         // retained records, without overwriting newer account evidence.
@@ -1410,8 +1414,11 @@ impl Mining {
                         .is_some_and(|(_, at)| *at > requested_at);
                     let confirmed = newer_progress
                         || current.is_some_and(|(id, minutes)| {
-                            self.confirm(id, *minutes, &settings)
-                                && self.progress_eligible(id, channel, &settings)
+                            let accepted = self.confirm(id, *minutes, &settings);
+                            if accepted && self.reported_drop(id, channel, &settings).is_some() {
+                                self.last_progress = Some((id.clone(), now));
+                            }
+                            accepted && self.progress_eligible(id, channel, &settings)
                         });
                     if let Some((claimed, _, attempts)) = self.claim_wait.take() {
                         if current.is_some_and(|(id, _)| id == &claimed) && attempts < 7 {
@@ -1566,7 +1573,7 @@ impl Mining {
         self.channels_dirty = true;
         None
     }
-    fn preserve_channel_events(&self, channels: &mut [Channel], requested_at: Instant) {
+    fn preserve_channel_events(&mut self, channels: &mut [Channel], requested_at: Instant) {
         for channel in channels {
             if channel.online()
                 && self
@@ -1597,6 +1604,20 @@ impl Mining {
                 c.identity.id == channel.identity.id && c.broadcast_id == channel.broadcast_id
             }) {
                 channel.beacon_url = current.beacon_url.clone();
+            }
+            if self.watching == Some(channel.identity.id)
+                && self.channels.iter().any(|c| {
+                    c.identity.id == channel.identity.id && c.broadcast_id != channel.broadcast_id
+                })
+            {
+                // A new broadcast on the same channel also starts a new watch context.
+                self.cancel_watch();
+                self.watch_started = Instant::now();
+                self.next_watch = self.watch_started;
+                self.watch_failures = 0;
+                self.last_progress = None;
+                self.poll_at = None;
+                self.claim_wait = None;
             }
         }
     }
