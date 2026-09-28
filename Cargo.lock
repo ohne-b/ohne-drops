@@ -2657,6 +2657,7 @@ dependencies = [
  "http",
  "http-body-util",
  "mime_guess",
+ "percent-encoding",
  "regex",
  "reqwest",
  "reqwest-websocket",

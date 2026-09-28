@@ -100,6 +100,7 @@ pub struct TwitchHttp {
     pub cancel: CancellationToken,
     rate: Arc<Mutex<VecDeque<Instant>>>,
     concurrent: Arc<Semaphore>,
+    diagnostics: diagnostics::Capture,
 }
 
 impl TwitchHttp {
@@ -163,6 +164,7 @@ impl TwitchHttp {
             .user_agent(concat!("TwitchDropsMiner/", env!("CARGO_PKG_VERSION")))
             .build()
             .map_err(|_| TwitchError::Configuration)?;
+        let diagnostics = diagnostics::Capture::new(&settings.proxy, &device_id);
         Ok(Self {
             client,
             catalog_client,
@@ -172,6 +174,7 @@ impl TwitchHttp {
             cancel,
             rate: Arc::new(Mutex::new(VecDeque::new())),
             concurrent: Arc::new(Semaphore::new(5)),
+            diagnostics,
         })
     }
 
@@ -239,7 +242,7 @@ impl TwitchHttp {
         self.execute_with(&self.client, request, retry).await
     }
 
-    #[tracing::instrument(skip_all, fields(endpoint))]
+    #[tracing::instrument(skip_all, fields(endpoint, diagnostic_id, method))]
     async fn execute_with(
         &self,
         client: &reqwest::Client,
@@ -253,11 +256,24 @@ impl TwitchHttp {
             "public_catalog"
         } else if request.url().origin() == self.endpoints.oauth.origin() {
             "twitch_oauth"
+        } else if request.method() == Method::POST {
+            "twitch_beacon"
+        } else if request.url().origin() == self.endpoints.web.origin() {
+            "twitch_page"
         } else {
-            "twitch_page_or_beacon"
+            "twitch_settings_script"
         };
         tracing::Span::current().record("endpoint", endpoint);
+        if diagnostics::enabled() {
+            tracing::Span::current().record("diagnostic_id", diagnostics::request_id());
+            tracing::Span::current().record("method", request.method().as_str());
+        }
         for attempt in 0..5 {
+            let started = Instant::now();
+            // A retry may use cookies received by the previous attempt.
+            let capture = self
+                .diagnostics
+                .request(&request, self.jar.cookies(request.url()));
             let sending = request.try_clone().ok_or(TwitchError::Configuration)?;
             let result = tokio::select! { biased;
                 _=self.cancel.cancelled()=>return Err(TwitchError::Cancelled),
@@ -266,7 +282,7 @@ impl TwitchHttp {
             let response = match result {
                 Ok(response) => response,
                 Err(error) => {
-                    diagnostics::network(&error, "send", attempt + 1);
+                    capture.network(&error, "send", attempt + 1, started.elapsed().as_millis());
                     if retry && attempt < 4 {
                         self.sleep(Duration::from_secs(1 << attempt)).await?;
                         continue;
@@ -292,10 +308,24 @@ impl TwitchHttp {
                     .and_then(|v| v.to_str().ok()?.parse::<u64>().ok())
                     .unwrap_or(1 << attempt)
                     .clamp(1, 60);
+                if diagnostics::enabled() {
+                    // Diagnostic body failures must not replace the existing retry decision.
+                    if tokio::time::timeout(
+                        Duration::from_secs(1),
+                        self.read_response(response, attempt + 1, &capture, started),
+                    )
+                    .await
+                    .is_err()
+                    {
+                        tracing::debug!(target: "tdm_diagnostics", attempt = attempt + 1, "Retry response capture exceeded one-second budget; body omitted");
+                    }
+                }
                 self.sleep(Duration::from_secs(delay)).await?;
                 continue;
             }
-            return self.read_response(response, attempt + 1).await;
+            return self
+                .read_response(response, attempt + 1, &capture, started)
+                .await;
         }
         Err(TwitchError::Network)
     }
@@ -304,8 +334,11 @@ impl TwitchHttp {
         &self,
         mut response: reqwest::Response,
         attempt: usize,
+        capture: &diagnostics::Capture,
+        started: Instant,
     ) -> Result<http::Response<Vec<u8>>, TwitchError> {
         let status = response.status();
+        let version = response.version();
         let mut headers = response.headers().clone();
         // The OAuth library checks the exact JSON media type. Parameters do not
         // change the media type and must not reject Twitch's UTF-8 responses.
@@ -328,7 +361,7 @@ impl TwitchHttp {
             let chunk = tokio::select! { biased;
                 _=self.cancel.cancelled()=>return Err(TwitchError::Cancelled),
                 chunk=response.chunk()=>chunk.map_err(|error| {
-                    diagnostics::network(&error, "read_body", attempt);
+                    capture.network(&error, "read_body", attempt, started.elapsed().as_millis());
                     TwitchError::Network
                 })?,
             };
@@ -345,9 +378,11 @@ impl TwitchHttp {
         }
         let mut response = http::Response::builder()
             .status(status)
+            .version(version)
             .body(bytes)
             .map_err(|_| TwitchError::InvalidResponse)?;
         *response.headers_mut() = headers;
+        capture.response(&response, attempt, started.elapsed().as_millis());
         Ok(response)
     }
 }

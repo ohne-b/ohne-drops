@@ -330,22 +330,49 @@ labeled `1.3.2` need one manual upgrade to join the release series starting at `
 
 ## Troubleshooting
 
-Detailed upstream diagnostics are written to the server's stderr (Docker logs) and the
-rotating `logs/TDM.*.log` files, not the dashboard's Activity page. They are enabled at
-normal verbosity. For a recent failure:
+Basic error summaries are written to the server's stderr (Docker logs) and the rotating
+`logs/TDM.*.log` files, not the dashboard's Activity page. For a recent failure:
 
 ```bash
 docker compose logs --since=30m --tail=200 twitch-drops-miner
 ```
 
-The logs identify GraphQL operations, HTTP status/retry attempts, JSON syntax errors and
-positions, invalid progress fields/types, beacon failures, typed network causes, and
-catalog freshness/partial-data failures. Known GraphQL error messages are retained;
-unknown messages are withheld and fingerprinted so repeated errors can be matched.
-Raw responses, request variables, URLs, headers and credentials are not logged. These
-diagnostics cannot recover past responses or prove that Twitch awarded watch time.
-The existing file rotation retains at most five daily log files; Docker log retention
-depends on your Compose logging configuration.
+Normal logs identify operations, HTTP status/retry attempts, JSON syntax positions,
+rejected field types and catalog problems. Unknown GraphQL messages are fingerprinted.
+
+**Advanced diagnostics are off by default**, including with `-v`/`-vv`. To enable them,
+add this entry under the miner service's **existing** `environment` section in Compose:
+
+```yaml
+  TDM_DIAGNOSTICS: "true"
+```
+
+Keep the other environment entries, mounts and ports. Recreate only the miner with
+`docker compose up -d --no-deps twitch-drops-miner`. For a standalone executable, use
+`--diagnostics` or `TDM_DIAGNOSTICS=true`. Startup logs confirm when the mode is enabled.
+Set the variable to `"false"` (or remove it) and recreate the container to switch it off.
+This is a server setting; it adds no dashboard controls or Activity messages.
+
+Advanced logs add a request correlation ID, endpoint category, method, status, elapsed
+time, HTTP version, selected response headers, body size/fingerprint, and redacted JSON
+response previews, including unfamiliar Twitch error messages and successful responses
+that the application may subsequently reject. Transport failures include nested error
+causes, even when no HTTP response was received. Retry-response capture has a one-second
+budget and cannot replace the retry decision.
+
+Captures remove known request/proxy/cookie credentials, sensitive JSON fields, URLs,
+credential-bearing text and opaque token-like strings. They are **not exact raw dumps**:
+JSON previews are capped at 16 KiB, 256 nodes, 12 levels, 32 array entries, 64 object fields
+and 1 KiB per string, with omissions marked. Input strings larger than 16 KiB are withheld
+whole to bound redaction work without exposing partial credentials. Non-JSON bodies are
+withheld because their credentials cannot be identified structurally; size/fingerprint and available parser
+errors remain. Credential-inventory overflow also withholds the preview. Transport
+chains are limited to 12 causes and 1 KiB per cause. WebSocket frames are never captured.
+
+Enable this only while reproducing a problem: it logs additional HTTP traffic and can
+include account/campaign metadata, so review logs before sharing them. Existing file
+rotation retains at most five daily files; Docker retention depends on Compose.
+Diagnostics cannot recover earlier failures or prove that Twitch awarded watch time.
 
 - **No campaigns appear:** clear the campaign filters and check **Activity**. The public
   catalog can be unavailable, stale or incomplete; **Refresh inventory** reports a failed

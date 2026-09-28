@@ -28,6 +28,9 @@ struct Args {
     public_base_url: String,
     #[arg(short,long,action=clap::ArgAction::Count)]
     verbose: u8,
+    /// Write bounded, redacted upstream response and transport diagnostics to server logs.
+    #[arg(long, env = "TDM_DIAGNOSTICS", default_value_t = false, value_parser = clap::builder::BoolishValueParser::new())]
+    diagnostics: bool,
     #[command(subcommand)]
     command: Option<Action>,
 }
@@ -36,7 +39,7 @@ enum Action {
     Healthcheck,
 }
 
-fn log_filter(verbose: u8) -> EnvFilter {
+fn log_filter(verbose: u8, diagnostics: bool) -> EnvFilter {
     // Transport TRACE output includes OAuth-bearing frames. Only this package
     // may increase verbosity; ambient RUST_LOG cannot enable dependency traces.
     let level = match verbose {
@@ -44,7 +47,10 @@ fn log_filter(verbose: u8) -> EnvFilter {
         1 => "debug",
         _ => "trace",
     };
-    EnvFilter::new(format!("warn,twitch_drops_miner={level}"))
+    let diagnostics = if diagnostics { "debug" } else { "off" };
+    EnvFilter::new(format!(
+        "warn,twitch_drops_miner={level},tdm_diagnostics={diagnostics}"
+    ))
 }
 
 fn logging(args: &Args) -> Result<tracing_appender::non_blocking::WorkerGuard> {
@@ -57,7 +63,7 @@ fn logging(args: &Args) -> Result<tracing_appender::non_blocking::WorkerGuard> {
         .context("could not open log directory")?;
     let (writer, guard) = tracing_appender::non_blocking(file);
     tracing_subscriber::registry()
-        .with(log_filter(args.verbose))
+        .with(log_filter(args.verbose, args.diagnostics))
         .with(
             tracing_subscriber::fmt::layer()
                 .with_target(false)
@@ -116,6 +122,9 @@ async fn run(args: Args) -> Result<()> {
         return Ok(());
     }
     let _logs = logging(&args)?;
+    if args.diagnostics {
+        tracing::info!("Advanced upstream diagnostics enabled (redacted and bounded)");
+    }
     let (app, commands) = App::open(args.data_dir, &args.public_base_url)?;
     let address = SocketAddr::new(args.host, args.port);
     let listener = tokio::net::TcpListener::bind(address)
@@ -195,18 +204,48 @@ mod tests {
     fn maximal_verbosity_cannot_log_transport_frames_or_request_credentials() {
         let output = Arc::new(Mutex::new(vec![]));
         let writer = Writer(output.clone());
-        let subscriber = tracing_subscriber::registry().with(log_filter(255)).with(
-            tracing_subscriber::fmt::layer()
-                .with_ansi(false)
-                .with_writer(move || writer.clone()),
-        );
+        let subscriber = tracing_subscriber::registry()
+            .with(log_filter(255, false))
+            .with(
+                tracing_subscriber::fmt::layer()
+                    .with_ansi(false)
+                    .with_writer(move || writer.clone()),
+            );
         tracing::subscriber::with_default(subscriber, || {
             tracing::trace!(target:"tungstenite::protocol","LISTEN auth_token=secret");
             tracing::debug!(target:"reqwest::connect","proxy password=secret");
             tracing::trace!(target:"twitch_drops_miner","safe application diagnostic");
+            tracing::debug!(target:"tdm_diagnostics","advanced response capture");
         });
         let text = String::from_utf8(output.lock().unwrap().clone()).unwrap();
         assert!(text.contains("safe application diagnostic"));
         assert!(!text.contains("secret"));
+        assert!(!text.contains("advanced response capture"));
+    }
+
+    #[test]
+    fn diagnostics_requires_explicit_opt_in_and_keeps_dependency_traces_disabled() {
+        let output = Arc::new(Mutex::new(vec![]));
+        let writer = Writer(output.clone());
+        let subscriber = tracing_subscriber::registry()
+            .with(log_filter(0, true))
+            .with(
+                tracing_subscriber::fmt::layer()
+                    .with_ansi(false)
+                    .with_writer(move || writer.clone()),
+            );
+        tracing::subscriber::with_default(subscriber, || {
+            tracing::debug!(target:"tdm_diagnostics", "advanced response capture");
+            tracing::trace!(target:"tungstenite::protocol", "auth_token=secret");
+            tracing::debug!(target:"reqwest::connect", "proxy password=secret");
+        });
+        let text = String::from_utf8(output.lock().unwrap().clone()).unwrap();
+        assert!(text.contains("advanced response capture"));
+        assert!(!text.contains("secret"));
+        assert!(
+            Args::try_parse_from(["miner", "--diagnostics"])
+                .unwrap()
+                .diagnostics
+        );
     }
 }
