@@ -15,7 +15,7 @@ use tokio_util::sync::CancellationToken;
 
 use crate::{
     config::Settings,
-    domain::{Campaign, Channel, MAX_ESTIMATED_MINUTES, wanted_items},
+    domain::{Campaign, Channel, Drop, MAX_ESTIMATED_MINUTES, wanted_items},
     dto::{InventoryStatus, Login, ManualMode, RefreshState},
     store::{ClaimJournal, PendingClaim},
     twitch::{
@@ -461,6 +461,7 @@ struct Mining {
     channels_loaded: bool,
     status: InventoryStatus,
     watching: Option<u64>,
+    watch_started: Instant,
     manual: Option<ManualSelection>,
     lookup: Option<(String, u64)>,
     manual_pending: Option<String>,
@@ -486,7 +487,7 @@ struct Mining {
     claim_retry: HashMap<String, Instant>,
     claim_wait: Option<(String, Instant, u8)>,
     last_inventory: Instant,
-    next_unknown_refresh: Instant,
+    next_progress_refresh: Instant,
     next_transition: Option<chrono::DateTime<Utc>>,
     pending_claims: Vec<PendingClaim>,
 }
@@ -543,6 +544,7 @@ impl Mining {
             channels_loaded: false,
             status: InventoryStatus::default(),
             watching: None,
+            watch_started: now,
             manual: None,
             lookup: None,
             manual_pending: None,
@@ -568,7 +570,7 @@ impl Mining {
             claim_retry: HashMap::new(),
             claim_wait: None,
             last_inventory: now,
-            next_unknown_refresh: now,
+            next_progress_refresh: now,
             next_transition: None,
             pending_claims: vec![],
         }
@@ -650,6 +652,8 @@ impl Mining {
             self.channels.clear();
             self.channels_loaded = false;
             self.watching = None;
+            self.watch_started = Instant::now();
+            self.last_progress = None;
             self.watch_failures = 0;
             self.manual = None;
             self.lookup = None;
@@ -725,7 +729,8 @@ impl Mining {
         match event {
             Event::Unauthorized => return Err(TwitchError::Unauthorized),
             Event::Progress { id, minutes } => {
-                self.confirm(&id, minutes);
+                let settings = self.app.snapshot.read().await.settings.values.clone();
+                self.confirm(&id, minutes, &settings);
             }
             Event::Claim { id, instance } => {
                 if let Some(drop) = self
@@ -798,45 +803,96 @@ impl Mining {
         }
         Ok(())
     }
-    fn confirm(&mut self, id: &str, minutes: u32) -> bool {
+    fn confirm(&mut self, id: &str, minutes: u32, settings: &Settings) -> bool {
+        let eligible = self
+            .watching
+            .is_some_and(|channel| self.progress_eligible(id, channel, settings));
         if let Some(drop) = self
             .campaigns
             .iter_mut()
             .flat_map(|c| &mut c.drops)
             .find(|d| d.id == id)
         {
+            // Delayed progress cannot undo confirmed completion or restore an old card.
+            if minutes < drop.confirmed_minutes {
+                return true;
+            }
             drop.confirm(minutes, Utc::now());
-            self.last_progress = Some((id.to_owned(), Instant::now()));
+            let completed = !drop.claimed
+                && drop.watch_reward()
+                && drop.confirmed_minutes >= drop.required_minutes;
+            let reported = self
+                .watching
+                .and_then(|channel| self.reported_drop(id, channel, settings));
+            let blocked = reported.is_some_and(|(c, d)| !c.prerequisites_met(d));
+            if reported.is_some()
+                || eligible
+                    && self
+                        .last_progress
+                        .as_ref()
+                        .is_none_or(|(previous, _)| previous == id)
+            {
+                self.last_progress = Some((id.to_owned(), Instant::now()));
+            }
+            if completed || blocked {
+                self.request_progress_refresh();
+            }
             self.publish = true;
             true
         } else {
-            // Both PubSub and CurrentDrop can reveal rewards missing from the catalog.
-            // Coalesce unknown IDs so repeated progress cannot flood inventory requests.
-            if Instant::now() >= self.next_unknown_refresh {
-                self.next_unknown_refresh = Instant::now() + Duration::from_secs(60);
-                self.refresh = true;
-            }
+            self.request_progress_refresh();
             false
+        }
+    }
+    fn request_progress_refresh(&mut self) {
+        // Unknown rewards and watched completion both need account inventory evidence.
+        if Instant::now() >= self.next_progress_refresh {
+            self.next_progress_refresh = Instant::now() + Duration::from_secs(60);
+            self.refresh = true;
         }
     }
     fn progress_eligible(&self, id: &str, channel: u64, settings: &Settings) -> bool {
         let now = Utc::now();
-        self.channels
+        self.reported_drop(id, channel, settings)
+            .is_some_and(|(c, d)| {
+                self.manual.is_some()
+                    || c.drop_eligible(
+                        d,
+                        &c.mining_policy(settings, now),
+                        now,
+                        now + chrono::Duration::nanoseconds(1),
+                    )
+            })
+    }
+    fn reported_drop(
+        &self,
+        id: &str,
+        channel: u64,
+        settings: &Settings,
+    ) -> Option<(&Campaign, &Drop)> {
+        let now = Utc::now();
+        let channel = self.channels.iter().find(|c| c.identity.id == channel)?;
+        self.campaigns
             .iter()
-            .find(|c| c.identity.id == channel)
-            .is_some_and(|channel| {
-                self.campaigns.iter().any(|c| {
-                    c.can_watch(channel, settings, now)
-                        && c.drops.iter().any(|d| {
-                            d.id == id
-                                && c.drop_eligible(
-                                    d,
-                                    &c.mining_policy(settings, now),
-                                    now,
-                                    now + chrono::Duration::nanoseconds(1),
-                                )
-                        })
-                })
+            .filter(|c| c.active(now) && c.matches_channel(channel))
+            .find_map(|c| {
+                c.drops
+                    .iter()
+                    .find(|d| {
+                        d.id == id
+                            && !d.claimed
+                            && d.confirmed_minutes < d.required_minutes
+                            && d.starts_at <= now
+                            && now < d.ends_at
+                            && if self.manual.is_some() {
+                                c.prerequisites_met(d)
+                            } else {
+                                c.mining_policy(settings, now).mineable.contains(id)
+                            // Actual successor progress can precede local prerequisite claim evidence.
+                            && (c.prerequisites_met(d) || d.confirmed_minutes > 0)
+                            }
+                    })
+                    .map(|d| (c, d))
             })
     }
 
@@ -860,6 +916,7 @@ impl Mining {
         if next != self.watching {
             self.cancel_watch();
             self.watching = next;
+            self.watch_started = Instant::now();
             self.watch_failures = 0;
             self.next_watch = Instant::now();
             self.poll_at = None;
@@ -877,6 +934,21 @@ impl Mining {
     async fn schedule(&mut self, settings: &Settings) {
         let now = Instant::now();
         let wall = Utc::now();
+        // Retry delayed/missing claim evidence even if completion left no watchable channel.
+        if now >= self.next_progress_refresh
+            && self.campaigns.iter().any(|c| {
+                !c.upcoming(wall)
+                    && wall < c.ends_at + chrono::Duration::hours(24)
+                    && c.drops.iter().any(|d| {
+                        !d.claimed
+                            && d.watch_reward()
+                            && (d.confirmed_minutes >= d.required_minutes
+                                || d.confirmed_minutes > 0 && !c.prerequisites_met(d))
+                    })
+            })
+        {
+            self.request_progress_refresh();
+        }
         if !self.busy.contains(&JobKind::Manual)
             && let Some((login, revision)) = self.lookup.take()
         {
@@ -1047,6 +1119,7 @@ impl Mining {
         }
         if self.refresh || now >= self.next_refresh {
             self.refresh = false;
+            self.next_progress_refresh = now + Duration::from_secs(60);
             let (refresh_sequence, _) = self.app.begin_inventory_refresh().await;
             let client = self.client.clone();
             self.app
@@ -1098,6 +1171,7 @@ impl Mining {
     async fn complete(&mut self, job: Job, pool: &PubSub) -> Result<(), TwitchError> {
         let settings = self.app.snapshot.read().await.settings.values.clone();
         let now = Instant::now();
+        let inventory_failed = matches!(&job, Job::Inventory { result: Err(_), .. });
         let error = match job {
             Job::Manual {
                 revision,
@@ -1321,15 +1395,23 @@ impl Mining {
                 result,
                 requested_at,
             } => {
-                if self.watching == Some(channel) {
+                if self.watching == Some(channel)
+                    && requested_at >= self.watch_started
+                    && requested_at >= self.last_inventory
+                    && self
+                        .channel_events
+                        .get(&channel)
+                        .is_none_or(|at| *at <= requested_at)
+                {
                     let current = result.as_ref().ok().and_then(|v| v.as_ref());
-                    let newer_progress = self.last_progress.as_ref().is_some_and(|(id, at)| {
-                        *at > requested_at && self.progress_eligible(id, channel, &settings)
-                    });
+                    let newer_progress = self
+                        .last_progress
+                        .as_ref()
+                        .is_some_and(|(_, at)| *at > requested_at);
                     let confirmed = newer_progress
                         || current.is_some_and(|(id, minutes)| {
-                            let eligible = self.progress_eligible(id, channel, &settings);
-                            self.confirm(id, *minutes) && eligible
+                            self.confirm(id, *minutes, &settings)
+                                && self.progress_eligible(id, channel, &settings)
                         });
                     if let Some((claimed, _, attempts)) = self.claim_wait.take() {
                         if current.is_some_and(|(id, _)| id == &claimed) && attempts < 7 {
@@ -1420,7 +1502,9 @@ impl Mining {
                         Some(message("gui.redesign.refresh_failed_detail", &[])),
                     )
                     .await;
-                self.refresh = true;
+                self.refresh = false;
+                self.next_refresh = now + Duration::from_secs(60);
+                self.next_progress_refresh = self.next_refresh;
                 Some(error)
             }
             Job::Channels {
@@ -1437,7 +1521,9 @@ impl Mining {
             if matches!(error, TwitchError::Unauthorized | TwitchError::Cancelled) {
                 return Err(error);
             }
-            self.next_retry = now + Duration::from_secs(10);
+            if !inventory_failed {
+                self.next_retry = now + Duration::from_secs(10);
+            }
             self.app
                 .console(message(
                     "gui.backend.twitch_error",
@@ -1593,32 +1679,20 @@ impl Mining {
             .iter()
             .find(|c| Some(c.identity.id) == self.watching)
             .and_then(|channel| {
+                let reported = self
+                    .last_progress
+                    .as_ref()
+                    .and_then(|(id, _)| self.reported_drop(id, channel.identity.id, settings));
                 if self.manual.is_some() {
-                    // A manual override is not evidence that a particular reward earns.
-                    // Show only a reward Twitch has actually reported in this watch session.
-                    return self.last_progress.as_ref().and_then(|(id, _)| {
-                        self.campaigns
-                            .iter()
-                            .filter(|c| c.active(now) && c.matches_channel(channel))
-                            .find_map(|c| {
-                                c.drops
-                                    .iter()
-                                    .find(|d| {
-                                        d.id == *id
-                                            && !d.claimed
-                                            && d.starts_at <= now
-                                            && now < d.ends_at
-                                            && c.prerequisites_met(d)
-                                    })
-                                    .map(|d| (c, d))
-                            })
-                    });
+                    return reported;
                 }
-                self.campaigns
-                    .iter()
-                    .filter(|c| c.can_watch(channel, settings, now))
-                    .filter_map(|c| c.first_drop(settings, now).map(|d| (c, d)))
-                    .min_by_key(|(_, d)| d.remaining_minutes())
+                reported.or_else(|| {
+                    self.campaigns
+                        .iter()
+                        .filter(|c| c.can_watch(channel, settings, now))
+                        .filter_map(|c| c.first_drop(settings, now).map(|d| (c, d)))
+                        .min_by_key(|(c, d)| (c.mining_priority(settings), d.remaining_minutes()))
+                })
             });
         let progress = active.map(|(c, d)| c.progress(d));
         let mut manual = self

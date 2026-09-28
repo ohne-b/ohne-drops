@@ -63,6 +63,453 @@ async fn finish_job(mining: &mut Mining, pool: &PubSub) {
 }
 
 #[tokio::test]
+async fn completed_transition_displays_twitchs_next_reward_before_claim_evidence() {
+    let server = MockServer::start().await;
+    gql_mock(&server, |q| {
+        assert_eq!(q["operationName"], "DropCurrentSessionContext");
+        json!({"data":{"currentUser":{"dropCurrentSession":{"channel":{"id":"10"},"dropID":"next-reward","currentMinutesWatched":4}}}})
+    }).await;
+    let (dir, mut miner, _intent, mut pool) = miner(&server).await;
+    let settings = select(&mut miner).await;
+    let mut next = miner.campaigns[0].drops[0].clone();
+    next.id = "next-reward".into();
+    next.confirmed_minutes = 0;
+    let mut almost_done = next.clone();
+    almost_done.id = "other-reward".into();
+    almost_done.confirmed_minutes = 59;
+    miner.campaigns[0].drops.extend([next, almost_done]);
+    for (id, minutes) in [("drop-one", 60), ("next-reward", 3)] {
+        miner
+            .event(Event::Progress {
+                id: id.into(),
+                minutes,
+            })
+            .await
+            .unwrap();
+    }
+    miner.publish(&settings).await.unwrap();
+    assert_eq!(
+        miner
+            .app
+            .snapshot
+            .read()
+            .await
+            .current_drop
+            .as_ref()
+            .unwrap()
+            .drop_id,
+        "next-reward"
+    );
+    assert!(!miner.campaigns[0].drops[0].claimed);
+    assert!(miner.campaigns[0].drops[0].claim_id.is_none());
+    assert_eq!(History::load(dir.path()).total(), 0);
+    // A CurrentDrop response must make the same transition as PubSub.
+    miner.last_progress = Some(("drop-one".into(), Instant::now()));
+    miner.poll_at = Some(Instant::now());
+    miner.next_watch = Instant::now() + WATCH_INTERVAL;
+    miner.schedule(&settings).await;
+    assert!(
+        miner.busy.contains(&JobKind::Poll),
+        "completed progress must not suppress CurrentDrop"
+    );
+    finish_job(&mut miner, &pool).await;
+    miner.publish(&settings).await.unwrap();
+    assert_eq!(
+        miner
+            .app
+            .snapshot
+            .read()
+            .await
+            .current_drop
+            .as_ref()
+            .unwrap()
+            .drop_id,
+        "next-reward"
+    );
+    pool.close().await;
+}
+
+#[tokio::test]
+async fn completed_transition_preserves_selected_game_priority_over_automatic_badges() {
+    let server = MockServer::start().await;
+    let (_dir, mut miner, _intent, mut pool) = miner(&server).await;
+    let mut settings = select(&mut miner).await;
+    settings.auto_mine_badges = true;
+    settings.games_to_watch.push("Second".into());
+    miner.app.snapshot.write().await.settings.values = settings.clone();
+    let mut second =
+        Campaign::parse(&campaign_json("second"), &HashMap::new(), Utc::now()).unwrap();
+    second.game.id = 2;
+    second.game.name = "Second".into();
+    let mut channel = miner.channels[0].clone();
+    channel.identity.id = 11;
+    channel.game = Some(second.game.clone());
+    let mut badge = Campaign::parse(&campaign_json("badge"), &HashMap::new(), Utc::now()).unwrap();
+    badge.game.id = 509663;
+    badge.game.name = "Special Events".into();
+    badge.allowed_channels = vec![miner.channels[0].identity.clone()];
+    badge.drops[0].confirmed_minutes = 59;
+    badge.drops[0].benefits[0].view.kind = "BADGE".into();
+    miner.channels.push(channel);
+    miner.campaigns.extend([second, badge]);
+    miner.publish(&settings).await.unwrap();
+    assert_eq!(
+        miner
+            .app
+            .snapshot
+            .read()
+            .await
+            .current_drop
+            .as_ref()
+            .unwrap()
+            .drop_id,
+        "drop-one"
+    );
+    miner.confirm("drop-one", 60, &settings);
+    miner.reselect(&settings).await;
+    assert_eq!(
+        miner.watching,
+        Some(11),
+        "the next selected game outranks the optional badge on the old channel"
+    );
+    miner.publish(&settings).await.unwrap();
+    assert_eq!(
+        miner
+            .app
+            .snapshot
+            .read()
+            .await
+            .current_drop
+            .as_ref()
+            .unwrap()
+            .drop_id,
+        "drop-second"
+    );
+    assert!(!miner.campaigns[0].drops[0].claimed);
+    pool.close().await;
+}
+
+#[tokio::test]
+async fn completed_transition_uses_successor_evidence_even_when_final_progress_and_claim_events_are_missing()
+ {
+    let server = MockServer::start().await;
+    let (dir, mut miner, _intent, mut pool) = miner(&server).await;
+    let settings = select(&mut miner).await;
+    miner.campaigns[0].drops[0].confirmed_minutes = 59;
+    let mut next = miner.campaigns[0].drops[0].clone();
+    next.id = "next".into();
+    next.confirmed_minutes = 0;
+    next.prerequisites = vec!["drop-one".into()];
+    miner.campaigns[0].drops.push(next);
+    miner
+        .complete(
+            Job::Poll {
+                channel: 10,
+                requested_at: Instant::now(),
+                result: Ok(Some(("next".into(), 3))),
+            },
+            &pool,
+        )
+        .await
+        .unwrap();
+    miner.publish(&settings).await.unwrap();
+    assert_eq!(
+        miner
+            .app
+            .snapshot
+            .read()
+            .await
+            .current_drop
+            .as_ref()
+            .unwrap()
+            .drop_id,
+        "next"
+    );
+    assert!(miner.refresh);
+    assert!(
+        !miner.progress_eligible("next", 10, &settings),
+        "reported successor progress is not a prerequisite claim"
+    );
+    assert!(!miner.campaigns[0].drops[0].claimed);
+    assert_eq!(History::load(dir.path()).total(), 0);
+    pool.close().await;
+}
+
+#[tokio::test]
+async fn completed_transition_reconciles_and_releases_channel_without_unlocking_prerequisites() {
+    let server = MockServer::start().await;
+    let (dir, mut miner, _intent, mut pool) = miner(&server).await;
+    let settings = select(&mut miner).await;
+    let mut next = miner.campaigns[0].drops[0].clone();
+    next.id = "dependent".into();
+    next.prerequisites = vec!["drop-one".into()];
+    miner.campaigns[0].drops.push(next);
+    miner.campaigns[0].drops[0].confirmed_minutes = 59;
+    miner.campaigns[0].drops[0].estimated_minutes = 1;
+    miner.reselect(&settings).await;
+    assert_eq!(
+        miner.watching,
+        Some(10),
+        "estimated completion is not account evidence"
+    );
+    assert!(!miner.refresh);
+    miner
+        .event(Event::Progress {
+            id: "drop-one".into(),
+            minutes: 60,
+        })
+        .await
+        .unwrap();
+    assert!(
+        miner.refresh,
+        "confirmed completion needs account reconciliation even without a claim notification"
+    );
+    miner.reselect(&settings).await;
+    assert!(
+        miner.watching.is_none(),
+        "completed unclaimed reward kept its channel eligible"
+    );
+    assert!(!miner.campaigns[0].prerequisites_met(&miner.campaigns[0].drops[1]));
+    assert!(!miner.campaigns[0].view(&settings, Utc::now()).finished);
+    assert_eq!(History::load(dir.path()).total(), 0);
+    pool.close().await;
+}
+
+#[tokio::test]
+async fn completed_transition_recovers_failed_and_delayed_inventory_and_claim_evidence() {
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    for auto_claimed in [false, true] {
+        let server = MockServer::start().await;
+        let inventories = Arc::new(AtomicUsize::new(0));
+        let claims = Arc::new(AtomicUsize::new(0));
+        let inventory_count = inventories.clone();
+        let claim_count = claims.clone();
+        gql_mock(&server, move |q| match q["operationName"].as_str().unwrap() {
+            "Inventory" => {
+                let attempt = inventory_count.fetch_add(1, Ordering::SeqCst);
+                if attempt == 0 {
+                    return json!({"data":{"currentUser":{"inventory":null}}});
+                }
+                let mut campaign = campaign_json("one");
+                campaign["timeBasedDrops"][0]["self"]["currentMinutesWatched"] = json!(60);
+                if attempt >= 2 {
+                    campaign["timeBasedDrops"][0]["self"]["isClaimed"] = json!(auto_claimed);
+                    if !auto_claimed {
+                        campaign["timeBasedDrops"][0]["self"]["dropInstanceID"] = json!("account-instance");
+                    }
+                }
+                let mut next = campaign_json("next")["timeBasedDrops"][0].clone();
+                next["preconditionDrops"] = json!([{"id":"drop-one"}]);
+                campaign["timeBasedDrops"].as_array_mut().unwrap().push(next);
+                json!({"data":{"currentUser":{"inventory":{"dropCampaignsInProgress":[campaign],"gameEventDrops":[]}}}})
+            },
+            "DropsPage_ClaimDropRewards" => {
+                assert!(!auto_claimed, "auto-claims are imported without a claim RPC");
+                assert_eq!(q["variables"]["input"]["dropInstanceID"], "account-instance");
+                let attempt = claim_count.fetch_add(1, Ordering::SeqCst);
+                json!({"data":{"claimDropRewards":{"status":if attempt == 0 {"NOT_ELIGIBLE"} else {"DROP_INSTANCE_ALREADY_CLAIMED"}}}})
+            },
+            other => panic!("unexpected operation {other}"),
+        }).await;
+        let (dir, mut miner, _intent, mut pool) = miner(&server).await;
+        let settings = select(&mut miner).await;
+        miner.confirm("drop-one", 60, &settings);
+        miner.reselect(&settings).await;
+        assert!(miner.watching.is_none());
+        for attempt in 0..3 {
+            if attempt > 0 {
+                // Advance the recovery deadline without waiting a real minute for mock I/O.
+                miner.next_progress_refresh = Instant::now();
+                miner.next_refresh = Instant::now();
+            }
+            miner.schedule(&settings).await;
+            assert!(miner.busy.contains(&JobKind::Inventory));
+            for _ in 0..5 {
+                miner.confirm("drop-one", 60, &settings);
+                miner.schedule(&settings).await;
+                assert!(!miner.refresh, "completion must join the in-flight refresh");
+            }
+            finish_job(&mut miner, &pool).await;
+            assert_eq!(inventories.load(Ordering::SeqCst), attempt + 1);
+            assert!(
+                miner.next_retry <= Instant::now(),
+                "inventory failure must not pause watch work"
+            );
+            if attempt < 2 {
+                assert!(!miner.campaigns[0].drops[0].claimed);
+                assert!(miner.campaigns[0].drops[0].claim_id.is_none());
+                assert_eq!(miner.campaigns[0].drops[0].confirmed_minutes, 60);
+                assert_eq!(History::load(dir.path()).total(), 0);
+                assert!(miner.next_progress_refresh > Instant::now() + Duration::from_secs(59));
+                miner.channels_dirty = false;
+                miner.schedule(&settings).await;
+                assert!(miner.jobs.is_empty(), "no immediate inventory retry loop");
+            }
+        }
+        if !auto_claimed {
+            assert_eq!(History::load(dir.path()).total(), 0);
+            miner.schedule(&settings).await;
+            finish_job(&mut miner, &pool).await;
+            assert!(!miner.campaigns[0].drops[0].claimed);
+            assert_eq!(History::load(dir.path()).total(), 0);
+            assert_eq!(
+                miner.campaigns[0].drops[0].claim_id.as_deref(),
+                Some("account-instance")
+            );
+            assert!(miner.claim_retry["drop-one"] > Instant::now() + Duration::from_secs(59));
+            miner.claim_retry.insert("drop-one".into(), Instant::now());
+            miner.schedule(&settings).await;
+            finish_job(&mut miner, &pool).await;
+        }
+        miner.reselect(&settings).await;
+        miner.publish(&settings).await.unwrap();
+        assert!(miner.campaigns[0].drops[0].claimed);
+        assert!(miner.campaigns[0].prerequisites_met(&miner.campaigns[0].drops[1]));
+        assert_eq!(miner.watching, Some(10));
+        assert_eq!(
+            miner
+                .app
+                .snapshot
+                .read()
+                .await
+                .current_drop
+                .as_ref()
+                .unwrap()
+                .drop_id,
+            "drop-next"
+        );
+        assert_eq!(History::load(dir.path()).total(), 1);
+        assert!(
+            ClaimJournal::load(dir.path())
+                .unwrap()
+                .pending(42)
+                .is_empty()
+        );
+        assert_eq!(
+            claims.load(Ordering::SeqCst),
+            if auto_claimed { 0 } else { 2 }
+        );
+        pool.close().await;
+    }
+}
+
+#[tokio::test(start_paused = true)]
+async fn completed_transition_refreshes_at_most_once_per_minute_and_stops_at_claim_deadline() {
+    let server = MockServer::start().await;
+    let (_dir, mut miner, _intent, mut pool) = miner(&server).await;
+    let settings = select(&mut miner).await;
+    miner.confirm("drop-one", 60, &settings);
+    assert!(miner.refresh);
+    miner.refresh = false;
+    miner.reselect(&settings).await;
+    tokio::time::advance(Duration::from_secs(59)).await;
+    miner.confirm("drop-one", 60, &settings);
+    assert!(!miner.refresh);
+    tokio::time::advance(Duration::from_secs(1)).await;
+    // Keep work owned but held so scheduling itself can be checked without network I/O.
+    miner.busy.insert(JobKind::Inventory);
+    miner.schedule(&settings).await;
+    assert!(
+        miner.refresh,
+        "reconciliation must retry without another progress notification"
+    );
+    miner.refresh = false;
+    miner.campaigns[0].ends_at = Utc::now() - chrono::Duration::hours(24);
+    tokio::time::advance(Duration::from_secs(60)).await;
+    miner.schedule(&settings).await;
+    assert!(
+        !miner.refresh,
+        "expired claim grace must not cause endless reconciliation"
+    );
+    pool.close().await;
+}
+
+#[tokio::test]
+async fn completed_transition_ignores_old_polls_and_unrelated_or_regressive_progress() {
+    let server = MockServer::start().await;
+    let (_dir, mut miner, _intent, mut pool) = miner(&server).await;
+    let settings = select(&mut miner).await;
+    let mut next = miner.campaigns[0].drops[0].clone();
+    next.id = "next".into();
+    next.confirmed_minutes = 0;
+    miner.campaigns[0].drops.push(next);
+    let mut other = Campaign::parse(&campaign_json("other"), &HashMap::new(), Utc::now()).unwrap();
+    other.game.id = 2;
+    miner.campaigns.push(other);
+    let requested_at = Instant::now();
+    miner.confirm("drop-one", 60, &settings);
+    miner.confirm("next", 3, &settings);
+    for (id, minutes) in [("drop-one", 59), ("drop-one", 60), ("drop-other", 30)] {
+        miner
+            .event(Event::Progress {
+                id: id.into(),
+                minutes,
+            })
+            .await
+            .unwrap();
+    }
+    miner
+        .complete(
+            Job::Poll {
+                channel: 10,
+                requested_at,
+                result: Ok(Some(("drop-one".into(), 12))),
+            },
+            &pool,
+        )
+        .await
+        .unwrap();
+    miner.publish(&settings).await.unwrap();
+    assert_eq!(
+        miner
+            .app
+            .snapshot
+            .read()
+            .await
+            .current_drop
+            .as_ref()
+            .unwrap()
+            .drop_id,
+        "next"
+    );
+    assert_eq!(miner.campaigns[0].drops[0].confirmed_minutes, 60);
+    assert_eq!(miner.campaigns[0].drops[1].confirmed_minutes, 3);
+    assert_eq!(
+        miner.campaigns[1].drops[0].confirmed_minutes, 30,
+        "unrelated account evidence still updates its reward"
+    );
+
+    let mut another = miner.channels[0].clone();
+    another.identity.id = 11;
+    miner.channels.push(another);
+    let requested_at = Instant::now();
+    miner.manual = Some(ManualSelection::new(11, None));
+    miner.reselect(&settings).await;
+    miner.manual = Some(ManualSelection::new(10, Some(Duration::from_secs(60))));
+    miner.reselect(&settings).await;
+    let deadline = miner.manual.unwrap().expires_at;
+    miner
+        .complete(
+            Job::Poll {
+                channel: 10,
+                requested_at,
+                result: Ok(Some(("next".into(), 25))),
+            },
+            &pool,
+        )
+        .await
+        .unwrap();
+    miner.publish(&settings).await.unwrap();
+    assert!(
+        miner.app.snapshot.read().await.current_drop.is_none(),
+        "a poll from an earlier watch must not seed manual progress"
+    );
+    assert_eq!(miner.campaigns[0].drops[1].confirmed_minutes, 3);
+    assert_eq!(miner.manual.unwrap().expires_at, deadline);
+    pool.close().await;
+}
+
+#[tokio::test]
 async fn refresh_finishes_after_publication_and_partial_or_failed_requests_keep_known_campaigns() {
     let server = MockServer::start().await;
     gql_mock(&server, |q| match q["operationName"].as_str().unwrap() {
@@ -193,7 +640,7 @@ async fn unknown_progress_requests_inventory_without_fabricating_rewards_or_repe
         .unwrap();
     assert!(!miner.refresh);
     tokio::time::advance(Duration::from_secs(60)).await;
-    assert!(!miner.confirm("unknown", 3));
+    assert!(!miner.confirm("unknown", 3, &Settings::default()));
     assert!(miner.refresh);
     pool.close().await;
 }
@@ -932,7 +1379,7 @@ async fn inventory_refresh_cannot_replace_progress_confirmed_after_the_request_s
     let server = MockServer::start().await;
     let (_dir, mut miner, _intent, mut pool) = miner(&server).await;
     let before = Utc::now() - chrono::Duration::seconds(1);
-    miner.confirm("drop-one", 31);
+    miner.confirm("drop-one", 31, &Settings::default());
     miner.campaigns[0].drops[0].estimated_minutes = MAX_ESTIMATED_MINUTES;
     let inventory = Inventory {
         awards: HashMap::new(),
@@ -1878,12 +2325,13 @@ async fn claim_ready_event_survives_an_older_inventory_request() {
 async fn late_poll_cannot_erase_newer_pubsub_progress() {
     let server = MockServer::start().await;
     let (_dir, mut miner, _intent, mut pool) = miner(&server).await;
-    select(&mut miner).await;
-    miner.confirm("drop-one", 31);
+    let settings = select(&mut miner).await;
+    let requested_at = Instant::now();
+    miner.confirm("drop-one", 31, &settings);
     miner
         .complete(
             Job::Poll {
-                requested_at: Instant::now() - Duration::from_secs(1),
+                requested_at,
                 channel: 10,
                 result: Ok(Some(("drop-one".into(), 12))),
             },
@@ -1951,7 +2399,7 @@ async fn estimate_ceiling_schedules_recovery() {
         miner
             .complete(
                 Job::Poll {
-                    requested_at: Instant::now() - Duration::from_secs(1),
+                    requested_at: Instant::now(),
                     channel: 10,
                     result: Ok(None),
                 },
@@ -2024,7 +2472,7 @@ async fn unknown_current_drop_still_triggers_stall_detection() {
         miner
             .complete(
                 Job::Poll {
-                    requested_at: Instant::now() - Duration::from_secs(1),
+                    requested_at: Instant::now(),
                     channel: 10,
                     result: Ok(Some(("unknown-drop".into(), 12))),
                 },

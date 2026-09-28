@@ -421,6 +421,7 @@ impl Campaign {
     ) -> bool {
         policy.mineable.contains(&drop.id)
             && self.prerequisites_met(drop)
+            && drop.confirmed_minutes < drop.required_minutes
             && drop.estimated_minutes < MAX_ESTIMATED_MINUTES
             && now < drop.ends_at
             && drop.starts_at < before

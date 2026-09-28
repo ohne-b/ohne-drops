@@ -377,6 +377,16 @@ impl TwitchClient {
         else {
             return Ok(None);
         };
+        let reported_channel = number(&drop["channel"]["id"]).ok_or_else(|| {
+            diagnostics::invalid(
+                "CurrentDrop",
+                "dropCurrentSession.channel.id must be a channel ID",
+                drop.pointer("/channel/id"),
+            )
+        })?;
+        if reported_channel != channel_id {
+            return Ok(None);
+        }
         let id = drop["dropID"]
             .as_str()
             .filter(|v| !v.is_empty())

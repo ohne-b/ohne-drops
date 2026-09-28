@@ -46,6 +46,37 @@ mod protocol_regressions {
     }
 
     #[tokio::test]
+    async fn current_drop_rejects_progress_from_another_channel() {
+        let server = MockServer::start().await;
+        gql_mock(&server, |_| {
+            json!({"data":{"currentUser":{"dropCurrentSession":{
+                "channel":{"id":"11"}, "dropID":"old-reward", "currentMinutesWatched":60
+            }}}})
+        })
+        .await;
+        let client = TwitchClient::new(Arc::new(http(&server)), &session());
+        assert_eq!(client.current_drop(10).await.unwrap(), None);
+    }
+
+    #[tokio::test]
+    async fn current_drop_requires_a_valid_reported_channel() {
+        for channel in [json!(null), json!({}), json!({"id":"not-an-id"})] {
+            let server = MockServer::start().await;
+            gql_mock(&server, move |_| {
+                json!({"data":{"currentUser":{"dropCurrentSession":{
+                    "channel":channel, "dropID":"reward", "currentMinutesWatched":3
+                }}}})
+            })
+            .await;
+            let client = TwitchClient::new(Arc::new(http(&server)), &session());
+            assert_eq!(
+                client.current_drop(10).await,
+                Err(TwitchError::InvalidResponse)
+            );
+        }
+    }
+
+    #[tokio::test]
     async fn null_ancestor_keeps_independent_batch_neighbor() {
         let server = MockServer::start().await;
         Mock::given(method("POST"))
