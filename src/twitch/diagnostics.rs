@@ -73,17 +73,11 @@ impl Capture {
                 capture.secret(password);
             }
             // Decode URL-encoded user information without logging either representation.
-            for (_, value) in
-                url::form_urlencoded::parse(format!("value={}", proxy.username()).as_bytes())
-            {
-                capture.secret(&value);
-            }
+            capture.secret(
+                &percent_encoding::percent_decode_str(proxy.username()).decode_utf8_lossy(),
+            );
             if let Some(password) = proxy.password() {
-                for (_, value) in
-                    url::form_urlencoded::parse(format!("value={password}").as_bytes())
-                {
-                    capture.secret(&value);
-                }
+                capture.secret(&percent_encoding::percent_decode_str(password).decode_utf8_lossy());
             }
         }
         capture.secret(device);
@@ -153,6 +147,7 @@ impl Capture {
                 capture.secret(value);
                 for cookie in cookie::Cookie::split_parse(value).flatten() {
                     capture.secret(cookie.value());
+                    capture.secret(cookie.value_trimmed());
                 }
             }
         }
@@ -174,6 +169,10 @@ impl Capture {
         if !self.complete {
             return "[withheld: credential redaction limit reached]".into();
         }
+        // Withhold oversized strings whole: truncating input could expose part of a secret.
+        if text.len() > CAPTURE_LIMIT {
+            return "[oversized text withheld]".into();
+        }
         static URLS: LazyLock<Regex> =
             LazyLock::new(|| Regex::new(r#"(?i)\b[a-z][a-z0-9+.-]*://[^\s<>\"']+"#).unwrap());
         static AUTH: LazyLock<Regex> =
@@ -190,12 +189,28 @@ impl Capture {
         if CREDENTIAL_TEXT.is_match(text) {
             return "[credential-bearing text withheld]".into();
         }
-        let mut text = text.to_owned();
         // Longest first prevents a shorter credential exposing the remainder of another.
         let mut secrets: Vec<_> = self.secrets.iter().collect();
         secrets.sort_by_key(|secret| std::cmp::Reverse(secret.len()));
-        for secret in secrets {
-            text = text.replace(secret, REDACTED);
+        // Consume only original input; never rescan inserted markers or expand without bound.
+        let mut remaining = text;
+        let mut text = String::new();
+        while !remaining.is_empty() {
+            if let Some(secret) = secrets
+                .iter()
+                .find(|secret| remaining.starts_with(secret.as_str()))
+            {
+                text.push_str(REDACTED);
+                remaining = &remaining[secret.len()..];
+            } else {
+                let ch = remaining.chars().next().unwrap();
+                text.push(ch);
+                remaining = &remaining[ch.len_utf8()..];
+            }
+            if text.len() >= CAPTURE_LIMIT {
+                text.push_str(" [truncated]");
+                break;
+            }
         }
         text = URLS.replace_all(&text, "[url redacted]").into_owned();
         text = AUTH
@@ -276,6 +291,7 @@ impl Capture {
                 && let Ok(cookie) = cookie::Cookie::parse(value)
             {
                 capture.secret(cookie.value());
+                capture.secret(cookie.value_trimmed());
             }
         }
         let body = response.body();
@@ -706,6 +722,51 @@ mod tests {
     }
 
     #[test]
+    fn advanced_redacts_decoded_proxy_and_quoted_cookie_echoes() {
+        let output = Writer::default();
+        tracing::subscriber::with_default(output.advanced_subscriber(), || {
+            let capture = Capture::new("http://u+ser:&p%40ssword+suffix@proxy.invalid", "");
+            assert_eq!(
+                capture.text("u+ser &p@ssword+suffix"),
+                "[redacted] [redacted]"
+            );
+            let request = reqwest::Client::new()
+                .get("http://example.invalid")
+                .header("Cookie", "session=\"request-cookie\"")
+                .build()
+                .unwrap();
+            let capture = capture.request(
+                &request,
+                Some(http::HeaderValue::from_static("jar=\"jar-cookie\"")),
+            );
+            let response = http::Response::builder()
+                .header("Set-Cookie", "session=\"short-cookie\"; HttpOnly")
+                .body(serde_json::to_vec(&json!({"message": "&p@ssword+suffix short-cookie request-cookie jar-cookie"})).unwrap()).unwrap();
+            capture.response(&response, 1, 0);
+        });
+        let text = output.text();
+        assert!(text.contains("Upstream response diagnostic"));
+        for secret in ["p@ssword", "short-cookie", "request-cookie", "jar-cookie"] {
+            assert!(!text.contains(secret), "{text}");
+        }
+    }
+
+    #[test]
+    fn advanced_redaction_never_rescans_markers_or_expands_oversized_text() {
+        let mut capture = Capture::new("", "");
+        for secret in ["v", "r", "e", "d", "a", "c", "t", "[", "]"] {
+            capture.secret(secret);
+        }
+        assert_eq!(capture.text("v"), REDACTED);
+        assert!(capture.text(&"v".repeat(CAPTURE_LIMIT)).len() < CAPTURE_LIMIT + 32);
+        assert_eq!(
+            capture.text(&"v".repeat(16 * 1024 * 1024)),
+            "[oversized text withheld]"
+        );
+        assert_eq!(capture.text("🦀v"), "🦀[redacted]");
+    }
+
+    #[test]
     fn advanced_capture_limits_and_non_json_fail_closed_after_redaction() {
         let output = Writer::default();
         tracing::subscriber::with_default(output.advanced_subscriber(), || {
@@ -719,7 +780,7 @@ mod tests {
                     .contains("ssword")
             );
             let response = http::Response::builder().status(200).body(
-                serde_json::to_vec(&json!({"message": "Readable failure ".repeat(4000), "accessToken": "secret-value", "echo": "secret-value", "rows": vec![json!({"value": 1}); 2000]})).unwrap()).unwrap();
+                serde_json::to_vec(&json!({"message": "Readable failure ".repeat(400), "accessToken": "secret-value", "echo": "secret-value", "rows": vec![json!({"value": 1}); 2000]})).unwrap()).unwrap();
             capture.response(&response, 1, 12);
             let invalid = http::Response::builder()
                 .status(502)

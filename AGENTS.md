@@ -127,7 +127,8 @@ embed it and run without a build tool/runtime companion. Production builds never
   redacted JSON response previews and nested transport causes; never raw bodies, requests,
   arbitrary headers, URLs or authenticated WebSocket frames. Collect request/proxy/cookie and
   response credential values before redaction; redact sensitive fields and credential-bearing
-  text, fail closed on credential-inventory limits, and withhold non-JSON bodies. Preserve
+  text, fail closed on credential-inventory limits, and withhold non-JSON bodies and oversized
+  input strings. Bound redaction allocations and never reprocess inserted markers. Preserve
   correlation, timing/status and hashes; mark capture omissions. Keep public errors unchanged,
   and bound retry-body capture to one second without replacing retry/cancellation decisions.
 

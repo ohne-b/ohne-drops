@@ -363,8 +363,9 @@ budget and cannot replace the retry decision.
 Captures remove known request/proxy/cookie credentials, sensitive JSON fields, URLs,
 credential-bearing text and opaque token-like strings. They are **not exact raw dumps**:
 JSON previews are capped at 16 KiB, 256 nodes, 12 levels, 32 array entries, 64 object fields
-and 1 KiB per string, with omissions marked. Non-JSON bodies are withheld because their
-credentials cannot be identified structurally; size/fingerprint and available parser
+and 1 KiB per string, with omissions marked. Input strings larger than 16 KiB are withheld
+whole to bound redaction work without exposing partial credentials. Non-JSON bodies are
+withheld because their credentials cannot be identified structurally; size/fingerprint and available parser
 errors remain. Credential-inventory overflow also withholds the preview. Transport
 chains are limited to 12 causes and 1 KiB per cause. WebSocket frames are never captured.
 
