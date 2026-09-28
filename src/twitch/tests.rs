@@ -265,6 +265,54 @@ async fn gql_limiter_reserves_five_slots_per_second_and_cancels_waits() {
 }
 
 #[tokio::test]
+async fn idle_http_connections_expire_before_the_next_watch_minute() {
+    use axum::{Router, extract::ConnectInfo, routing::get};
+    use std::net::SocketAddr;
+
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let address = listener.local_addr().unwrap();
+    let router = Router::new().route(
+        "/",
+        get(|ConnectInfo(peer): ConnectInfo<SocketAddr>| async move { peer.to_string() }),
+    );
+    let server = tokio::spawn(async move {
+        axum::serve(
+            listener,
+            router.into_make_service_with_connect_info::<SocketAddr>(),
+        )
+        .await
+        .unwrap();
+    });
+    let http = TwitchHttp::build(
+        &Settings::default(),
+        Some("testdevice"),
+        CancellationToken::new(),
+        Endpoints::mock(&format!("http://{address}")),
+    )
+    .unwrap();
+    let fetch = || async {
+        http.execute(http.request(Method::GET, http.endpoints.web.clone()), false)
+            .await
+            .unwrap()
+            .into_body()
+    };
+    let first = fetch().await;
+    let immediate = fetch().await;
+    tokio::time::sleep(Duration::from_secs(16)).await;
+    let after_idle = fetch().await;
+    server.abort();
+    let _ = server.await;
+    assert_eq!(
+        first, immediate,
+        "nearby requests should still reuse connections"
+    );
+    assert_ne!(
+        first, after_idle,
+        "idle connections must expire after 15 seconds"
+    );
+}
+
+#[tokio::test]
 async fn cancellation_interrupts_inflight_http_without_retrying() {
     let server = MockServer::start().await;
     Mock::given(method("GET"))

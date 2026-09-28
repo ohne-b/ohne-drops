@@ -357,8 +357,13 @@ docker compose logs --since=30m --tail=200 twitch-drops-miner
 Normal logs identify operations, HTTP status/retry attempts, JSON syntax positions,
 rejected field types and catalog problems. Unknown GraphQL messages are fingerprinted.
 
-Failed watch requests discard their cached beacon address before retrying. After three
-consecutive failures for the current stream, the miner renews its Twitch connections
+Idle HTTP connections expire after 15 seconds, before the next 59-second watch event.
+Transient watch connection errors, HTTP 429 and HTTP 5xx responses use up to five attempts,
+starting with a one-second retry delay and increasing to two, four and eight seconds.
+HTTP `Retry-After` is respected within a 1–60 second bound. Retries reuse the same watch
+payload and remain cancellable; they never add local progress or replay a successful HTTP 204.
+After retries are exhausted, failed watch requests discard their cached beacon address.
+After three consecutive failed watch operations for the current stream, the miner renews its Twitch connections
 automatically, preserving settings and any manual channel timer. Changing **Connection
 Quality** also rebuilds connections and changes timeouts; it is no longer necessary to
 toggle it just to trigger recovery from repeated watch failures. This does not bypass

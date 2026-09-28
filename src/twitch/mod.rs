@@ -145,6 +145,7 @@ impl TwitchHttp {
                 .no_proxy()
                 .redirect(reqwest::redirect::Policy::none())
                 .pool_max_idle_per_host(50)
+                .pool_idle_timeout(Duration::from_secs(15))
                 .connect_timeout(Duration::from_secs(5 * quality))
                 .timeout(Duration::from_secs(10 * quality));
             if !settings.proxy.is_empty() {
