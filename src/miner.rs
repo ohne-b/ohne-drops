@@ -15,7 +15,7 @@ use tokio_util::sync::CancellationToken;
 
 use crate::{
     config::Settings,
-    domain::{Campaign, Channel, wanted_items},
+    domain::{Campaign, Channel, MAX_ESTIMATED_MINUTES, wanted_items},
     dto::{InventoryStatus, Login, ManualMode, RefreshState},
     store::{ClaimJournal, PendingClaim},
     twitch::{
@@ -1175,6 +1175,13 @@ impl Mining {
                             drop.claimed = previous.claimed;
                             drop.claimed_at = previous.claimed_at;
                             drop.claim_id = previous.claim_id.clone();
+                        }
+                        // A completed refresh must release the estimate ceiling, including
+                        // retained records, without overwriting newer account evidence.
+                        if drop.estimated_minutes >= MAX_ESTIMATED_MINUTES
+                            && drop.confirmed_at.is_none_or(|at| at <= requested_at)
+                        {
+                            drop.estimated_minutes = 0;
                         }
                     }
                 }

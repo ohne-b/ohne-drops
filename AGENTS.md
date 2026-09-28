@@ -113,6 +113,9 @@ embed it and run without a build tool/runtime companion. Production builds never
   address. Three consecutive current-stream watch failures renew the network generation;
   successful acknowledgements reset this count. Late request results cannot overwrite newer
   account/stream events or restore invalidated beacon addresses.
+  Successful inventory refreshes clear stale estimate ceilings on refreshed and retained
+  drops, preserving confirmed progress and evidence newer than the request. Failed
+  refreshes must not clear the ceiling or fabricate confirmation.
 - Claims require account-issued instance IDs, skip upcoming campaigns and stop at the strict
   campaign-end + 24-hour deadline. Earned claims are independent of mining/ignore selection.
   Persist the account-scoped intent before RPC, then its success receipt and history. Keep the
@@ -151,6 +154,9 @@ embed it and run without a build tool/runtime companion. Production builds never
 - Original in-app device code only, Smart TV client identity, `twitch_oauth2` types/requests.
   Keep explicit empty scopes, pending/slow-down/expiry/denial handling and token validation.
   Channel pages use the web client URL. No browser-import or browser-renewal code/services.
+  HTTP 401/403 from unauthenticated pages, settings scripts or device discovery are ordinary
+  HTTP failures, never grounds to discard the saved session. Authenticated API/OAuth and
+  PubSub authentication failures still propagate to the session owner.
 - New sessions use `twitch_session.json`; keep old credentials/backups untouched for rollback.
   Invalid new sessions are preserved separately before reauthorization. Never log OAuth tokens,
   device secrets, proxy credentials, cookie values or raw authenticated transport frames.

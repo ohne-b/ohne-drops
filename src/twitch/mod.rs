@@ -455,7 +455,6 @@ impl TwitchHttp {
 
 pub(crate) fn success(status: StatusCode) -> Result<(), TwitchError> {
     match status {
-        StatusCode::UNAUTHORIZED | StatusCode::FORBIDDEN => Err(TwitchError::Unauthorized),
         status if status.is_success() => Ok(()),
         status => Err(TwitchError::Status(status.as_u16())),
     }
@@ -506,6 +505,14 @@ impl TwitchClient {
                     true,
                 )
                 .await?;
+            // Only authenticated API responses can invalidate the saved session.
+            // Public channel pages and settings scripts also return 401/403.
+            if matches!(
+                response.status(),
+                StatusCode::UNAUTHORIZED | StatusCode::FORBIDDEN
+            ) {
+                return Err(TwitchError::Unauthorized);
+            }
             success(response.status())?;
             let mut response = diagnostics::json(response.body(), response.status().as_u16())?;
             let retry = if let Some(batch) = response.as_array_mut() {
