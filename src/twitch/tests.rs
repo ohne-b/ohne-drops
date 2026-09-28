@@ -208,6 +208,33 @@ fn gql_retries_only_recognized_failures_and_never_logs_upstream_secrets() {
     assert_eq!(gql_errors(&mut invalid_path, 0), Err(TwitchError::GraphQl));
 }
 
+#[tokio::test]
+async fn public_discovery_rejections_are_http_errors_but_gql_auth_rejections_still_propagate() {
+    for status in [401, 403] {
+        let server = MockServer::start().await;
+        Mock::given(method("GET"))
+            .and(path("/tv"))
+            .respond_with(ResponseTemplate::new(status))
+            .expect(1)
+            .mount(&server)
+            .await;
+        Mock::given(method("POST"))
+            .and(path("/gql"))
+            .and(header("Authorization", "OAuth testtoken"))
+            .respond_with(ResponseTemplate::new(status))
+            .expect(1)
+            .mount(&server)
+            .await;
+        let mut http = http(&server);
+        assert_eq!(
+            http.discover_device().await,
+            Err(TwitchError::Status(status))
+        );
+        let client = TwitchClient::new(Arc::new(http), &session());
+        assert_eq!(client.gql(json!({})).await, Err(TwitchError::Unauthorized));
+    }
+}
+
 #[tokio::test(start_paused = true)]
 async fn gql_limiter_reserves_five_slots_per_second_and_cancels_waits() {
     let http = Arc::new(

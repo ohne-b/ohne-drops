@@ -782,6 +782,45 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn public_beacon_page_and_script_rejections_preserve_authentication() {
+        for status in [401, 403] {
+            for script in [false, true] {
+                let server = MockServer::start().await;
+                let script_path = "/config/settings.0123456789abcdef0123456789abcdef.js";
+                Mock::given(method("GET"))
+                    .and(path("/streamer"))
+                    .respond_with(if script {
+                        ResponseTemplate::new(200).set_body_string(format!(
+                            r#"<script src="{}{script_path}"></script>"#,
+                            server.uri()
+                        ))
+                    } else {
+                        ResponseTemplate::new(status)
+                    })
+                    .expect(1)
+                    .mount(&server)
+                    .await;
+                Mock::given(method("GET"))
+                    .and(path(script_path))
+                    .respond_with(ResponseTemplate::new(status))
+                    .expect(u64::from(script))
+                    .mount(&server)
+                    .await;
+                let client = TwitchClient::new(Arc::new(http(&server)), &session());
+                let mut channel = channel(10);
+                assert_eq!(
+                    client.send_watch(&mut channel, Utc::now()).await,
+                    Err(TwitchError::Status(status))
+                );
+                assert!(channel.beacon_url.is_none());
+                for request in server.received_requests().await.unwrap() {
+                    assert!(!request.headers.contains_key("Authorization"));
+                }
+            }
+        }
+    }
+
+    #[tokio::test]
     async fn watch_transport_errors_and_unacknowledged_responses_discard_the_cached_beacon() {
         let server = MockServer::start().await;
         let client = TwitchClient::new(Arc::new(http(&server)), &session());

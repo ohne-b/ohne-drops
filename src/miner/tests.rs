@@ -775,11 +775,165 @@ async fn progress_stays_confirmed_only_with_account_evidence_and_stalls_at_fifte
 }
 
 #[tokio::test]
+async fn public_page_rejection_keeps_the_validated_saved_session() {
+    let server = MockServer::start().await;
+    Mock::given(method("GET"))
+        .and(path("/oauth2/validate"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(validation()))
+        .expect(1)
+        .mount(&server)
+        .await;
+    Mock::given(method("GET"))
+        .and(path("/streamer"))
+        .respond_with(ResponseTemplate::new(403))
+        .expect(1)
+        .mount(&server)
+        .await;
+    gql_mock(&server, |q| match q["operationName"].as_str().unwrap() {
+        "Inventory" => {
+            let mut campaign = campaign_json("one");
+            campaign["allow"] = json!({"isEnabled":true,"channels":[{"id":"10","login":"streamer","displayName":"Streamer"}]});
+            json!({"data":{"currentUser":{"inventory":{"dropCampaignsInProgress":[campaign],"gameEventDrops":[]}}}})
+        },
+        "VideoPlayerStreamInfoOverlayChannel" => json!({"data":{"user":{"id":"10","login":"streamer","displayName":"Streamer","stream":{"id":"stream1","viewersCount":100},"broadcastSettings":{"game":{"id":"1","name":"Rust","slug":"rust"}}}}}),
+        "DropsHighlightService_AvailableDrops" => json!({"data":{"channel":{"viewerDropCampaigns":[{"id":"one"}]}}}),
+        other => panic!("unexpected query {other}"),
+    }).await;
+    let dir = tempfile::tempdir().unwrap();
+    let (app, commands) = App::open(dir.path().to_owned(), "").unwrap();
+    app.snapshot.write().await.settings.values.games_to_watch = vec!["Rust".into()];
+    session().save(dir.path()).unwrap();
+    let mut miner = Miner::new(app.clone(), commands);
+    miner.endpoints = Endpoints::mock(&server.uri());
+    let worker = tokio::spawn(miner.run());
+    let recovered = tokio::time::timeout(Duration::from_secs(4), async {
+        loop {
+            if Session::load(dir.path()).unwrap().is_none() {
+                break false;
+            }
+            if app
+                .snapshot
+                .read()
+                .await
+                .console
+                .iter()
+                .any(|line| line.contains("HTTP 403"))
+            {
+                break true;
+            }
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+    })
+    .await;
+    app.shutdown.cancel();
+    tokio::time::timeout(Duration::from_secs(5), worker)
+        .await
+        .unwrap()
+        .unwrap()
+        .unwrap();
+    assert_eq!(recovered, Ok(true));
+    assert_eq!(
+        Session::load(dir.path()).unwrap().unwrap().access_token,
+        session().access_token
+    );
+}
+
+#[tokio::test]
+async fn successful_inventory_refresh_recovers_stalled_public_and_retained_rewards() {
+    for retained in [false, true] {
+        for confirmed in [false, true] {
+            let server = MockServer::start().await;
+            Mock::given(method("POST"))
+                .and(path("/track"))
+                .respond_with(ResponseTemplate::new(204))
+                .expect(1)
+                .mount(&server)
+                .await;
+            let (_dir, mut miner, _intent, mut pool) = miner(&server).await;
+            let settings = select(&mut miner).await;
+            if !confirmed {
+                let drop = &mut miner.campaigns[0].drops[0];
+                drop.confirmed_minutes = 0;
+                drop.confirmed_at = None;
+            }
+            let before = miner.campaigns[0].drops[0].clone();
+            for _ in 0..MAX_ESTIMATED_MINUTES {
+                miner
+                    .complete(
+                        Job::Poll {
+                            channel: 10,
+                            requested_at: Instant::now(),
+                            result: Ok(None),
+                        },
+                        &pool,
+                    )
+                    .await
+                    .unwrap();
+            }
+            miner.reselect(&settings).await;
+            assert!(miner.watching.is_none());
+            miner
+                .complete(
+                    Job::Inventory {
+                        result: Err(TwitchError::Network),
+                        requested_at: Utc::now(),
+                        refresh_sequence: 0,
+                    },
+                    &pool,
+                )
+                .await
+                .unwrap();
+            assert_eq!(
+                miner.campaigns[0].drops[0].estimated_minutes,
+                MAX_ESTIMATED_MINUTES
+            );
+            let mut raw = campaign_json("one");
+            raw["timeBasedDrops"][0]["self"] = serde_json::Value::Null;
+            let fresh = Campaign::parse(&raw, &HashMap::new(), Utc::now()).unwrap();
+            miner
+                .complete(
+                    Job::Inventory {
+                        result: Ok(Inventory {
+                            campaigns: if retained { vec![] } else { vec![fresh] },
+                            awards: HashMap::new(),
+                            status: InventoryStatus {
+                                available: !retained,
+                                ..InventoryStatus::default()
+                            },
+                        }),
+                        requested_at: Utc::now(),
+                        refresh_sequence: 0,
+                    },
+                    &pool,
+                )
+                .await
+                .unwrap();
+            let drop = &miner.campaigns[0].drops[0];
+            assert_eq!(drop.estimated_minutes, 0);
+            assert_eq!(drop.confirmed_minutes, before.confirmed_minutes);
+            assert_eq!(drop.confirmed_at, before.confirmed_at);
+            assert!(!drop.claimed);
+            miner.reselect(&settings).await;
+            assert_eq!(miner.watching, Some(10));
+            miner.channels[0].beacon_url = Some(format!("{}/track", server.uri()).parse().unwrap());
+            miner.schedule(&settings).await;
+            finish_job(&mut miner, &pool).await;
+            assert!(
+                miner.poll_at.is_some(),
+                "watching did not resume after recovery"
+            );
+            pool.close().await;
+        }
+    }
+}
+
+#[tokio::test]
 async fn inventory_refresh_cannot_replace_progress_confirmed_after_the_request_started() {
     let server = MockServer::start().await;
     let (_dir, mut miner, _intent, mut pool) = miner(&server).await;
     let before = Utc::now() - chrono::Duration::seconds(1);
     miner.confirm("drop-one", 31);
+    miner.campaigns[0].drops[0].estimated_minutes = MAX_ESTIMATED_MINUTES;
     let inventory = Inventory {
         awards: HashMap::new(),
         campaigns: vec![
@@ -802,6 +956,10 @@ async fn inventory_refresh_cannot_replace_progress_confirmed_after_the_request_s
         .await
         .unwrap();
     assert_eq!(miner.campaigns[0].drops[0].confirmed_minutes, 31);
+    assert_eq!(
+        miner.campaigns[0].drops[0].estimated_minutes,
+        MAX_ESTIMATED_MINUTES
+    );
     miner.publish(&Settings::default()).await.unwrap();
     assert_eq!(
         miner.app.snapshot.read().await.campaigns[0].drops[0].confirmed_minutes,

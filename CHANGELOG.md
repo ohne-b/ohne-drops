@@ -1,5 +1,15 @@
 # Changelog
 
+## [v1.1.3](https://github.com/ohne-b/twitch-drops-miner/releases/tag/v1.1.3) — 2026-09-28
+
+- preserve valid Twitch logins when public channel pages or settings scripts return HTTP 401/403
+- resume stalled rewards after a successful inventory refresh by clearing stale estimates while preserving confirmed progress and newer account evidence
+
+Existing settings, credentials, data and container configuration remain compatible.
+Device-code login is unchanged. Recovery does not guarantee that Twitch credits watch time.
+
+[Compare v1.1.2...v1.1.3](https://github.com/ohne-b/twitch-drops-miner/compare/v1.1.2...v1.1.3)
+
 ## [v1.1.2](https://github.com/ohne-b/twitch-drops-miner/releases/tag/v1.1.2) — 2026-09-28
 
 - discard failed watch beacon addresses and automatically renew Twitch connections after three consecutive watch failures ([#28](https://github.com/ohne-b/twitch-drops-miner/pull/28))

@@ -364,6 +364,12 @@ Quality** also rebuilds connections and changes timeouts; it is no longer necess
 toggle it just to trigger recovery from repeated watch failures. This does not bypass
 an unavailable Twitch endpoint or guarantee that Twitch credits watch time.
 
+HTTP 401/403 responses from public Twitch pages or settings scripts enter watch recovery
+without discarding your saved login. Authentication failures from Twitch's authenticated
+API still require reauthorization. After 15 unconfirmed estimates, a successful inventory
+refresh clears the stale estimate limit, including for campaigns retained during a partial
+refresh. Confirmed progress is preserved; failed refreshes do not reset the limit.
+
 **Advanced diagnostics are off by default**, including with `-v`/`-vv`. To enable them,
 add this entry under the miner service's **existing** `environment` section in Compose:
 
