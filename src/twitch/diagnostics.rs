@@ -813,7 +813,8 @@ mod tests {
         assert!(
             text.contains("Readable failure")
                 && text.contains("truncated")
-                && text.contains("entries omitted")
+                && text.contains("entries omitted"),
+            "{text}"
         );
         assert!(
             text.contains("non-JSON body withheld")
