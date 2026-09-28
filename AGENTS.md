@@ -176,6 +176,11 @@ embed it and run without a build tool/runtime companion. Production builds never
   Keep the refresh/check icon at the same left-aligned position when the label changes.
 - History artwork is optional; retain old rows and use matching live benefits as display fallback.
   No Telegram controls/API/credentials in responses and no dashboard updater.
+- Campaigns keeps the filtered count beside its heading and Clear filters beside All games
+  inside Filters. Native icon-styled sorting offers Default, Newest (campaign start descending),
+  Ending Soonest (end ascending), Most Drops (total descending), and A-Z (campaign name).
+  Default retains progress-first ordering; ties use that same deterministic order. Sort is
+  URL state preserved by searches, filter resets and tab changes, never a mining setting.
 - Maintenance checks the latest stable release's `latest.json`, compares SemVer precedence
   without build metadata, and distinguishes failure from up-to-date status. Keep requests
   bounded/coalesced and release links within this repository. No install/download execution.

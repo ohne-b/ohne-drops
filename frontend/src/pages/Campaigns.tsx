@@ -1,6 +1,12 @@
 import { useEffect, useState } from 'react';
 import { Link, useSearchParams } from 'react-router';
-import { mdiFilterVariant, mdiViewList, mdiViewGridOutline } from '@mdi/js';
+import {
+  mdiFilterVariant,
+  mdiViewList,
+  mdiViewGridOutline,
+  mdiSortVariant,
+  mdiChevronDown,
+} from '@mdi/js';
 import { useMiner } from '../lib/state';
 import { useT } from '../lib/i18n';
 import type { Campaign as CampaignData, Filters, HistoryEntry, Settings } from '../lib/types';
@@ -70,7 +76,24 @@ export function matchesCampaign(
     ),
   );
 }
-export function campaignOrder(a: CampaignData, b: CampaignData): number {
+const campaignSorts = ['default', 'newest', 'ending', 'drops', 'name'] as const;
+type CampaignSort = (typeof campaignSorts)[number];
+export function campaignOrder(
+  a: CampaignData,
+  b: CampaignData,
+  sort: CampaignSort = 'default',
+): number {
+  const difference =
+    sort === 'newest'
+      ? Date.parse(b.starts_at) - Date.parse(a.starts_at)
+      : sort === 'ending'
+        ? Date.parse(a.ends_at) - Date.parse(b.ends_at)
+        : sort === 'drops'
+          ? b.total_drops - a.total_drops
+          : sort === 'name'
+            ? a.name.localeCompare(b.name, undefined, { sensitivity: 'base', numeric: true })
+            : 0;
+  if (difference) return difference;
   const rank = (campaign: CampaignData) =>
     campaign.active &&
     campaign.drops.some((drop) => drop.is_claimed || (drop.confirmed_minutes ?? 0) > 0)
@@ -97,10 +120,16 @@ export default function Campaigns() {
   const settingsBusy = action.busy || autosave.busy || autosave.pending;
   const search = params.get('q') ?? '';
   const finished = params.get('tab') === 'finished';
+  const sort = campaignSorts.find((value) => value === params.get('sort')) ?? 'default';
   const total = data.campaigns.filter((campaign) => campaign.finished === finished).length;
   const campaigns = data.campaigns
     .filter((campaign) => matchesCampaign(campaign, filters, search, finished))
-    .sort(campaignOrder);
+    .sort((a, b) => campaignOrder(a, b, sort));
+  function setQuery(key: string, value: string) {
+    const next = new URLSearchParams(params);
+    value ? next.set(key, value) : next.delete(key);
+    setParams(next, { replace: true });
+  }
   const update = (patch: Partial<Settings>) =>
     action.run(() => request('/api/settings', { ...patch, revision: data.settings.revision }));
   function changeFilters(next: Filters) {
@@ -128,9 +157,12 @@ export default function Campaigns() {
   ];
   return (
     <div className="space-y-5">
-      <div>
+      <header className="flex flex-wrap items-center justify-between gap-3">
         <h1 className="text-[22px] font-semibold">{t('campaigns')}</h1>
-      </div>
+        <p className="muted ms-auto text-right">
+          {t('campaign_count', { count: campaigns.length, total })}
+        </p>
+      </header>
       <nav aria-label={t('campaign_views')} className="flex gap-5 border-b border-divider">
         {[false, true].map((value) => (
           <Link
@@ -141,6 +173,7 @@ export default function Campaigns() {
               pathname: '/campaigns',
               search: new URLSearchParams({
                 ...(search ? { q: search } : {}),
+                ...(sort !== 'default' ? { sort } : {}),
                 ...(value ? { tab: 'finished' } : {}),
               }).toString(),
             }}
@@ -156,9 +189,7 @@ export default function Campaigns() {
         <div className="min-w-48 flex-1">
           <Search
             value={search}
-            onChange={(value) =>
-              setParams({ ...(finished ? { tab: 'finished' } : {}), q: value }, { replace: true })
-            }
+            onChange={(value) => setQuery('q', value)}
             label={t('search_campaigns')}
           />
         </div>
@@ -166,6 +197,31 @@ export default function Campaigns() {
           <Icon path={mdiFilterVariant} />
           {t('filters')}
         </Button>
+        <div className="relative shrink-0">
+          <Icon
+            path={mdiSortVariant}
+            className="pointer-events-none absolute start-3 top-1/2 -translate-y-1/2 text-soft"
+          />
+          <select
+            className="button h-9 appearance-none ps-9 pe-8"
+            aria-label={t('sort_campaigns')}
+            title={t('sort_campaigns')}
+            value={sort}
+            onChange={(event) =>
+              setQuery('sort', event.target.value === 'default' ? '' : event.target.value)
+            }
+          >
+            {campaignSorts.map((value) => (
+              <option key={value} value={value}>
+                {t(`sort_${value}`)}
+              </option>
+            ))}
+          </select>
+          <Icon
+            path={mdiChevronDown}
+            className="pointer-events-none absolute end-2 top-1/2 -translate-y-1/2 text-muted"
+          />
+        </div>
         <Button
           aria-label={t('toggle_view')}
           title={t('toggle_view')}
@@ -210,12 +266,35 @@ export default function Campaigns() {
                 />
               ))}
             </div>
-            <Button
-              disabled={!connected || settingsBusy || !filters.game_name_search.length}
-              onClick={() => changeFilters({ ...filters, game_name_search: [] })}
-            >
-              {t('all_games')}
-            </Button>
+            <div className="mt-3 flex flex-wrap gap-3">
+              <Button
+                disabled={!connected || settingsBusy || !filters.game_name_search.length}
+                onClick={() => changeFilters({ ...filters, game_name_search: [] })}
+              >
+                {t('all_games')}
+              </Button>
+              <Button
+                disabled={!connected || settingsBusy}
+                onClick={() => {
+                  setQuery('q', '');
+                  changeFilters({
+                    ...filters,
+                    show_active: true,
+                    show_upcoming: true,
+                    show_expired: true,
+                    show_finished: true,
+                    show_only_not_linked: false,
+                    game_name_search: [],
+                    show_benefit_badge: true,
+                    show_benefit_emote: true,
+                    show_benefit_item: true,
+                    show_benefit_other: true,
+                  });
+                }}
+              >
+                {t('clear_filters')}
+              </Button>
+            </div>
           </div>
         </div>
       )}
@@ -233,32 +312,6 @@ export default function Campaigns() {
           {t('saving')}
         </p>
       )}
-      <div className="flex items-center justify-between gap-3">
-        <p className="muted">{t('campaign_count', { count: campaigns.length, total })}</p>
-        {campaigns.length < total && (
-          <Button
-            disabled={!connected || settingsBusy}
-            onClick={() => {
-              setParams(finished ? { tab: 'finished' } : {}, { replace: true });
-              changeFilters({
-                ...filters,
-                show_active: true,
-                show_upcoming: true,
-                show_expired: true,
-                show_finished: true,
-                show_only_not_linked: false,
-                game_name_search: [],
-                show_benefit_badge: true,
-                show_benefit_emote: true,
-                show_benefit_item: true,
-                show_benefit_other: true,
-              });
-            }}
-          >
-            {t('clear_filters')}
-          </Button>
-        )}
-      </div>
       <div
         className={
           data.settings.inventory_list_view

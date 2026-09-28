@@ -497,6 +497,128 @@ test('campaign filtering and truthful expanded progress', async ({ page }) => {
   await page.getByLabel('Not Linked', { exact: true }).uncheck();
   await expect(page.getByText('Autumn expedition', { exact: true })).toBeVisible();
 });
+
+test('campaign sort controls preserve filters and keep counts and resets in compact positions', async ({
+  page,
+  request,
+}) => {
+  const original = snapshot.campaigns[0]!;
+  const campaigns = [
+    {
+      ...original,
+      id: 'zeta',
+      name: 'Zeta campaign',
+      starts_at: '2026-09-25T00:00:00Z',
+      ends_at: '2026-10-10T00:00:00Z',
+      total_drops: 2,
+    },
+    {
+      ...original,
+      id: 'alpha',
+      name: 'Alpha campaign',
+      starts_at: '2026-09-26T00:00:00Z',
+      ends_at: '2026-10-09T00:00:00Z',
+      total_drops: 5,
+    },
+    {
+      ...original,
+      id: 'beta',
+      name: 'beta campaign',
+      starts_at: '2026-09-27T00:00:00Z',
+      ends_at: '2026-10-11T00:00:00Z',
+      total_drops: 3,
+    },
+  ];
+  await page.goto('/campaigns');
+  const sort = page.getByRole('combobox', { name: 'Sort campaigns' });
+  const publishCampaigns = async () => {
+    await expect(sort).toBeVisible();
+    await request.post('/__test/event', {
+      headers,
+      data: { event: 'inventory_batch_update', data: { campaigns } },
+    });
+  };
+  await publishCampaigns();
+  const titles = page.locator('main summary > div > p.font-medium');
+  const writes: string[] = [];
+  page.on('request', (request) => {
+    if (request.url().endsWith('/api/settings') && request.method() !== 'GET')
+      writes.push(request.method());
+  });
+  for (const [value, names] of [
+    ['newest', ['beta campaign', 'Alpha campaign', 'Zeta campaign']],
+    ['ending', ['Alpha campaign', 'Zeta campaign', 'beta campaign']],
+    ['drops', ['Alpha campaign', 'beta campaign', 'Zeta campaign']],
+    ['name', ['Alpha campaign', 'beta campaign', 'Zeta campaign']],
+    ['default', ['Alpha campaign', 'Zeta campaign', 'beta campaign']],
+  ] as const) {
+    await sort.selectOption(value);
+    await expect(titles).toHaveText([...names]);
+  }
+  expect(writes).toEqual([]);
+  await sort.selectOption('newest');
+  await page.getByRole('searchbox', { name: 'Search campaigns and rewards' }).fill('Alpha');
+  await expect(page.getByText('1 of 3 campaigns', { exact: true })).toBeVisible();
+  await page.reload();
+  await expect(sort).toHaveValue('newest');
+  await publishCampaigns();
+  await expect(titles).toHaveText(['Alpha campaign']);
+  await expect(page.getByRole('button', { name: 'Clear filters', exact: true })).toHaveCount(0);
+  await page.getByRole('button', { name: 'Filters', exact: true }).click();
+  const clear = page.getByRole('button', { name: 'Clear filters', exact: true });
+  const all = page.getByRole('button', { name: 'All games', exact: true });
+  const allBox = (await all.boundingBox())!;
+  const clearBox = (await clear.boundingBox())!;
+  expect(Math.abs(allBox.y - clearBox.y)).toBeLessThan(2);
+  expect(clearBox.x).toBeGreaterThan(allBox.x + allBox.width);
+  await clear.click();
+  await expect(titles).toHaveText(['beta campaign', 'Alpha campaign', 'Zeta campaign']);
+  await expect(sort).toHaveValue('newest');
+  await expect(page.getByRole('searchbox', { name: 'Search campaigns and rewards' })).toHaveValue(
+    '',
+  );
+  const count = page.getByText('3 of 3 campaigns', { exact: true });
+  const heading = (await page
+    .getByRole('heading', { name: 'Campaigns', exact: true })
+    .boundingBox())!;
+  const countBox = (await count.boundingBox())!;
+  expect(Math.abs(countBox.y + countBox.height / 2 - heading.y - heading.height / 2)).toBeLessThan(
+    2,
+  );
+  expect(countBox.x).toBeGreaterThan(heading.x + heading.width);
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await page.screenshot({ path: '../artifacts/campaign-sort-desktop.png', fullPage: true });
+  await page.getByRole('link', { name: 'Finished', exact: true }).click();
+  await expect(page.getByRole('link', { name: 'Finished', exact: true })).toHaveAttribute(
+    'aria-current',
+    'page',
+  );
+  await expect(sort).toHaveValue('newest');
+  await page.getByRole('link', { name: 'Available', exact: true }).click();
+  await expect(titles).toHaveText(['beta campaign', 'Alpha campaign', 'Zeta campaign']);
+  await sort.selectOption('ending');
+  await sort.focus();
+  await page.keyboard.press('Shift+Tab');
+  await page.keyboard.press('Tab');
+  await expect(sort).toBeFocused();
+  await expect
+    .poll(() => sort.evaluate((element) => getComputedStyle(element).borderColor))
+    .toBe('rgb(244, 244, 245)');
+  for (const width of [390, 320]) {
+    await page.setViewportSize({ width, height: 750 });
+    await expect(sort).toBeVisible();
+    await expect(clear).toBeVisible();
+    expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(
+      width,
+    );
+  }
+  expect((await new AxeBuilder({ page }).analyze()).violations).toEqual([]);
+  await page.screenshot({ path: '../artifacts/campaign-sort-phone.png', fullPage: true });
+  await page.goto('/campaigns?sort=not-a-sort');
+  await expect(sort).toHaveValue('default');
+  await publishCampaigns();
+  await expect(titles).toHaveText(['Alpha campaign', 'Zeta campaign', 'beta campaign']);
+});
 test('Finished separates completed, expired, ignored, and unverifiable historical campaigns', async ({
   page,
   request,
@@ -531,6 +653,7 @@ test('Finished separates completed, expired, ignored, and unverifiable historica
   });
   await expect(page.getByText('Completed campaign', { exact: true })).toHaveCount(0);
   await expect(page.getByText('Ignored campaign', { exact: true })).toBeVisible();
+  await page.getByRole('button', { name: 'Filters', exact: true }).click();
   await page.getByRole('button', { name: 'Clear filters', exact: true }).click();
   await expect(page.getByText('Expired campaign', { exact: true })).toBeVisible();
   await page.route('**/api/history', (route) =>
@@ -557,7 +680,6 @@ test('Finished separates completed, expired, ignored, and unverifiable historica
   await expect(page.getByText('Expired campaign', { exact: true })).toHaveCount(0);
   await expect(page.getByText('Ignored campaign', { exact: true })).toHaveCount(0);
   await expect(page.getByText('Completion unverified', { exact: true })).toBeVisible();
-  await page.getByRole('button', { name: 'Filters', exact: true }).click();
   await expect(page.getByRole('checkbox', { name: 'Item', exact: true })).toHaveCount(0);
   await page.getByRole('checkbox', { name: 'Rust', exact: true }).check();
   await expect(page.getByText('Completion unverified', { exact: true })).toBeVisible();
