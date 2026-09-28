@@ -1,5 +1,17 @@
 # Changelog
 
+## [v1.1.2](https://github.com/ohne-b/twitch-drops-miner/releases/tag/v1.1.2) — 2026-09-28
+
+- discard failed watch beacon addresses and automatically renew Twitch connections after three consecutive watch failures ([#28](https://github.com/ohne-b/twitch-drops-miner/pull/28))
+- import Twitch-confirmed rewards into History, including badges claimed outside the miner; label unknown claim times as first seen and keep cleared entries cleared
+- preserve confirmed claims when inventory refresh overlaps progress updates, preventing awarded rewards from remaining eligible because of stale local state
+
+Existing settings, credentials, data and container configuration remain compatible.
+History imports require available campaign metadata; CSV exports add a final
+`claimed_at_is_observed` column. Advanced diagnostics remain off by default.
+
+[Compare v1.1.1...v1.1.2](https://github.com/ohne-b/twitch-drops-miner/compare/v1.1.1...v1.1.2)
+
 ## [v1.1.1](https://github.com/ohne-b/twitch-drops-miner/releases/tag/v1.1.1) — 2026-09-28
 
 - add opt-in automatic badge and emote mining across games, including required prerequisite drops
