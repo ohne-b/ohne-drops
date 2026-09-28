@@ -425,6 +425,7 @@ enum Job {
     Watch {
         channel: Box<Channel>,
         result: Result<bool, TwitchError>,
+        requested_at: Instant,
         at: Instant,
     },
     Poll {
@@ -467,6 +468,7 @@ struct Mining {
     jobs: JoinSet<CompletedJob>,
     busy: HashSet<JobKind>,
     watch_abort: Option<tokio::task::AbortHandle>,
+    watch_failures: u8,
     epoch: u64,
     refresh: bool,
     channels_dirty: bool,
@@ -547,6 +549,7 @@ impl Mining {
             jobs: JoinSet::new(),
             busy: HashSet::new(),
             watch_abort: None,
+            watch_failures: 0,
             epoch: 0,
             refresh: true,
             channels_dirty: false,
@@ -645,6 +648,7 @@ impl Mining {
             self.channels.clear();
             self.channels_loaded = false;
             self.watching = None;
+            self.watch_failures = 0;
             self.manual = None;
             self.lookup = None;
             self.manual_pending = None;
@@ -850,6 +854,7 @@ impl Mining {
         if next != self.watching {
             self.cancel_watch();
             self.watching = next;
+            self.watch_failures = 0;
             self.next_watch = Instant::now();
             self.poll_at = None;
             self.last_progress = None;
@@ -976,10 +981,12 @@ impl Mining {
                     self.next_watch = now + WATCH_INTERVAL;
                     let client = self.client.clone();
                     self.spawn(JobKind::Watch, async move {
+                        let requested_at = Instant::now();
                         let result = client.send_watch(&mut channel, Utc::now()).await;
                         Job::Watch {
                             channel: Box::new(channel),
                             result,
+                            requested_at,
                             at: Instant::now(),
                         }
                     });
@@ -1151,14 +1158,15 @@ impl Mining {
                             .find(|c| c.id == campaign.id)
                             .and_then(|c| c.drops.iter().find(|d| d.id == drop.id))
                             && previous.required_minutes == drop.required_minutes
-                            && previous
-                                .confirmed_at
-                                .is_some_and(|at| at > requested_at || drop.confirmed_at.is_none())
+                            && previous.confirmed_at.is_some_and(|at| {
+                                at > requested_at || (!drop.claimed && drop.confirmed_at.is_none())
+                            })
                         {
                             drop.confirmed_minutes = previous.confirmed_minutes;
                             drop.confirmed_at = previous.confirmed_at;
                             drop.estimated_minutes = previous.estimated_minutes;
                             drop.claimed = previous.claimed;
+                            drop.claimed_at = previous.claimed_at;
                             drop.claim_id = previous.claim_id.clone();
                         }
                     }
@@ -1166,6 +1174,30 @@ impl Mining {
                 self.campaigns = inventory.campaigns;
                 self.status = inventory.status;
                 self.recover_claims(&inventory.awards).await?;
+                let observed_at = Utc::now();
+                let entries = self
+                    .campaigns
+                    .iter()
+                    .flat_map(|campaign| {
+                        campaign
+                            .drops
+                            .iter()
+                            .filter(|drop| drop.claimed)
+                            .map(move |drop| {
+                                let mut entry = campaign
+                                    .history_entry(drop, drop.claimed_at.unwrap_or(observed_at));
+                                entry.claimed_at_is_observed = drop.claimed_at.is_none();
+                                entry
+                            })
+                    })
+                    .collect();
+                let app = self.app.clone();
+                tokio::task::spawn_blocking(move || {
+                    app.history.blocking_lock().import_claims(entries)
+                })
+                .await
+                .map_err(|_| TwitchError::Storage)?
+                .map_err(|_| TwitchError::Storage)?;
                 self.last_inventory = now;
                 self.set_transition();
                 self.next_refresh = now
@@ -1221,29 +1253,51 @@ impl Mining {
             }
             Job::Watch {
                 channel,
-                result: Ok(true),
+                result,
+                requested_at,
                 at,
             } => {
-                if self.watching == Some(channel.identity.id) {
-                    if let Some(current) = self.channels.iter_mut().find(|c| {
-                        c.identity.id == channel.identity.id
-                            && c.broadcast_id == channel.broadcast_id
-                    }) {
-                        current.beacon_url = channel.beacon_url;
-                    }
+                if matches!(
+                    result,
+                    Err(TwitchError::Unauthorized | TwitchError::Cancelled)
+                ) {
+                    return Err(result.err().unwrap());
+                }
+                let current = self.channels.iter_mut().find(|c| {
+                    self.watching == Some(c.identity.id)
+                        && c.identity.id == channel.identity.id
+                        && c.broadcast_id == channel.broadcast_id
+                        && self
+                            .channel_events
+                            .get(&c.identity.id)
+                            .is_none_or(|at| *at <= requested_at)
+                });
+                let Some(current) = current else {
+                    return Ok(());
+                };
+                // Persist failure invalidation too, and prevent an older stream
+                // refresh from restoring the stale beacon cached in its clone.
+                if current.beacon_url != channel.beacon_url {
+                    current.beacon_url = channel.beacon_url;
+                    self.channel_events.insert(current.identity.id, at);
+                }
+                if result == Ok(true) {
+                    self.watch_failures = 0;
                     self.next_watch = at + WATCH_INTERVAL;
                     self.poll_at = Some(at + PROGRESS_DELAY);
-                }
-                None
-            }
-            Job::Watch {
-                channel, result, ..
-            } => {
-                self.refresh_channels.insert(channel.identity.id, now);
-                match result {
-                    Err(e) => Some(e),
-                    Ok(false) => Some(TwitchError::Network),
-                    _ => None,
+                    None
+                } else {
+                    self.refresh_channels.insert(channel.identity.id, now);
+                    self.watch_failures += 1;
+                    let error = result.err().unwrap_or(TwitchError::Network);
+                    if self.watch_failures >= 3 {
+                        tracing::warn!(
+                            failures = self.watch_failures,
+                            "Repeated watch failures; renewing Twitch connections"
+                        );
+                        return Err(error);
+                    }
+                    Some(error)
                 }
             }
             Job::Poll {

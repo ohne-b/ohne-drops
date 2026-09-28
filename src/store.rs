@@ -1,5 +1,5 @@
 use std::{
-    collections::{BTreeMap, HashSet},
+    collections::{BTreeMap, BTreeSet, HashSet},
     fs::{self, File, OpenOptions},
     io::Write,
     path::{Path, PathBuf},
@@ -100,11 +100,14 @@ pub fn atomic_json<T: Serialize>(path: &Path, value: &T) -> Result<()> {
 struct HistoryFile {
     version: u32,
     entries: Vec<HistoryEntry>,
+    #[serde(default, skip_serializing_if = "BTreeSet::is_empty")]
+    cleared_ids: BTreeSet<String>,
 }
 
 pub struct History {
     path: PathBuf,
     entries: Vec<HistoryEntry>,
+    cleared_ids: BTreeSet<String>,
     pub writable: bool,
 }
 
@@ -121,23 +124,24 @@ impl History {
         let path = directory.join("drop_history.json");
         let loaded = read_json::<HistoryFile>(&path).and_then(|value| {
             let Some(value) = value else {
-                return Ok(vec![]);
+                return Ok((vec![], BTreeSet::new()));
             };
             let mut seen = HashSet::new();
             if value.version != 1
-                || value
-                    .entries
-                    .iter()
-                    .any(|e| e.id.is_empty() || !seen.insert(&e.id))
+                || value.entries.iter().any(|e| {
+                    e.id.is_empty() || !seen.insert(&e.id) || value.cleared_ids.contains(&e.id)
+                })
+                || value.cleared_ids.iter().any(String::is_empty)
             {
                 bail!("invalid history");
             }
-            Ok(value.entries)
+            Ok((value.entries, value.cleared_ids))
         });
         match loaded {
-            Ok(entries) => Self {
+            Ok((entries, cleared_ids)) => Self {
                 path,
                 entries,
+                cleared_ids,
                 writable: true,
             },
             Err(_) => {
@@ -145,6 +149,7 @@ impl History {
                 Self {
                     path,
                     entries: vec![],
+                    cleared_ids: BTreeSet::new(),
                     writable: false,
                 }
             }
@@ -152,30 +157,58 @@ impl History {
     }
 
     pub fn record(&mut self, entry: HistoryEntry) -> Result<bool> {
-        if self.entries.iter().any(|e| e.id == entry.id) {
-            return Ok(false);
-        }
-        let mut next = self.entries.clone();
-        next.push(entry);
-        self.replace(next)?;
-        Ok(true)
+        Ok(self.append([entry], false)? > 0)
     }
 
-    fn replace(&mut self, entries: Vec<HistoryEntry>) -> Result<()> {
+    pub fn import_claims(&mut self, entries: Vec<HistoryEntry>) -> Result<usize> {
+        self.append(entries, true)
+    }
+
+    fn append(
+        &mut self,
+        entries: impl IntoIterator<Item = HistoryEntry>,
+        imported: bool,
+    ) -> Result<usize> {
+        let mut next = self.entries.clone();
+        let mut known: HashSet<_> = next.iter().map(|e| e.id.clone()).collect();
+        let mut cleared = self.cleared_ids.clone();
+        for entry in entries {
+            if (!imported || !cleared.contains(&entry.id)) && known.insert(entry.id.clone()) {
+                cleared.remove(&entry.id);
+                next.push(entry);
+            }
+        }
+        let added = next.len() - self.entries.len();
+        if added > 0 {
+            next.sort_by(|a, b| {
+                a.claimed_at
+                    .cmp(&b.claimed_at)
+                    .then_with(|| a.id.cmp(&b.id))
+            });
+            self.replace(next, cleared)?;
+        }
+        Ok(added)
+    }
+
+    fn replace(&mut self, entries: Vec<HistoryEntry>, cleared_ids: BTreeSet<String>) -> Result<()> {
         if !self.writable {
             bail!("claim history is unreadable; original file preserved");
         }
         let next = HistoryFile {
             version: 1,
             entries,
+            cleared_ids,
         };
         atomic_json(&self.path, &next)?;
         self.entries = next.entries;
+        self.cleared_ids = next.cleared_ids;
         Ok(())
     }
 
     pub fn clear(&mut self) -> Result<()> {
-        self.replace(vec![])
+        let mut cleared = self.cleared_ids.clone();
+        cleared.extend(self.entries.iter().map(|entry| entry.id.clone()));
+        self.replace(vec![], cleared)
     }
     pub fn total(&self) -> usize {
         self.entries.len()
@@ -214,6 +247,7 @@ impl History {
             "required_minutes",
             "drop_id",
             "campaign_id",
+            "claimed_at_is_observed",
         ])?;
         for entry in self.entries(filter) {
             writer.write_record([
@@ -225,6 +259,7 @@ impl History {
                 entry.required_minutes.to_string(),
                 entry.id,
                 entry.campaign_id,
+                entry.claimed_at_is_observed.to_string(),
             ])?;
         }
         Ok(writer.into_inner()?)
@@ -530,10 +565,37 @@ mod tests {
         assert!(restored.entries(&filter)[0].image_url.is_empty());
         let csv = String::from_utf8(restored.csv(&filter).unwrap()).unwrap();
         assert!(csv.starts_with('\u{feff}'));
-        assert!(csv.contains("\"Coat, warm\",Coat; Boots,30,b,c\r\n"));
+        assert!(csv.contains("\"Coat, warm\",Coat; Boots,30,b,c,false\r\n"));
         assert_eq!(restored.stats()["by_month"]["2026-01"], 2);
         history.clear().unwrap();
         assert_eq!(History::load(dir.path()).total(), 0);
+    }
+
+    #[test]
+    fn imported_claims_are_deduplicated_sorted_and_clearing_survives_reload() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut history = History::load(dir.path());
+        let recent = entry("recent");
+        let mut old = entry("older");
+        old.claimed_at -= chrono::Duration::days(1);
+        old.claimed_at_is_observed = true;
+        history.record(recent.clone()).unwrap();
+        assert_eq!(
+            history
+                .import_claims(vec![old.clone(), recent.clone(), old.clone()])
+                .unwrap(),
+            1
+        );
+        let mut history = History::load(dir.path());
+        let entries = history.entries(&HistoryFilter::default());
+        assert_eq!(entries[0].id, "recent");
+        assert!(entries[1].claimed_at_is_observed);
+        history.clear().unwrap();
+        let mut history = History::load(dir.path());
+        assert_eq!(history.import_claims(vec![old, recent]).unwrap(), 0);
+        assert_eq!(history.total(), 0);
+        assert_eq!(history.import_claims(vec![entry("new")]).unwrap(), 1);
+        assert_eq!(History::load(dir.path()).total(), 1);
     }
 
     #[test]
@@ -549,6 +611,7 @@ mod tests {
         let mut history = History::load(dir.path());
         assert!(!history.writable);
         assert!(history.record(entry("a")).is_err());
+        assert!(history.import_claims(vec![entry("b")]).is_err());
         assert!(history.clear().is_err());
         assert!(!CampaignArchive::load(dir.path()).writable);
         assert!(DataDirectory::open(dir.path()).unwrap().settings().is_err());
@@ -568,7 +631,9 @@ mod tests {
         history.record(entry("a")).unwrap();
         history.path = dir.path().join("missing").join("history.json");
         assert!(history.record(entry("b")).is_err());
+        assert!(history.import_claims(vec![entry("b"), entry("c")]).is_err());
         assert!(history.clear().is_err());
+        assert!(history.cleared_ids.is_empty());
         assert_eq!(history.total(), 1);
         assert_eq!(History::load(dir.path()).total(), 1);
     }

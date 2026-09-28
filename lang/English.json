@@ -137,7 +137,8 @@
             "by_game": "By game",
             "by_month": "By month",
             "clear_confirm": "Delete the locally recorded claim list? Completed campaign snapshots in Finished are kept. This cannot be undone.",
-            "cleared": "History cleared."
+            "cleared": "History cleared.",
+            "first_seen": "First seen {time}"
         },
         "redesign": {
             "overview": "Overview",
@@ -196,7 +197,7 @@
             "all_games": "All games",
             "since_utc": "Since (UTC)",
             "clear_history": "Clear local history",
-            "history_clear_help": "Rewards already claimed on Twitch are unaffected.",
+            "history_clear_help": "Rewards already claimed on Twitch are unaffected. Cleared entries will not be imported again.",
             "history_error": "Could not load history. Try again.",
             "summary": "Summary of these results",
             "search_activity": "Search activity",

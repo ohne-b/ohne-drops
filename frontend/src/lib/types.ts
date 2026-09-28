@@ -150,6 +150,7 @@ export interface HistoryEntry {
   image_url?: string;
   id: string;
   claimed_at: string;
+  claimed_at_is_observed?: boolean;
   game: string;
   campaign: string;
   drop_name: string;

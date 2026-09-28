@@ -109,12 +109,21 @@ embed it and run without a build tool/runtime companion. Production builds never
 - Watch events use validated Twitch beacon URLs and a base64 minute-watched payload every
   59 seconds. No playlists/video/audio downloads. Confirm via PubSub or CurrentDrop, distinguish
   estimates, and recover at 15 unconfirmed estimates. Only currently eligible drop progress
-  suppresses fallback. Late request results cannot overwrite newer account/stream events.
+  suppresses fallback. Failed/unacknowledged beacons invalidate the owned channel's cached
+  address. Three consecutive current-stream watch failures renew the network generation;
+  successful acknowledgements reset this count. Late request results cannot overwrite newer
+  account/stream events or restore invalidated beacon addresses.
 - Claims require account-issued instance IDs, skip upcoming campaigns and stop at the strict
   campaign-end + 24-hour deadline. Earned claims are independent of mining/ignore selection.
   Persist the account-scoped intent before RPC, then its success receipt and history. Keep the
   receipt until the owner acknowledges domain state and archives completion; reconcile after
   restart even without catalog metadata. Never retire it before durable history/archive writes.
+- History imports Twitch-confirmed claims during inventory refresh, independent of mining
+  selection and reward type. Require account claim state or complete in-window award evidence;
+  stale local progress must not override newer award evidence. Deduplicate by drop ID and use
+  known award timestamps, labeling unknown claim times as first observed (also in exports).
+  Persist cleared IDs in the compatible version-1 history file so imports cannot resurrect
+  cleared entries. Imports never issue claim RPCs or fabricate missing campaign metadata.
 - Every session/job/socket task is owned and drained. Logout coalesces and removes only Twitch
   credentials after drainage; concurrent shutdown cannot interrupt removal in either queue order.
   Hourly validation/network reconfiguration preserves manual selection/deadlines and queues

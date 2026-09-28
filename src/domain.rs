@@ -118,6 +118,7 @@ pub struct Drop {
     pub estimated_minutes: u32,
     pub confirmed_at: Option<DateTime<Utc>>,
     pub claimed: bool,
+    pub claimed_at: Option<DateTime<Utc>>,
     pub claim_id: Option<String>,
     pub prerequisites: Vec<String>,
     pub benefits: Vec<Benefit>,
@@ -144,16 +145,18 @@ impl Drop {
                 return Err(InvalidData);
             }
         }
+        let awarded_at = benefits
+            .iter()
+            .try_fold(starts_at, |latest, benefit| {
+                awards
+                    .get(&benefit.id)
+                    .filter(|at| starts_at <= **at && **at < ends_at)
+                    .map(|at| latest.max(*at))
+            })
+            .filter(|_| !benefits.is_empty());
         let claimed = account
             .map(|v| v["isClaimed"].as_bool().unwrap_or(false))
-            .unwrap_or_else(|| {
-                !benefits.is_empty()
-                    && benefits.iter().all(|benefit| {
-                        awards
-                            .get(&benefit.id)
-                            .is_some_and(|at| starts_at <= *at && *at < ends_at)
-                    })
-            });
+            .unwrap_or(awarded_at.is_some());
         let required_minutes = value["requiredMinutesWatched"]
             .as_u64()
             .and_then(|v| u32::try_from(v).ok())
@@ -176,6 +179,7 @@ impl Drop {
             estimated_minutes: 0,
             confirmed_at: account.map(|_| now),
             claimed,
+            claimed_at: awarded_at.filter(|_| claimed),
             claim_id: account
                 .and_then(|v| v["dropInstanceID"].as_str())
                 .filter(|s| !s.is_empty())
@@ -220,6 +224,7 @@ impl Drop {
 
     pub fn mark_claimed(&mut self, now: DateTime<Utc>) {
         self.claimed = true;
+        self.claimed_at = Some(now);
         self.confirm(self.required_minutes, now);
     }
 
@@ -571,6 +576,7 @@ impl Campaign {
         HistoryEntry {
             id: drop.id.clone(),
             claimed_at: now,
+            claimed_at_is_observed: false,
             game: self.game.name.clone(),
             campaign: self.name.clone(),
             drop_name: drop.name.clone(),

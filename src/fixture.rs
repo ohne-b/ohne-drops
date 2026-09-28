@@ -39,6 +39,7 @@ async fn reset_state(app: &App) -> anyhow::Result<()> {
     history.record(HistoryEntry {
         id: "past-drop".into(),
         claimed_at: "2026-09-25T18:00:00Z".parse()?,
+        claimed_at_is_observed: false,
         game: "Rust".into(),
         campaign: "Autumn expedition".into(),
         drop_name: "Canvas pack".into(),

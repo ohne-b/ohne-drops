@@ -338,31 +338,30 @@ impl TwitchClient {
             "hidden":false,"is_live":true,"live":true,"location":"channel","logged_in":true,"minutes_logged":1,
             "muted":false,"player":"site","user_id":self.user_id,
         }}]);
-        let url = match &channel.beacon_url {
-            Some(url) => url.clone(),
+        let url = match channel.beacon_url.take() {
+            Some(url) => url,
             None => self.beacon(channel).await?,
         };
-        channel.beacon_url = Some(url.clone());
         let response = self
             .http
             .execute(
                 self.http
-                    .request(Method::POST, url)
+                    .request(Method::POST, url.clone())
                     .form(&[("data", STANDARD.encode(payload.to_string()))]),
                 false,
             )
             .await?;
-        if !response.status().is_success() {
-            channel.beacon_url = None;
-        }
-        if response.status() != StatusCode::NO_CONTENT {
+        let acknowledged = response.status() == StatusCode::NO_CONTENT;
+        if acknowledged {
+            channel.beacon_url = Some(url);
+        } else {
             tracing::warn!(
                 status = response.status().as_u16(),
                 expected_status = 204,
                 "Watch beacon was not acknowledged"
             );
         }
-        Ok(response.status() == StatusCode::NO_CONTENT)
+        Ok(acknowledged)
     }
 
     pub async fn current_drop(
@@ -779,6 +778,36 @@ mod tests {
             drops_enabled: true,
             acl_based: false,
             beacon_url: None,
+        }
+    }
+
+    #[tokio::test]
+    async fn watch_transport_errors_and_unacknowledged_responses_discard_the_cached_beacon() {
+        let server = MockServer::start().await;
+        let client = TwitchClient::new(Arc::new(http(&server)), &session());
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let unreachable = format!("http://{}/track", listener.local_addr().unwrap())
+            .parse()
+            .unwrap();
+        drop(listener);
+        let mut channel = channel(10);
+        channel.beacon_url = Some(unreachable);
+        assert_eq!(
+            client.send_watch(&mut channel, Utc::now()).await,
+            Err(TwitchError::Network)
+        );
+        assert!(channel.beacon_url.is_none());
+        for status in [200, 302, 403, 500] {
+            server.reset().await;
+            Mock::given(method("POST"))
+                .and(path("/track"))
+                .respond_with(ResponseTemplate::new(status))
+                .expect(1)
+                .mount(&server)
+                .await;
+            channel.beacon_url = Some(format!("{}/track", server.uri()).parse().unwrap());
+            assert!(!client.send_watch(&mut channel, Utc::now()).await.unwrap());
+            assert!(channel.beacon_url.is_none());
         }
     }
 

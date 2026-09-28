@@ -869,7 +869,7 @@ test('autosave retains conflicting edits and retries only edited fields', async 
   expect((await (await request.get('/api/settings')).json()).connection_quality).toBe(3);
 });
 
-test('history displays saved reward artwork and preserves old entries', async ({
+test('history displays saved artwork, old entries and clearly labels unknown claim times', async ({
   page,
   request,
 }) => {
@@ -883,10 +883,16 @@ test('history displays saved reward artwork and preserves old entries', async ({
   await page.route('**/api/history?*', (route) =>
     route.fulfill({
       json: {
-        total: 2,
+        total: 3,
         entries: [
           { ...history.entries[0], image_url: 'https://static-cdn.jtvnw.net/reward.png' },
           { ...history.entries[0], id: 'legacy', drop_name: 'Older reward' },
+          {
+            ...history.entries[0],
+            id: 'imported',
+            drop_name: 'Imported badge',
+            claimed_at_is_observed: true,
+          },
         ],
       },
     }),
@@ -896,6 +902,8 @@ test('history displays saved reward artwork and preserves old entries', async ({
   await expect(image).toBeVisible();
   await expect.poll(() => image.evaluate((node: HTMLImageElement) => node.naturalWidth)).toBe(40);
   await expect(page.getByText('Older reward', { exact: true })).toBeVisible();
+  await expect(page.getByText('Imported badge', { exact: true })).toBeVisible();
+  await expect(page.getByText(/^First seen /)).toBeVisible();
 });
 
 test('history filters, export and confirmed clearing', async ({ page }) => {
