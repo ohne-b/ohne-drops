@@ -10,7 +10,7 @@ use twitch_oauth2::{
     },
 };
 
-use super::{CLIENT_ID, TwitchError, TwitchHttp};
+use super::{CLIENT_ID, TwitchError, TwitchHttp, diagnostics};
 use crate::{
     dto::OAuthCode,
     store::{atomic_json, read_json},
@@ -80,11 +80,9 @@ impl Session {
         Ok(Self {
             version: 1,
             client_id: CLIENT_ID.into(),
-            user_id: token
-                .user_id
-                .as_str()
-                .parse()
-                .map_err(|_| TwitchError::InvalidResponse)?,
+            user_id: token.user_id.as_str().parse().map_err(|_| {
+                diagnostics::invalid("OAuthValidation", "user ID must fit u64", None)
+            })?,
             device_id: http.device_id.clone(),
             access_token: token.access_token.secret().to_owned(),
             refresh_token: token.refresh_token.as_ref().map(|v| v.secret().to_owned()),
@@ -99,7 +97,13 @@ impl Session {
                 validated,
                 None,
             )
-            .map_err(|_| TwitchError::InvalidResponse)?,
+            .map_err(|_| {
+                diagnostics::invalid(
+                    "OAuthValidation",
+                    "validated token cannot construct user session",
+                    None,
+                )
+            })?,
             Err(ValidationError::NotAuthorized) => {
                 let refresh = self
                     .refresh_token
@@ -127,7 +131,11 @@ impl Session {
                     } if matches!(error.status.as_u16(), 400 | 401 | 403) => {
                         TwitchError::Unauthorized
                     }
-                    _ => TwitchError::InvalidResponse,
+                    _ => diagnostics::invalid(
+                        "OAuthRefresh",
+                        "token refresh response rejected by OAuth library",
+                        None,
+                    ),
                 })?
             }
             Err(error) => return Err(validation_error(error)),
@@ -144,7 +152,11 @@ fn validation_error(error: ValidationError<TwitchError>) -> TwitchError {
     match error {
         ValidationError::NotAuthorized => TwitchError::Unauthorized,
         ValidationError::Request(error) => error,
-        _ => TwitchError::InvalidResponse,
+        _ => diagnostics::invalid(
+            "OAuthValidation",
+            "validation response rejected by OAuth library",
+            None,
+        ),
     }
 }
 
@@ -165,9 +177,16 @@ impl DeviceLogin {
         }
         let code = builder
             .parse_exchange_device_code_response(response)
-            .map_err(|_| TwitchError::InvalidResponse)?;
-        let url =
-            url::Url::parse(&code.verification_uri).map_err(|_| TwitchError::InvalidResponse)?;
+            .map_err(|_| {
+                diagnostics::invalid(
+                    "OAuthDeviceCode",
+                    "device response rejected by OAuth library",
+                    None,
+                )
+            })?;
+        let url = url::Url::parse(&code.verification_uri).map_err(|_| {
+            diagnostics::invalid("OAuthDeviceCode", "verification URI is malformed", None)
+        })?;
         if url.scheme() != "https"
             || !matches!(url.host_str(), Some("www.twitch.tv" | "twitch.tv"))
             || !url.username().is_empty()
@@ -177,7 +196,11 @@ impl DeviceLogin {
             || code.user_code.is_empty()
             || code.interval > 3600
         {
-            return Err(TwitchError::InvalidResponse);
+            return Err(diagnostics::invalid(
+                "OAuthDeviceCode",
+                "verification URI, expiry, user code or polling interval failed validation",
+                None,
+            ));
         }
         let expires_at = Instant::now() + Duration::from_secs(code.expires_in);
         let interval = Duration::from_secs(code.interval.max(1));
@@ -226,7 +249,13 @@ impl DeviceLogin {
                 Err(DeviceUserTokenExchangeError::ValidationError(error)) => {
                     return Err(validation_error(error));
                 }
-                Err(_) => return Err(TwitchError::InvalidResponse),
+                Err(_) => {
+                    return Err(diagnostics::invalid(
+                        "OAuthDeviceCode",
+                        "token exchange response rejected by OAuth library",
+                        None,
+                    ));
+                }
             }
         }
     }

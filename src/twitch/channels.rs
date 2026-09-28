@@ -8,7 +8,7 @@ use serde_json::{Value, json};
 use url::Url;
 
 use super::{
-    TwitchClient, TwitchError,
+    TwitchClient, TwitchError, diagnostics,
     inventory::values,
     operations::{Operation, directory},
     success,
@@ -68,7 +68,13 @@ impl TwitchClient {
             return Ok(None);
         }
         let identity = ChannelIdentity {
-            id: number(&user["id"]).ok_or(TwitchError::InvalidResponse)?,
+            id: number(&user["id"]).ok_or_else(|| {
+                diagnostics::invalid(
+                    "StreamInfo",
+                    "user.id must be an unsigned integer",
+                    user.get("id"),
+                )
+            })?,
             name: user["displayName"]
                 .as_str()
                 .filter(|name| !name.is_empty())
@@ -244,13 +250,24 @@ impl TwitchClient {
             .execute(self.http.request(Method::GET, url), true)
             .await?;
         success(response.status())?;
-        String::from_utf8(response.into_body()).map_err(|_| TwitchError::InvalidResponse)
+        String::from_utf8(response.into_body()).map_err(|error| {
+            tracing::warn!(
+                valid_up_to = error.utf8_error().valid_up_to(),
+                "Twitch page is not UTF-8"
+            );
+            TwitchError::InvalidResponse
+        })
     }
 
     fn trusted_url(&self, raw: &str) -> Result<Url, TwitchError> {
-        let url = Url::parse(raw).map_err(|_| TwitchError::InvalidResponse)?;
+        let url =
+            Url::parse(raw).map_err(|_| diagnostics::invalid("Beacon", "malformed URL", None))?;
         if !url.username().is_empty() || url.password().is_some() || url.fragment().is_some() {
-            return Err(TwitchError::InvalidResponse);
+            return Err(diagnostics::invalid(
+                "Beacon",
+                "URL contains credentials or fragment",
+                None,
+            ));
         }
         #[cfg(test)]
         if url.origin() == self.http.endpoints.web.origin() {
@@ -266,10 +283,15 @@ impl TwitchClient {
         if trusted {
             Ok(url)
         } else {
-            Err(TwitchError::InvalidResponse)
+            Err(diagnostics::invalid(
+                "Beacon",
+                "URL origin is not trusted",
+                None,
+            ))
         }
     }
 
+    #[tracing::instrument(skip_all)]
     pub async fn beacon(&self, channel: &Channel) -> Result<Url, TwitchError> {
         if channel.identity.login.is_empty()
             || !channel
@@ -290,16 +312,21 @@ impl TwitchClient {
         if let Some(beacon) = BEACON.captures(&page) {
             return self.trusted_url(&beacon[1]);
         }
-        let settings = SETTINGS
-            .captures(&page)
-            .ok_or(TwitchError::InvalidResponse)?;
+        let settings = SETTINGS.captures(&page).ok_or_else(|| {
+            diagnostics::invalid(
+                "Beacon",
+                "page has neither beacon URL nor settings script",
+                None,
+            )
+        })?;
         let script = self.page(self.trusted_url(&settings[1])?).await?;
-        let beacon = BEACON
-            .captures(&script)
-            .ok_or(TwitchError::InvalidResponse)?;
+        let beacon = BEACON.captures(&script).ok_or_else(|| {
+            diagnostics::invalid("Beacon", "settings script has no beacon URL", None)
+        })?;
         self.trusted_url(&beacon[1])
     }
 
+    #[tracing::instrument(skip_all)]
     pub async fn send_watch(
         &self,
         channel: &mut Channel,
@@ -332,6 +359,13 @@ impl TwitchClient {
         if !response.status().is_success() {
             channel.beacon_url = None;
         }
+        if response.status() != StatusCode::NO_CONTENT {
+            tracing::warn!(
+                status = response.status().as_u16(),
+                expected_status = 204,
+                "Watch beacon was not acknowledged"
+            );
+        }
         Ok(response.status() == StatusCode::NO_CONTENT)
     }
 
@@ -351,10 +385,22 @@ impl TwitchClient {
         let id = drop["dropID"]
             .as_str()
             .filter(|v| !v.is_empty())
-            .ok_or(TwitchError::InvalidResponse)?;
+            .ok_or_else(|| {
+                diagnostics::invalid(
+                    "CurrentDrop",
+                    "dropCurrentSession.dropID must be a nonempty string",
+                    drop.get("dropID"),
+                )
+            })?;
         let minutes = number(&drop["currentMinutesWatched"])
             .and_then(|v| u32::try_from(v).ok())
-            .ok_or(TwitchError::InvalidResponse)?;
+            .ok_or_else(|| {
+                diagnostics::invalid(
+                    "CurrentDrop",
+                    "dropCurrentSession.currentMinutesWatched must fit u32",
+                    drop.get("currentMinutesWatched"),
+                )
+            })?;
         Ok(Some((id.to_owned(), minutes)))
     }
 

@@ -119,6 +119,11 @@ embed it and run without a build tool/runtime companion. Production builds never
 - Requests use bounded concurrency/rate, retries and cancellation. Quality 1..6 controls connect
   timeout 5×quality and total 10×quality seconds; the saved refresh interval actually schedules
   inventory work. Slow discovery must not block watch cadence. Duplicate idle prompts collapse.
+- Upstream diagnostics use server tracing only, never dashboard console/socket payloads.
+  Record operation/status/attempt, JSON syntax positions, rejected field types, typed network
+  causes and catalog rejection summaries. Never format transport errors, raw response bodies,
+  request variables, URLs or headers. Allowlist known GraphQL messages; fingerprint unknown
+  messages and cap per-response diagnostic output. Keep public errors and mining behavior unchanged.
 
 ## Authentication and storage
 

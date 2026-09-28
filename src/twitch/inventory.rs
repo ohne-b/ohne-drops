@@ -3,7 +3,7 @@ use std::collections::{BTreeMap, HashMap, HashSet};
 use chrono::{DateTime, Utc};
 use serde_json::{Value, json};
 
-use super::{TwitchClient, TwitchError, catalog::Catalog, operations::Operation};
+use super::{TwitchClient, TwitchError, catalog::Catalog, diagnostics, operations::Operation};
 use crate::{domain::Campaign, dto::InventoryStatus};
 
 pub struct Inventory {
@@ -24,7 +24,13 @@ impl TwitchClient {
         let inventory = response
             .pointer("/data/currentUser/inventory")
             .filter(|v| v.is_object())
-            .ok_or(TwitchError::InvalidResponse)?;
+            .ok_or_else(|| {
+                diagnostics::invalid(
+                    "Inventory",
+                    "data.currentUser.inventory must be an object",
+                    response.pointer("/data/currentUser/inventory"),
+                )
+            })?;
         let awards: HashMap<String, DateTime<Utc>> = values(&inventory["gameEventDrops"])
             .filter_map(|v| {
                 Some((
@@ -37,17 +43,34 @@ impl TwitchClient {
         let mut campaigns = BTreeMap::new();
         let mut account_ids = HashSet::new();
         let mut account_complete = inventory["dropCampaignsInProgress"].is_array();
+        let mut malformed_records = 0usize;
+        let mut duplicates = 0usize;
         for record in values(&inventory["dropCampaignsInProgress"]) {
             // Even a damaged account record must not be replaced by public account assumptions.
-            if let Some(id) = record["id"].as_str() {
-                account_complete &= account_ids.insert(id.to_owned());
+            if let Some(id) = record["id"].as_str()
+                && !account_ids.insert(id.to_owned())
+            {
+                duplicates += 1;
+                account_complete = false;
             }
             match Campaign::parse(record, &awards, now) {
                 Ok(campaign) => {
                     campaigns.insert(campaign.id.clone(), campaign);
                 }
-                Err(_) => account_complete = false,
+                Err(_) => {
+                    malformed_records += 1;
+                    account_complete = false;
+                }
             }
+        }
+        if !account_complete {
+            tracing::warn!(
+                operation = "Inventory",
+                malformed_records,
+                duplicates,
+                collection_type = diagnostics::kind(inventory.get("dropCampaignsInProgress")),
+                "Account inventory is partial"
+            );
         }
         let catalog = public.and_then(|v| Catalog::parse(v, &awards, now).ok());
         let available = account_complete && catalog.as_ref().is_some_and(|c| c.complete);
@@ -79,7 +102,16 @@ impl TwitchClient {
         match response {
             Value::Array(values) if values.len() == expected => Ok(values),
             Value::Object(_) if expected == 1 => Ok(vec![response]),
-            _ => Err(TwitchError::InvalidResponse),
+            _ => {
+                tracing::warn!(
+                    operation = "GraphQLBatch",
+                    expected,
+                    actual_type = diagnostics::kind(Some(&response)),
+                    actual_count = response.as_array().map(Vec::len),
+                    "Unexpected batch response shape"
+                );
+                Err(TwitchError::InvalidResponse)
+            }
         }
     }
 }
