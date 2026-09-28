@@ -1,5 +1,14 @@
 # Changelog
 
+## [v1.1.0](https://github.com/ohne-b/twitch-drops-miner/releases/tag/v1.1.0) — 2026-09-28
+
+- add campaign sorting by Default, Newest, Ending Soonest, Most Drops and A-Z; move the campaign count into the heading and Clear filters inside Filters ([#24](https://github.com/ohne-b/twitch-drops-miner/pull/24))
+- improve server-side diagnostics for upstream failures, invalid responses and incomplete catalog refreshes ([#23](https://github.com/ohne-b/twitch-drops-miner/pull/23))
+- add opt-in advanced diagnostics with bounded, redacted JSON previews and nested transport causes; enable with `TDM_DIAGNOSTICS=true` or `--diagnostics`, independently of ordinary verbosity ([#25](https://github.com/ohne-b/twitch-drops-miner/pull/25))
+
+Existing settings, credentials, progress and history remain compatible. Advanced diagnostics
+are off by default and appear only in server logs, never in the dashboard.
+
 ## [v1.0.0](https://github.com/ohne-b/twitch-drops-miner/releases/tag/v1.0.0) — 2026-09-27
 
 - restore campaign discovery through the public SunkwiBOT catalog while keeping device-code login and private account inventory with Twitch ([#20](https://github.com/ohne-b/twitch-drops-miner/pull/20))
