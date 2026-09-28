@@ -189,36 +189,38 @@ impl Capture {
         if CREDENTIAL_TEXT.is_match(text) {
             return "[credential-bearing text withheld]".into();
         }
-        // Longest first prevents a shorter credential exposing the remainder of another.
-        let mut secrets: Vec<_> = self.secrets.iter().collect();
-        secrets.sort_by_key(|secret| std::cmp::Reverse(secret.len()));
-        // Consume only original input; never rescan inserted markers or expand without bound.
-        let mut remaining = text;
-        let mut text = String::new();
-        while !remaining.is_empty() {
-            if let Some(secret) = secrets
-                .iter()
-                .find(|secret| remaining.starts_with(secret.as_str()))
-            {
-                text.push_str(REDACTED);
-                remaining = &remaining[secret.len()..];
-            } else {
-                let ch = remaining.chars().next().unwrap();
-                text.push(ch);
-                remaining = &remaining[ch.len_utf8()..];
+        // Mark original bytes first: a secret may itself be a URL/auth delimiter.
+        // A bounded mask merges overlapping credentials without rewriting inserted markers.
+        let mut private = vec![false; text.len()];
+        for pattern in [&*URLS, &*AUTH, &*OPAQUE] {
+            for found in pattern.find_iter(text) {
+                private[found.range()].fill(true);
             }
-            if text.len() >= CAPTURE_LIMIT {
-                text.push_str(" [truncated]");
+        }
+        for (index, _) in text.char_indices() {
+            if let Some(length) = self
+                .secrets
+                .iter()
+                .filter(|secret| text[index..].starts_with(secret.as_str()))
+                .map(String::len)
+                .max()
+            {
+                private[index..index + length].fill(true);
+            }
+        }
+        let mut output = String::new();
+        for (index, ch) in text.char_indices() {
+            if !private[index] {
+                output.push(ch);
+            } else if index == 0 || !private[index - 1] {
+                output.push_str(REDACTED);
+            }
+            if output.len() >= CAPTURE_LIMIT {
+                output.push_str(" [truncated]");
                 break;
             }
         }
-        text = URLS.replace_all(&text, "[url redacted]").into_owned();
-        text = AUTH
-            .replace_all(&text, "[authorization redacted]")
-            .into_owned();
-        OPAQUE
-            .replace_all(&text, "[opaque value redacted]")
-            .into_owned()
+        bounded(output, CAPTURE_LIMIT)
     }
 
     fn json(&self, value: &Value, budget: &mut usize, depth: usize) -> Value {
@@ -764,6 +766,20 @@ mod tests {
             "[oversized text withheld]"
         );
         assert_eq!(capture.text("🦀v"), "🦀[redacted]");
+        for secret in [":", "/", " ", "Bearer", "https"] {
+            let mut capture = Capture::new("", "");
+            capture.secret(secret);
+            for text in [
+                "https://private-user:private-pass@host.invalid/private-secret",
+                "Bearer short-secret",
+            ] {
+                assert_eq!(capture.text(text), REDACTED);
+            }
+        }
+        let mut overlapping = Capture::new("", "");
+        overlapping.secret("aba");
+        overlapping.secret("bab");
+        assert_eq!(overlapping.text("ababa"), REDACTED);
     }
 
     #[test]
