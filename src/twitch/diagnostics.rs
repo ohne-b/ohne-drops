@@ -863,7 +863,7 @@ mod tests {
     #[tokio::test]
     async fn malformed_progress_logs_field_and_type_without_exposing_values_or_changing_public_error()
      {
-        for (drop, expected) in [
+        for (mut drop, expected) in [
             (
                 json!({"dropID":"private-id", "currentMinutesWatched":null}),
                 "currentMinutesWatched must fit u32",
@@ -877,6 +877,7 @@ mod tests {
                 "currentMinutesWatched must fit u32",
             ),
         ] {
+            drop["channel"] = json!({"id":"123456"});
             let server = MockServer::start().await;
             Mock::given(method("POST"))
                 .and(path("/gql"))

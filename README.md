@@ -214,6 +214,14 @@ existing progress appear first. **Finished** requires all watch rewards to be cl
 expiry alone does not count as completion. Older history without completion evidence
 appears separately as **Older recorded rewards**.
 
+The **Mining** card prefers current Twitch-reported reward progress. Confirmed watch
+completion releases automatic watching of that reward and prompts inventory reconciliation.
+Automatic checks for missing claim evidence are coalesced to at most once per minute,
+without pausing watch events. Estimates never prove a claim. Twitch must confirm it before
+it unlocks prerequisites,
+completes a campaign or enters **History**. Reported successor progress can appear while
+that claim evidence is still pending.
+
 **Ignored Drop Keywords** accepts one literal substring per line, matched without regard
 to case. Blank lines and duplicates are removed. A matching reward and dependent branches
 are ignored, while prerequisites shared with an allowed reward remain mineable. Ignored

@@ -412,6 +412,34 @@ impl Campaign {
             .all(|id| self.drops.iter().any(|d| &d.id == id && d.claimed))
     }
 
+    pub fn needs_claim_refresh(&self, now: DateTime<Utc>) -> bool {
+        !self.upcoming(now)
+            && now < self.ends_at + Duration::hours(24)
+            && self.drops.iter().any(|d| {
+                !d.claimed
+                    && d.watch_reward()
+                    && (d.confirmed_minutes >= d.required_minutes
+                        || d.confirmed_minutes > 0 && !self.prerequisites_met(d))
+            })
+    }
+
+    pub fn is_prerequisite(&self, id: &str, drop: &Drop) -> bool {
+        let by_id: HashMap<_, _> = self.drops.iter().map(|d| (d.id.as_str(), d)).collect();
+        let mut pending: Vec<_> = drop.prerequisites.iter().map(String::as_str).collect();
+        let mut seen = HashSet::new();
+        while let Some(parent) = pending.pop() {
+            if parent == id {
+                return true;
+            }
+            if seen.insert(parent)
+                && let Some(parent) = by_id.get(parent)
+            {
+                pending.extend(parent.prerequisites.iter().map(String::as_str));
+            }
+        }
+        false
+    }
+
     pub fn drop_eligible(
         &self,
         drop: &Drop,
@@ -421,6 +449,7 @@ impl Campaign {
     ) -> bool {
         policy.mineable.contains(&drop.id)
             && self.prerequisites_met(drop)
+            && drop.confirmed_minutes < drop.required_minutes
             && drop.estimated_minutes < MAX_ESTIMATED_MINUTES
             && now < drop.ends_at
             && drop.starts_at < before
