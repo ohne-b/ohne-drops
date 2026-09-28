@@ -85,7 +85,7 @@ embed it and run without a build tool/runtime companion. Production builds never
   PubSub/CurrentDrop progress shares a coalesced, at-most-once-per-minute inventory refresh
   with confirmed watch completion and reported successors awaiting prerequisite claim evidence.
   Retry unresolved evidence through the claim grace period, including after failed refreshes,
-  retaining unresolved expired campaigns when a partial refresh omits them.
+  retaining unresolved expired campaigns when a partial refresh omits them,
   without blocking watch cadence. Only account claim evidence unlocks prerequisites or History.
 - Unknown linkage is null and unknown progress has no confirmed timestamp. Infer claims from
   awards only when every benefit has evidence in the drop's time window and no explicit

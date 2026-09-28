@@ -232,6 +232,19 @@ async fn completed_transition_uses_successor_evidence_even_when_final_progress_a
     );
     assert!(!miner.campaigns[0].drops[0].claimed);
     assert_eq!(History::load(dir.path()).total(), 0);
+    let reported_at = miner.last_progress.as_ref().unwrap().1;
+    miner
+        .event(Event::Progress {
+            id: "next".into(),
+            minutes: 3,
+        })
+        .await
+        .unwrap();
+    assert_eq!(
+        miner.last_progress.as_ref().unwrap().1,
+        reported_at,
+        "duplicate progress cannot postpone polling"
+    );
     miner
         .event(Event::Progress {
             id: "drop-one".into(),
@@ -373,6 +386,41 @@ async fn completed_transition_retains_expired_claim_evidence_on_partial_inventor
     miner.busy.insert(JobKind::Inventory);
     miner.schedule(&settings).await;
     assert!(miner.refresh);
+    pool.close().await;
+}
+
+#[tokio::test]
+async fn completed_transition_preserves_new_claim_ids_alongside_newer_progress() {
+    let server = MockServer::start().await;
+    let (dir, mut miner, _intent, mut pool) = miner(&server).await;
+    let settings = select(&mut miner).await;
+    let requested_at = Utc::now();
+    miner.confirm("drop-one", 60, &settings);
+    let mut raw = campaign_json("one");
+    raw["timeBasedDrops"][0]["self"]["dropInstanceID"] = json!("new-account-instance");
+    miner
+        .complete(
+            Job::Inventory {
+                result: Ok(Inventory {
+                    campaigns: vec![Campaign::parse(&raw, &HashMap::new(), Utc::now()).unwrap()],
+                    awards: HashMap::new(),
+                    status: InventoryStatus {
+                        available: true,
+                        ..InventoryStatus::default()
+                    },
+                }),
+                requested_at,
+                refresh_sequence: 0,
+            },
+            &pool,
+        )
+        .await
+        .unwrap();
+    let drop = &miner.campaigns[0].drops[0];
+    assert_eq!(drop.confirmed_minutes, 60);
+    assert_eq!(drop.claim_id.as_deref(), Some("new-account-instance"));
+    assert!(!drop.claimed);
+    assert_eq!(History::load(dir.path()).total(), 0);
     pool.close().await;
 }
 

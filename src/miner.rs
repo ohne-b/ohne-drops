@@ -1244,7 +1244,9 @@ impl Mining {
                                 drop.estimated_minutes = previous.estimated_minutes;
                                 drop.claimed = previous.claimed;
                                 drop.claimed_at = previous.claimed_at;
-                                drop.claim_id = previous.claim_id.clone();
+                                if previous.claim_id.is_some() {
+                                    drop.claim_id = previous.claim_id.clone();
+                                }
                             } else if !previous.claimed
                                 && previous.confirmed_minutes > drop.confirmed_minutes
                             {
