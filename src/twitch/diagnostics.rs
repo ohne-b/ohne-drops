@@ -1,8 +1,364 @@
-//! Server-only diagnostics. Never format requests, URLs, headers or upstream values.
+//! Server-only diagnostics. Advanced captures require an explicit logging target opt-in.
+use std::{
+    error::Error,
+    sync::{
+        LazyLock,
+        atomic::{AtomicU64, Ordering},
+    },
+};
+
+use regex::Regex;
 use serde_json::Value;
 use sha2::{Digest, Sha256};
 
 use super::TwitchError;
+
+const CAPTURE_LIMIT: usize = 16 * 1024;
+const REDACTED: &str = "[redacted]";
+
+pub(super) fn enabled() -> bool {
+    tracing::enabled!(target: "tdm_diagnostics", tracing::Level::DEBUG)
+}
+
+pub(super) fn request_id() -> u64 {
+    static NEXT: AtomicU64 = AtomicU64::new(1);
+    NEXT.fetch_add(1, Ordering::Relaxed)
+}
+
+/// Request-local credential inventory; never Debug-format this struct or a request.
+#[derive(Clone, Default)]
+pub(super) struct Capture {
+    secrets: Vec<String>,
+    complete: bool,
+}
+
+fn sensitive(key: &str) -> bool {
+    let key: String = key
+        .chars()
+        .filter(char::is_ascii_alphanumeric)
+        .flat_map(char::to_lowercase)
+        .collect();
+    [
+        "token",
+        "secret",
+        "password",
+        "cookie",
+        "authorization",
+        "credential",
+    ]
+    .iter()
+    .any(|part| key.contains(part))
+        || key.ends_with("deviceid")
+        || matches!(
+            key.as_str(),
+            "devicecode"
+                | "usercode"
+                | "deviceid"
+                | "sessionid"
+                | "clientsessionid"
+                | "dropinstanceid"
+                | "claimid"
+        )
+}
+
+impl Capture {
+    pub(super) fn new(proxy: &str, device: &str) -> Self {
+        let mut capture = Self {
+            complete: true,
+            ..Self::default()
+        };
+        if let Ok(proxy) = url::Url::parse(proxy) {
+            capture.secret(proxy.username());
+            if let Some(password) = proxy.password() {
+                capture.secret(password);
+            }
+            // Decode URL-encoded user information without logging either representation.
+            for (_, value) in
+                url::form_urlencoded::parse(format!("value={}", proxy.username()).as_bytes())
+            {
+                capture.secret(&value);
+            }
+            if let Some(password) = proxy.password() {
+                for (_, value) in
+                    url::form_urlencoded::parse(format!("value={password}").as_bytes())
+                {
+                    capture.secret(&value);
+                }
+            }
+        }
+        capture.secret(device);
+        capture
+    }
+
+    fn secret(&mut self, value: &str) {
+        if !self.complete || value.is_empty() || self.secrets.iter().any(|secret| secret == value) {
+            return;
+        }
+        if self.secrets.len() >= 256
+            || value.len() + self.secrets.iter().map(String::len).sum::<usize>() > 32 * 1024
+        {
+            self.complete = false;
+            return;
+        }
+        self.secrets.push(value.to_owned());
+    }
+
+    fn values(&mut self, value: &Value, private: bool) {
+        match value {
+            Value::String(value) if private => self.secret(value),
+            Value::Number(value) if private => self.secret(&value.to_string()),
+            Value::Array(values) => {
+                for value in values {
+                    self.values(value, private);
+                }
+            }
+            Value::Object(values) => {
+                for (key, value) in values {
+                    self.values(value, private || sensitive(key));
+                }
+            }
+            _ => {}
+        }
+    }
+
+    pub(super) fn request(
+        &self,
+        request: &reqwest::Request,
+        cookies: Option<http::HeaderValue>,
+    ) -> Self {
+        let mut capture = self.clone();
+        if !enabled() {
+            return capture;
+        }
+        for (key, value) in request.url().query_pairs() {
+            if sensitive(&key) {
+                capture.secret(&value);
+            }
+        }
+        for (key, value) in request.headers() {
+            if sensitive(key.as_str())
+                && let Ok(value) = value.to_str()
+            {
+                capture.secret(value);
+                if let Some((_, credential)) = value.split_once(' ') {
+                    capture.secret(credential);
+                }
+            }
+        }
+        for value in cookies
+            .iter()
+            .chain(request.headers().get_all(http::header::COOKIE).iter())
+        {
+            if let Ok(value) = value.to_str() {
+                capture.secret(value);
+                for cookie in cookie::Cookie::split_parse(value).flatten() {
+                    capture.secret(cookie.value());
+                }
+            }
+        }
+        if let Some(body) = request.body().and_then(reqwest::Body::as_bytes) {
+            if let Ok(body) = serde_json::from_slice::<Value>(body) {
+                capture.values(&body, false);
+            } else {
+                for (key, value) in url::form_urlencoded::parse(body) {
+                    if sensitive(&key) {
+                        capture.secret(&value);
+                    }
+                }
+            }
+        }
+        capture
+    }
+
+    fn text(&self, text: &str) -> String {
+        if !self.complete {
+            return "[withheld: credential redaction limit reached]".into();
+        }
+        static URLS: LazyLock<Regex> =
+            LazyLock::new(|| Regex::new(r#"(?i)\b[a-z][a-z0-9+.-]*://[^\s<>\"']+"#).unwrap());
+        static AUTH: LazyLock<Regex> =
+            LazyLock::new(|| Regex::new(r#"(?i)\b(?:bearer|oauth|basic)\s+[^\s,;\"']+"#).unwrap());
+        static OPAQUE: LazyLock<Regex> =
+            LazyLock::new(|| Regex::new(r"[A-Za-z0-9_+/=-]{24,}").unwrap());
+        static CREDENTIAL_TEXT: LazyLock<Regex> = LazyLock::new(|| {
+            Regex::new(
+            r#"(?i)\b[a-z0-9_-]*(?:token|secret|password|cookie|authorization|credential|device[_-]?code|user[_-]?code)[a-z0-9_-]*[\s\\\"']*[:=]"#
+        ).unwrap()
+        });
+        // A string can itself contain encoded JSON/HTML or credential assignments.
+        // Without a reliable structure, withhold that string rather than guess its boundary.
+        if CREDENTIAL_TEXT.is_match(text) {
+            return "[credential-bearing text withheld]".into();
+        }
+        let mut text = text.to_owned();
+        // Longest first prevents a shorter credential exposing the remainder of another.
+        let mut secrets: Vec<_> = self.secrets.iter().collect();
+        secrets.sort_by_key(|secret| std::cmp::Reverse(secret.len()));
+        for secret in secrets {
+            text = text.replace(secret, REDACTED);
+        }
+        text = URLS.replace_all(&text, "[url redacted]").into_owned();
+        text = AUTH
+            .replace_all(&text, "[authorization redacted]")
+            .into_owned();
+        OPAQUE
+            .replace_all(&text, "[opaque value redacted]")
+            .into_owned()
+    }
+
+    fn json(&self, value: &Value, budget: &mut usize, depth: usize) -> Value {
+        if *budget == 0 || depth > 12 {
+            return Value::String("[capture limit reached]".into());
+        }
+        *budget -= 1;
+        match value {
+            Value::String(value) => Value::String(bounded(self.text(value), 1024)),
+            Value::Number(value) if self.secrets.contains(&value.to_string()) => {
+                Value::String(REDACTED.into())
+            }
+            Value::Array(values) => {
+                let mut output: Vec<_> = values
+                    .iter()
+                    .take(32)
+                    .map(|value| self.json(value, budget, depth + 1))
+                    .collect();
+                if values.len() > 32 {
+                    output.push(Value::String(format!(
+                        "[{} entries omitted]",
+                        values.len() - 32
+                    )));
+                }
+                Value::Array(output)
+            }
+            Value::Object(values) => {
+                let mut output = serde_json::Map::new();
+                for (key, value) in values.iter().take(64) {
+                    output.insert(
+                        bounded(self.text(key), 128),
+                        if sensitive(key) {
+                            Value::String(REDACTED.into())
+                        } else {
+                            self.json(value, budget, depth + 1)
+                        },
+                    );
+                }
+                if values.len() > 64 {
+                    output.insert("[omitted fields]".into(), (values.len() - 64).into());
+                }
+                Value::Object(output)
+            }
+            _ => value.clone(),
+        }
+    }
+
+    pub(super) fn response(
+        &self,
+        response: &http::Response<Vec<u8>>,
+        attempt: usize,
+        elapsed_ms: u128,
+    ) {
+        if !enabled() {
+            return;
+        }
+        let mut capture = self.clone();
+        for (key, value) in response.headers() {
+            if sensitive(key.as_str())
+                && let Ok(value) = value.to_str()
+            {
+                capture.secret(value);
+                if let Some((_, credential)) = value.split_once(' ') {
+                    capture.secret(credential);
+                }
+            }
+        }
+        for value in response.headers().get_all(http::header::SET_COOKIE) {
+            if let Ok(value) = value.to_str()
+                && let Ok(cookie) = cookie::Cookie::parse(value)
+            {
+                capture.secret(cookie.value());
+            }
+        }
+        let body = response.body();
+        let preview = match serde_json::from_slice::<Value>(body) {
+            Ok(value) => {
+                capture.values(&value, false);
+                if capture.complete {
+                    bounded(capture.json(&value, &mut 256, 0).to_string(), CAPTURE_LIMIT)
+                } else {
+                    "[withheld: credential redaction limit reached]".into()
+                }
+            }
+            // Arbitrary HTML/binary/malformed JSON may contain new credentials that cannot
+            // be identified structurally. Preserve evidence without writing raw frames.
+            Err(_) => {
+                "[non-JSON body withheld; see size, fingerprint and parser diagnostics]".into()
+            }
+        };
+        let mut headers = serde_json::Map::new();
+        for name in [
+            "content-type",
+            "content-length",
+            "retry-after",
+            "x-request-id",
+            "x-amzn-requestid",
+            "x-amz-cf-id",
+            "cf-ray",
+        ] {
+            if let Some(value) = response
+                .headers()
+                .get(name)
+                .and_then(|value| value.to_str().ok())
+            {
+                headers.insert(
+                    name.into(),
+                    Value::String(bounded(capture.text(value), 256)),
+                );
+            }
+        }
+        tracing::debug!(target: "tdm_diagnostics", attempt, elapsed_ms,
+            status = response.status().as_u16(), http_version = ?response.version(), bytes = body.len(),
+            fingerprint = %hex::encode(Sha256::digest(body)), headers = %serde_json::Value::Object(headers),
+            response = %preview, "Upstream response diagnostic (redacted, bounded)");
+    }
+
+    pub(super) fn network(
+        &self,
+        error: &reqwest::Error,
+        stage: &'static str,
+        attempt: usize,
+        elapsed_ms: u128,
+    ) {
+        network(error, stage, attempt);
+        if !enabled() {
+            return;
+        }
+        let mut chain = Vec::new();
+        let mut current: Option<&(dyn Error + 'static)> = Some(error);
+        while let Some(cause) = current {
+            if chain.len() == 12 {
+                chain.push("[additional causes omitted]".into());
+                break;
+            }
+            chain.push(bounded(self.text(&cause.to_string()), 1024));
+            current = cause.source();
+        }
+        tracing::debug!(target: "tdm_diagnostics", stage, attempt, elapsed_ms, causes = ?chain,
+            "Upstream transport error chain (redacted, bounded)");
+    }
+}
+
+fn bounded(mut text: String, limit: usize) -> String {
+    if text.len() > limit {
+        const MARKER: &str = " [truncated]";
+        let mut boundary = limit.saturating_sub(MARKER.len());
+        while !text.is_char_boundary(boundary) {
+            boundary -= 1;
+        }
+        text.truncate(boundary);
+        text.push_str(MARKER);
+    }
+    text
+}
 
 pub(super) fn kind(value: Option<&Value>) -> &'static str {
     match value {
@@ -153,6 +509,14 @@ mod tests {
         }
     }
     impl Writer {
+        fn advanced_subscriber(&self) -> impl tracing::Subscriber {
+            let writer = self.clone();
+            tracing_subscriber::fmt()
+                .with_env_filter("info,tdm_diagnostics=debug")
+                .with_ansi(false)
+                .with_writer(move || writer.clone())
+                .finish()
+        }
         fn subscriber(&self) -> impl tracing::Subscriber + Send + Sync + 'static {
             let writer = self.clone();
             tracing_subscriber::fmt()
@@ -163,6 +527,231 @@ mod tests {
         fn text(&self) -> String {
             String::from_utf8(self.0.lock().unwrap().clone()).unwrap()
         }
+    }
+
+    #[tokio::test]
+    async fn advanced_responses_include_unknown_errors_and_retries_but_redact_credentials() {
+        use std::sync::atomic::{AtomicUsize, Ordering};
+        let server = MockServer::start().await;
+        let attempts = Arc::new(AtomicUsize::new(0));
+        let counted = attempts.clone();
+        Mock::given(method("POST")).respond_with(move |_: &wiremock::Request| {
+            let status = if counted.fetch_add(1, Ordering::SeqCst) == 0 { 500 } else { 200 };
+            let response = ResponseTemplate::new(status);
+            let response = if status == 500 { response.insert_header("Set-Cookie", "session=server-cookie; HttpOnly") } else { response };
+            response
+                .insert_header("X-Request-Id", "request-42")
+                .set_body_json(json!({
+                    "errors": [{"message": "New Twitch failure: testtoken, request-cookie, server-cookie, device-secret, new-access, refresh-secret", "extensions": {"code": "NEW_FAILURE"}}],
+                    "access_token": "new-access", "nested": {"refreshToken": "refresh-secret"},
+                    "device_code": "device-secret", "user_code": 123456, "numeric_echo": 123456, "minutes": 17,
+                    "url": "https://private-user:private-pass@host.invalid/path?token=private-query",
+                    "nested_text": "response: {\\\"password\\\": \\\"hidden-pass\\\"}"
+                }))
+        }).mount(&server).await;
+        let http = http(&server);
+        let output = Writer::default();
+        let response = http
+            .execute(
+                http.client
+                    .post(server.uri())
+                    .header("Authorization", "OAuth testtoken")
+                    .header("Cookie", "session=request-cookie")
+                    .form(&[("device_code", "device-secret")]),
+                true,
+            )
+            .with_subscriber(output.advanced_subscriber())
+            .await
+            .unwrap();
+        assert_eq!(response.status(), 200);
+        assert_eq!(attempts.load(Ordering::SeqCst), 2);
+        let text = output.text();
+        assert!(
+            text.contains("New Twitch failure") && text.contains("NEW_FAILURE"),
+            "{text}"
+        );
+        assert!(
+            text.contains("status=500")
+                && text.contains("status=200")
+                && text.contains("request-42")
+        );
+        assert!(
+            text.contains("diagnostic_id=")
+                && text.contains("elapsed_ms=")
+                && text.contains("fingerprint=")
+        );
+        for secret in [
+            "testtoken",
+            "request-cookie",
+            "server-cookie",
+            "device-secret",
+            "new-access",
+            "refresh-secret",
+            "private-user",
+            "private-pass",
+            "private-query",
+            "hidden-pass",
+            "123456",
+        ] {
+            assert!(!text.contains(secret), "leaked {secret}: {text}");
+        }
+        // Capturing does not alter the response handed to application parsers.
+        assert!(
+            String::from_utf8(response.into_body())
+                .unwrap()
+                .contains("new-access")
+        );
+    }
+
+    #[tokio::test]
+    async fn advanced_transport_keeps_nested_request_failure_cause_without_urls_or_tokens() {
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let address = listener.local_addr().unwrap();
+        let peer = tokio::spawn(async move {
+            let (socket, _) = listener.accept().await.unwrap();
+            socket.readable().await.unwrap();
+            let _ = socket.try_read(&mut [0; 8192]);
+            // Close without any HTTP response, reproducing a send/request error.
+        });
+        let server = MockServer::start().await;
+        let http = http(&server);
+        let output = Writer::default();
+        let error = http
+            .execute(
+                http.client
+                    .post(format!(
+                        "http://{address}/private-path?token=private-secret"
+                    ))
+                    .header("Authorization", "OAuth testtoken"),
+                false,
+            )
+            .with_subscriber(output.advanced_subscriber())
+            .await
+            .unwrap_err();
+        peer.await.unwrap();
+        assert_eq!(error, TwitchError::Network);
+        let text = output.text();
+        assert!(
+            text.contains("transport error chain")
+                && text.contains("causes=[")
+                && text.contains("connection"),
+            "{text}"
+        );
+        assert!(
+            !text.contains("private-")
+                && !text.contains("testtoken")
+                && !text.contains(&address.to_string()),
+            "{text}"
+        );
+    }
+
+    #[tokio::test]
+    async fn advanced_retry_capture_has_a_deadline_and_remains_cancellable() {
+        use tokio::io::{AsyncReadExt, AsyncWriteExt};
+        for cancel in [false, true] {
+            let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+            let address = listener.local_addr().unwrap();
+            let (ready, received) = tokio::sync::oneshot::channel();
+            let peer = tokio::spawn(async move {
+                let (mut first, _) = listener.accept().await.unwrap();
+                assert!(first.read(&mut [0; 8192]).await.unwrap() > 0);
+                first
+                    .write_all(
+                        b"HTTP/1.1 500 Internal Server Error\r\nContent-Length: 1000\r\n\r\n",
+                    )
+                    .await
+                    .unwrap();
+                let _ = ready.send(());
+                // Leave the first body stalled while accepting the retry on a fresh connection.
+                let (mut second, _) = listener.accept().await.unwrap();
+                assert!(second.read(&mut [0; 8192]).await.unwrap() > 0);
+                second
+                    .write_all(
+                        b"HTTP/1.1 200 OK\r\nContent-Length: 2\r\nConnection: close\r\n\r\n{}",
+                    )
+                    .await
+                    .unwrap();
+            });
+            let server = MockServer::start().await;
+            let http = http(&server);
+            let output = Writer::default();
+            let work = http
+                .execute(http.client.post(format!("http://{address}/")), true)
+                .with_subscriber(output.advanced_subscriber());
+            let cancellation = async {
+                received.await.unwrap();
+                if cancel {
+                    http.cancel.cancel();
+                }
+            };
+            let (result, ()) = tokio::time::timeout(std::time::Duration::from_secs(5), async {
+                tokio::join!(work, cancellation)
+            })
+            .await
+            .expect("capture must not hang retry or cancellation");
+            if cancel {
+                assert_eq!(result.unwrap_err(), TwitchError::Cancelled);
+                peer.abort();
+                let _ = peer.await;
+            } else {
+                assert_eq!(result.unwrap().status(), 200);
+                assert!(
+                    output.text().contains("one-second budget"),
+                    "{}",
+                    output.text()
+                );
+                peer.await.unwrap();
+            }
+        }
+    }
+
+    #[test]
+    fn advanced_capture_limits_and_non_json_fail_closed_after_redaction() {
+        let output = Writer::default();
+        tracing::subscriber::with_default(output.advanced_subscriber(), || {
+            let capture = Capture::new(
+                "http://proxy-user:p%40ssword@proxy.invalid",
+                "device-secret",
+            );
+            assert!(
+                !capture
+                    .text("proxy-user p@ssword p%40ssword device-secret")
+                    .contains("ssword")
+            );
+            let response = http::Response::builder().status(200).body(
+                serde_json::to_vec(&json!({"message": "Readable failure ".repeat(4000), "accessToken": "secret-value", "echo": "secret-value", "rows": vec![json!({"value": 1}); 2000]})).unwrap()).unwrap();
+            capture.response(&response, 1, 12);
+            let invalid = http::Response::builder()
+                .status(502)
+                .body(b"<html>access_token=private-secret</html>".to_vec())
+                .unwrap();
+            capture.response(&invalid, 1, 15);
+            let mut too_many = capture.clone();
+            for index in 0..300 {
+                too_many.secret(&format!("private-{index}"));
+            }
+            too_many.response(&response, 1, 16);
+        });
+        let text = output.text();
+        assert!(
+            text.contains("Readable failure")
+                && text.contains("truncated")
+                && text.contains("entries omitted")
+        );
+        assert!(
+            text.contains("non-JSON body withheld")
+                && text.contains("credential redaction limit reached")
+        );
+        assert!(
+            !text.contains("private-secret")
+                && !text.contains("secret-value")
+                && !text.contains("<html>")
+        );
+        assert!(
+            text.len() < 3 * (CAPTURE_LIMIT + 2048),
+            "{} bytes",
+            text.len()
+        );
     }
 
     #[tokio::test]

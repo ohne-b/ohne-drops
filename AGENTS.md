@@ -121,9 +121,15 @@ embed it and run without a build tool/runtime companion. Production builds never
   inventory work. Slow discovery must not block watch cadence. Duplicate idle prompts collapse.
 - Upstream diagnostics use server tracing only, never dashboard console/socket payloads.
   Record operation/status/attempt, JSON syntax positions, rejected field types, typed network
-  causes and catalog rejection summaries. Never format transport errors, raw response bodies,
-  request variables, URLs or headers. Allowlist known GraphQL messages; fingerprint unknown
-  messages and cap per-response diagnostic output. Keep public errors and mining behavior unchanged.
+  causes and catalog rejection summaries. Basic logs allowlist known GraphQL messages and
+  fingerprint unknown messages. Advanced `TDM_DIAGNOSTICS=true`/`--diagnostics` is explicitly
+  opt-in and stays off with ordinary verbosity. The isolated tracing target may record bounded,
+  redacted JSON response previews and nested transport causes; never raw bodies, requests,
+  arbitrary headers, URLs or authenticated WebSocket frames. Collect request/proxy/cookie and
+  response credential values before redaction; redact sensitive fields and credential-bearing
+  text, fail closed on credential-inventory limits, and withhold non-JSON bodies. Preserve
+  correlation, timing/status and hashes; mark capture omissions. Keep public errors unchanged,
+  and bound retry-body capture to one second without replacing retry/cancellation decisions.
 
 ## Authentication and storage
 
