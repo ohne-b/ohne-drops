@@ -14,7 +14,7 @@ use super::{
     success,
 };
 use crate::{
-    config::{Settings, fold},
+    config::Settings,
     domain::{Campaign, Channel, ChannelIdentity, Game, number},
 };
 
@@ -133,12 +133,9 @@ impl TwitchClient {
         let now = Utc::now();
         let mut campaigns: Vec<_> = campaigns
             .iter()
-            .filter(|c| {
-                settings.selected(&c.game.name)
-                    && c.can_earn_within(settings, now, now + Duration::hours(1))
-            })
+            .filter(|c| c.can_earn_within(settings, now, now + Duration::hours(1)))
             .collect();
-        campaigns.sort_by_key(|c| game_priority(settings, Some(&c.game)));
+        campaigns.sort_by_key(|c| c.mining_priority(settings));
         let mut channels = BTreeMap::new();
         let mut directories = BTreeMap::new();
         for campaign in &campaigns {
@@ -149,10 +146,9 @@ impl TwitchClient {
                         .or_insert_with(|| Channel::offline(identity.clone(), true));
                 }
             } else {
-                directories.insert(
-                    game_priority(settings, Some(&campaign.game)),
-                    &campaign.game,
-                );
+                directories
+                    .entry(campaign.game.id)
+                    .or_insert(&campaign.game);
             }
         }
         if let Some(current) = current {
@@ -455,23 +451,17 @@ fn directory_channel(raw: &Value, game: &Game) -> Option<Channel> {
         beacon_url: None,
     })
 }
-pub fn game_priority(settings: &Settings, game: Option<&Game>) -> usize {
-    game.and_then(|game| {
-        settings
-            .games_to_watch
-            .iter()
-            .position(|name| fold(name) == fold(&game.name))
-    })
-    .unwrap_or(usize::MAX)
-}
-
-fn channel_priority(channel: &Channel, campaigns: &[&Campaign], settings: &Settings) -> usize {
+fn channel_priority(
+    channel: &Channel,
+    campaigns: &[&Campaign],
+    settings: &Settings,
+) -> (usize, Option<DateTime<Utc>>) {
     campaigns
         .iter()
         .filter(|c| c.matches_channel(channel))
-        .map(|c| game_priority(settings, Some(&c.game)))
+        .map(|c| c.mining_priority(settings))
         .min()
-        .unwrap_or(usize::MAX)
+        .unwrap_or((usize::MAX, Some(DateTime::<Utc>::MAX_UTC)))
 }
 
 pub fn select_channel(
@@ -585,6 +575,78 @@ mod tests {
                 None
             ),
             Some(11)
+        );
+    }
+
+    #[tokio::test]
+    async fn automatic_types_discover_each_unselected_game_directory() {
+        let server = MockServer::start().await;
+        gql_mock(&server, |q| {
+            assert!(q["variables"]["slug"] == "rust" || q["variables"]["slug"] == "other");
+            json!({"data":{"game":{"streams":{"edges":[]}}}})
+        })
+        .await;
+        let client = TwitchClient::new(Arc::new(http(&server)), &session());
+        let now = Utc::now();
+        let mut first = Campaign::parse(&campaign_json("one"), &HashMap::new(), now).unwrap();
+        first.allowed_channels.clear();
+        first.drops[0].benefits[0].view.kind = "EMOTE".into();
+        let mut second = first.clone();
+        second.id = "two".into();
+        second.game.id = 2;
+        second.game.name = "Other".into();
+        second.game.slug = "other".into();
+        let settings = Settings {
+            auto_mine_emotes: true,
+            ..Settings::default()
+        };
+        client
+            .channels(&[first, second], &settings, None)
+            .await
+            .unwrap();
+        let requests = server.received_requests().await.unwrap();
+        let batch: Value = serde_json::from_slice(&requests[0].body).unwrap();
+        assert_eq!(batch.as_array().unwrap().len(), 2);
+        assert_ne!(batch[0]["variables"]["slug"], batch[1]["variables"]["slug"]);
+    }
+
+    #[test]
+    fn selected_games_precede_automatic_types_then_expiry_with_manual_override() {
+        let now = Utc::now();
+        let mut first = Campaign::parse(&campaign_json("one"), &HashMap::new(), now).unwrap();
+        first.allowed_channels.clear();
+        first.drops[0].benefits[0].view.kind = "BADGE".into();
+        let mut second = first.clone();
+        second.game.id = 2;
+        second.game.name = "Other".into();
+        second.ends_at = first.ends_at - Duration::minutes(1);
+        let a = channel(10);
+        let mut b = channel(11);
+        b.game = Some(second.game.clone());
+        let channels = [a, b];
+        let campaigns = [first, second];
+        let mut settings = Settings {
+            auto_mine_badges: true,
+            ..Settings::default()
+        };
+        assert_eq!(
+            select_channel(&channels, &campaigns, &settings, now, Some(10), None),
+            Some(11)
+        );
+        settings.games_to_watch = vec!["Rust".into()];
+        assert_eq!(
+            select_channel(&channels, &campaigns, &settings, now, Some(11), None),
+            Some(10)
+        );
+        assert_eq!(
+            select_channel(&channels, &campaigns, &settings, now, None, Some(11)),
+            Some(11)
+        );
+        settings.games_to_watch.clear();
+        settings.auto_mine_badges = false;
+        assert_eq!(
+            select_channel(&channels, &campaigns, &settings, now, Some(10), None),
+            None
         );
     }
 

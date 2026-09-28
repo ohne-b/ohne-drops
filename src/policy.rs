@@ -38,6 +38,14 @@ pub struct DropPolicy {
 
 impl DropPolicy {
     pub fn evaluate(drops: &[Drop], keywords: &[String]) -> Self {
+        Self::for_targets(drops, keywords, |_| true)
+    }
+
+    pub fn for_targets(
+        drops: &[Drop],
+        keywords: &[String],
+        target: impl Fn(&Drop) -> bool,
+    ) -> Self {
         let by_id: HashMap<_, _> = drops.iter().map(|d| (d.id.as_str(), d)).collect();
         let mut dependents: HashMap<&str, Vec<&str>> = HashMap::new();
         for drop in drops {
@@ -114,7 +122,9 @@ impl DropPolicy {
         }
         let mut useful: Vec<&str> = drops
             .iter()
-            .filter(|d| !d.claimed && !d.benefits.is_empty() && valid.contains(d.id.as_str()))
+            .filter(|d| {
+                !d.claimed && !d.benefits.is_empty() && valid.contains(d.id.as_str()) && target(d)
+            })
             .map(|d| d.id.as_str())
             .collect();
         while let Some(id) = useful.pop() {

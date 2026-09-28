@@ -383,6 +383,22 @@ function SettingsContent({ settings, auth }: { settings: SettingsData; auth: Aut
               campaigns={data?.campaigns ?? []}
               onChange={(games) => change('games_to_watch', games)}
             />
+            <fieldset className="space-y-2">
+              <legend className="text-[13px] font-medium">{t('auto_mine_types')}</legend>
+              <p className="muted">{t('auto_mine_types_help')}</p>
+              <div className="flex flex-wrap gap-x-6">
+                <Check
+                  label={t('auto_mine_badges')}
+                  checked={draft.auto_mine_badges}
+                  onChange={(value) => change('auto_mine_badges', value)}
+                />
+                <Check
+                  label={t('auto_mine_emotes')}
+                  checked={draft.auto_mine_emotes}
+                  onChange={(value) => change('auto_mine_emotes', value)}
+                />
+              </div>
+            </fieldset>
             <div>
               <p className="mb-2 text-[13px] font-medium">{t('gui.settings.mining_benefits')}</p>
               <div className="flex flex-wrap gap-x-6">
