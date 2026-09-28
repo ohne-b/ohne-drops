@@ -1,5 +1,17 @@
 # Changelog
 
+## [v1.1.5](https://github.com/ohne-b/twitch-drops-miner/releases/tag/v1.1.5) — 2026-09-28
+
+- advance the Mining card using current Twitch reward evidence and stop selecting rewards whose confirmed watch requirement is complete ([#33](https://github.com/ohne-b/twitch-drops-miner/pull/33))
+- reconcile delayed completion and auto-claim evidence with bounded inventory refreshes, preserving account-issued claim IDs, claim retries and History imports
+- reject stale reward and channel progress while preserving manual-channel timers, selected-game priority and the existing watch cadence
+
+Existing settings, credentials, data and container configuration remain compatible.
+Completed watch time is never treated as a successful claim. Offline regression tests
+verify local transitions and races; they do not prove live Twitch earning.
+
+[Compare v1.1.4...v1.1.5](https://github.com/ohne-b/twitch-drops-miner/compare/v1.1.4...v1.1.5)
+
 ## [v1.1.4](https://github.com/ohne-b/twitch-drops-miner/releases/tag/v1.1.4) — 2026-09-28
 
 - restore 15-second idle HTTP connection expiry so minute-spaced watch events do not reuse long-idle connections
