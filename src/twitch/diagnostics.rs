@@ -527,7 +527,17 @@ mod tests {
         }
     }
     impl Writer {
+        fn register_test_dispatch() {
+            // tracing-core's single-dispatch cache uses the registering thread's default.
+            // Keep a second, quiet dispatch alive so unrelated parallel tests cannot cache
+            // NEVER for callsites first visited outside this test's temporary scope.
+            static QUIET: LazyLock<tracing::Dispatch> = LazyLock::new(|| {
+                tracing::Dispatch::new(tracing::subscriber::NoSubscriber::default())
+            });
+            LazyLock::force(&QUIET);
+        }
         fn advanced_subscriber(&self) -> impl tracing::Subscriber {
+            Self::register_test_dispatch();
             let writer = self.clone();
             tracing_subscriber::fmt()
                 .with_env_filter("info,tdm_diagnostics=debug")
@@ -536,6 +546,7 @@ mod tests {
                 .finish()
         }
         fn subscriber(&self) -> impl tracing::Subscriber + Send + Sync + 'static {
+            Self::register_test_dispatch();
             let writer = self.clone();
             tracing_subscriber::fmt()
                 .with_ansi(false)
@@ -721,6 +732,23 @@ mod tests {
                 peer.await.unwrap();
             }
         }
+    }
+
+    #[test]
+    fn advanced_scoped_capture_survives_uninstrumented_callsite_registration() {
+        let output = Writer::default();
+        let dispatch = tracing::Dispatch::new(output.advanced_subscriber());
+        let capture = Capture::new("", "");
+        let response = http::Response::builder()
+            .body(b"{\"message\":\"Visible diagnostic\"}".to_vec())
+            .unwrap();
+        assert!(!enabled());
+        capture.response(&response, 1, 0);
+        tracing::dispatcher::with_default(&dispatch, || {
+            assert!(enabled());
+            capture.response(&response, 1, 0);
+        });
+        assert!(output.text().contains("Visible diagnostic"));
     }
 
     #[test]
