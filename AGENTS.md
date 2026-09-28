@@ -107,7 +107,11 @@ embed it and run without a build tool/runtime companion. Production builds never
   manual channels wait without switching targets or stopping the timer. Exit, logout, cache
   clear and process restart end manual mode. Viewer counts use channel-only events.
 - Watch events use validated Twitch beacon URLs and a base64 minute-watched payload every
-  59 seconds. No playlists/video/audio downloads. Confirm via PubSub or CurrentDrop, distinguish
+  59 seconds. HTTP clients expire idle pooled connections after 15 seconds. Beacons use the
+  shared five-attempt transport/429/5xx retry policy with cancellable backoff (1/2/4/8 seconds,
+  or Retry-After bounded to 1..60 seconds). Retry the identical payload, never an acknowledged
+  204 or ordinary 4xx, and never count retries as progress. Exhaustion returns to owned watch
+  recovery. No playlists/video/audio downloads. Confirm via PubSub or CurrentDrop, distinguish
   estimates, and recover at 15 unconfirmed estimates. Only currently eligible drop progress
   suppresses fallback. Failed/unacknowledged beacons invalidate the owned channel's cached
   address. Three consecutive current-stream watch failures renew the network generation;

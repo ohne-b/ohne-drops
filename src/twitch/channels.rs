@@ -348,7 +348,7 @@ impl TwitchClient {
                 self.http
                     .request(Method::POST, url.clone())
                     .form(&[("data", STANDARD.encode(payload.to_string()))]),
-                false,
+                true,
             )
             .await?;
         let acknowledged = response.status() == StatusCode::NO_CONTENT;
@@ -821,6 +821,151 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn watch_retries_a_closed_connection_promptly_with_the_same_payload() {
+        use tokio::io::{AsyncReadExt, AsyncWriteExt};
+
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let url: Url = format!("http://{}/track", listener.local_addr().unwrap())
+            .parse()
+            .unwrap();
+        let peer = tokio::spawn(async move {
+            let mut bodies = Vec::new();
+            for attempt in 0..2 {
+                let (mut socket, _) = listener.accept().await.unwrap();
+                let mut bytes = Vec::new();
+                loop {
+                    let mut chunk = [0; 4096];
+                    let count = socket.read(&mut chunk).await.unwrap();
+                    assert!(count > 0);
+                    bytes.extend_from_slice(&chunk[..count]);
+                    assert!(bytes.len() < 16384);
+                    if let Some(end) = bytes.windows(4).position(|v| v == b"\r\n\r\n") {
+                        let headers = std::str::from_utf8(&bytes[..end]).unwrap();
+                        assert!(headers.starts_with("POST /track HTTP/1.1"));
+                        let length: usize = headers
+                            .lines()
+                            .filter_map(|line| line.split_once(':'))
+                            .find(|(name, _)| name.eq_ignore_ascii_case("content-length"))
+                            .unwrap()
+                            .1
+                            .trim()
+                            .parse()
+                            .unwrap();
+                        if bytes.len() >= end + 4 + length {
+                            bodies.push(bytes[end + 4..end + 4 + length].to_vec());
+                            break;
+                        }
+                    }
+                }
+                // First request is fully received, then disconnected before response headers.
+                if attempt == 1 {
+                    socket
+                        .write_all(b"HTTP/1.1 204 No Content\r\nConnection: close\r\n\r\n")
+                        .await
+                        .unwrap();
+                }
+            }
+            bodies
+        });
+        let server = MockServer::start().await;
+        let client = TwitchClient::new(Arc::new(http(&server)), &session());
+        let mut channel = channel(10);
+        channel.beacon_url = Some(url.clone());
+        let started = tokio::time::Instant::now();
+        let result = tokio::time::timeout(
+            std::time::Duration::from_secs(5),
+            client.send_watch(&mut channel, Utc::now()),
+        )
+        .await;
+        if !matches!(result, Ok(Ok(true))) {
+            peer.abort();
+            let _ = peer.await;
+            panic!("watch must recover within five seconds: {result:?}");
+        }
+        let bodies = peer.await.unwrap();
+        assert!(started.elapsed() >= std::time::Duration::from_secs(1));
+        assert_eq!(bodies.len(), 2);
+        assert_eq!(
+            bodies[0], bodies[1],
+            "retry must not invent another watch minute"
+        );
+        assert_eq!(channel.beacon_url, Some(url));
+    }
+
+    #[tokio::test]
+    async fn watch_retries_transient_http_responses_but_cancels_backoff() {
+        use std::{
+            sync::atomic::{AtomicUsize, Ordering},
+            time::Duration,
+        };
+
+        for status in [429, 503] {
+            let server = MockServer::start().await;
+            let attempts = AtomicUsize::new(0);
+            Mock::given(method("POST"))
+                .and(path("/track"))
+                .respond_with(move |_: &wiremock::Request| {
+                    if attempts.fetch_add(1, Ordering::SeqCst) == 0 {
+                        ResponseTemplate::new(status).insert_header("Retry-After", "1")
+                    } else {
+                        ResponseTemplate::new(204)
+                    }
+                })
+                .expect(2)
+                .mount(&server)
+                .await;
+            let client = TwitchClient::new(Arc::new(http(&server)), &session());
+            let mut channel = channel(10);
+            channel.beacon_url = Some(format!("{}/track", server.uri()).parse().unwrap());
+            let start = tokio::time::Instant::now();
+            assert!(
+                tokio::time::timeout(
+                    Duration::from_secs(5),
+                    client.send_watch(&mut channel, Utc::now())
+                )
+                .await
+                .unwrap()
+                .unwrap()
+            );
+            assert!(start.elapsed() >= Duration::from_secs(1));
+            let requests = server.received_requests().await.unwrap();
+            assert_eq!(requests.len(), 2);
+            assert_eq!(requests[0].body, requests[1].body);
+        }
+
+        let server = MockServer::start().await;
+        Mock::given(method("POST"))
+            .respond_with(ResponseTemplate::new(429).insert_header("Retry-After", "60"))
+            .expect(1)
+            .mount(&server)
+            .await;
+        let http = Arc::new(http(&server));
+        let client = TwitchClient::new(http.clone(), &session());
+        let mut channel = channel(10);
+        channel.beacon_url = Some(format!("{}/track", server.uri()).parse().unwrap());
+        let work = tokio::spawn(async move {
+            let result = client.send_watch(&mut channel, Utc::now()).await;
+            (result, channel.beacon_url)
+        });
+        tokio::time::timeout(Duration::from_secs(3), async {
+            while server.received_requests().await.unwrap().is_empty() {
+                tokio::task::yield_now().await;
+            }
+        })
+        .await
+        .unwrap();
+        tokio::time::sleep(Duration::from_millis(50)).await;
+        http.cancel.cancel();
+        assert_eq!(
+            tokio::time::timeout(Duration::from_secs(1), work)
+                .await
+                .unwrap()
+                .unwrap(),
+            (Err(TwitchError::Cancelled), None)
+        );
+    }
+
+    #[tokio::test]
     async fn watch_transport_errors_and_unacknowledged_responses_discard_the_cached_beacon() {
         let server = MockServer::start().await;
         let client = TwitchClient::new(Arc::new(http(&server)), &session());
@@ -836,16 +981,24 @@ mod tests {
             Err(TwitchError::Network)
         );
         assert!(channel.beacon_url.is_none());
-        for status in [200, 302, 403, 500] {
+        for status in [200, 302, 401, 403, 500] {
             server.reset().await;
             Mock::given(method("POST"))
                 .and(path("/track"))
-                .respond_with(ResponseTemplate::new(status))
-                .expect(1)
+                .respond_with(ResponseTemplate::new(status).insert_header("Retry-After", "1"))
+                .expect(if status == 500 { 5 } else { 1 })
                 .mount(&server)
                 .await;
             channel.beacon_url = Some(format!("{}/track", server.uri()).parse().unwrap());
-            assert!(!client.send_watch(&mut channel, Utc::now()).await.unwrap());
+            assert!(
+                !tokio::time::timeout(
+                    std::time::Duration::from_secs(8),
+                    client.send_watch(&mut channel, Utc::now()),
+                )
+                .await
+                .expect("retry exhaustion must return to the session owner")
+                .unwrap()
+            );
             assert!(channel.beacon_url.is_none());
         }
     }

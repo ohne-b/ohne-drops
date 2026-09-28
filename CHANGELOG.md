@@ -1,5 +1,17 @@
 # Changelog
 
+## [v1.1.4](https://github.com/ohne-b/twitch-drops-miner/releases/tag/v1.1.4) — 2026-09-28
+
+- restore 15-second idle HTTP connection expiry so minute-spaced watch events do not reuse long-idle connections
+- retry transient watch connection failures and HTTP 429/5xx responses promptly with bounded, cancellable backoff instead of immediately waiting for the next watch minute
+- preserve the same watch payload across retries, stop after acknowledgement, and retain existing recovery when attempts are exhausted
+
+Existing settings, credentials, data and container configuration remain compatible.
+These changes restore transport behavior from the Python implementation; they do not
+guarantee that Twitch credits watch time or establish the cause of every disconnect.
+
+[Compare v1.1.3...v1.1.4](https://github.com/ohne-b/twitch-drops-miner/compare/v1.1.3...v1.1.4)
+
 ## [v1.1.3](https://github.com/ohne-b/twitch-drops-miner/releases/tag/v1.1.3) — 2026-09-28
 
 - preserve valid Twitch logins when public channel pages or settings scripts return HTTP 401/403
