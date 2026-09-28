@@ -52,7 +52,11 @@ embed it and run without a build tool/runtime companion. Production builds never
 ## Mining contracts
 
 - Discovery does not select games. `games_to_watch` is the ordered Unicode-casefolded
-  automatic allowlist. Empty means no automatic watch events. Mine selects a game across
+  automatic allowlist. Opt-in auto_mine_badges/auto_mine_emotes default false and add matching
+  watch rewards from other games, with dependency closure and existing benefit/ignore rules.
+  Selected games rank first; other campaigns rank by soonest end. Use the shared mining
+  policy for discovery, selection, estimates, progress eligibility and Up next. Display
+  filters remain separate. Empty with both options off means no automatic watch events. Mine selects a game across
   eligible campaigns. An explicitly chosen manual channel overrides automatic selection
   without changing saved games, filters or priorities.
 - Preserve campaign/drop timing, prerequisites, claim state, benefit filters and ignore rules.
@@ -84,9 +88,9 @@ embed it and run without a build tool/runtime companion. Production builds never
   account record contradicts it.
 - Special Events (`509663`) and IRL (`509672`) cross categories only with a nonempty enabled
   actual ACL. Automatic drops need matching category and drops-enabled status; all need live
-  channels, selected games and eligible rewards. Offline/ineligible streams yield even at tied
+  channels, selected games or opted-in reward types, and eligible rewards. Offline/ineligible streams yield even at tied
   fallback priority. Preserve nullable viewer counts and the watching row during rebuilds.
-- Channels publishes currently eligible selected-game streams plus the explicitly selected
+- Channels publishes currently eligible selected-game or automatic-reward streams plus the explicitly selected
   manual channel. Rank automatic candidates before the channel limit using matching campaign
   priority, including actual-ACL special-category streams. Mine channel accepts a validated
   Twitch login/root URL and resolves it with owned bounded work independently of inventory.

@@ -383,6 +383,24 @@ impl Campaign {
         DropPolicy::evaluate(&self.drops, &settings.drop_name_blacklist)
     }
 
+    pub fn mining_policy(&self, settings: &Settings, now: DateTime<Utc>) -> DropPolicy {
+        let selected = settings.selected(&self.game.name);
+        DropPolicy::for_targets(&self.drops, &settings.drop_name_blacklist, |drop| {
+            now < drop.ends_at
+                && drop.benefits.iter().any(|benefit| {
+                    benefit.wanted(settings)
+                        && (selected
+                            || benefit.view.kind == "BADGE" && settings.auto_mine_badges
+                            || benefit.view.kind == "EMOTE" && settings.auto_mine_emotes)
+                })
+        })
+    }
+
+    pub fn mining_priority(&self, settings: &Settings) -> (usize, Option<DateTime<Utc>>) {
+        let priority = settings.game_priority(Some(&self.game.name));
+        (priority, (priority == usize::MAX).then_some(self.ends_at))
+    }
+
     pub fn prerequisites_met(&self, drop: &Drop) -> bool {
         drop.prerequisites
             .iter()
@@ -409,7 +427,7 @@ impl Campaign {
         now: DateTime<Utc>,
         before: DateTime<Utc>,
     ) -> bool {
-        let policy = self.policy(settings);
+        let policy = self.mining_policy(settings, now);
         self.valid
             && now < self.ends_at
             && self.starts_at < before
@@ -441,9 +459,8 @@ impl Campaign {
     }
 
     pub fn can_mine(&self, settings: &Settings, now: DateTime<Utc>) -> bool {
-        let policy = self.policy(settings);
-        settings.selected(&self.game.name)
-            && self.active(now)
+        let policy = self.mining_policy(settings, now);
+        self.active(now)
             && self.valid
             && self
                 .drops
@@ -455,7 +472,7 @@ impl Campaign {
     }
 
     pub fn first_drop(&self, settings: &Settings, now: DateTime<Utc>) -> Option<&Drop> {
-        let policy = self.policy(settings);
+        let policy = self.mining_policy(settings, now);
         self.drops
             .iter()
             .filter(|d| self.drop_eligible(d, &policy, now, now + Duration::nanoseconds(1)))
@@ -463,7 +480,7 @@ impl Campaign {
     }
 
     pub fn bump_estimates(&mut self, settings: &Settings, now: DateTime<Utc>) -> bool {
-        let policy = self.policy(settings);
+        let policy = self.mining_policy(settings, now);
         let eligible: HashSet<_> = self
             .drops
             .iter()
@@ -571,52 +588,53 @@ pub fn wanted_items(
     now: DateTime<Utc>,
 ) -> Vec<WantedGame> {
     let mut result: Vec<WantedGame> = vec![];
-    for name in &settings.games_to_watch {
-        for campaign in campaigns.iter().filter(|c| {
-            crate::config::fold(&c.game.name) == crate::config::fold(name)
-                && c.can_earn_within(settings, now, now + Duration::hours(1))
-        }) {
-            let policy = campaign.policy(settings);
-            let drops: Vec<_> = campaign
-                .drops
-                .iter()
-                .filter(|d| d.watch_reward() && now < d.ends_at && policy.mineable.contains(&d.id))
-                .filter_map(|d| {
-                    let benefits: Vec<_> =
-                        d.benefits.iter().filter(|b| b.wanted(settings)).collect();
-                    (!benefits.is_empty()).then(|| WantedDrop {
-                        name: d.name.clone(),
-                        benefits: benefits.iter().map(|b| b.view.name.clone()).collect(),
-                        image_url: benefits
-                            .iter()
-                            .find(|b| !b.view.image_url.is_empty())
-                            .map(|b| b.view.image_url.clone())
-                            .unwrap_or_default(),
-                    })
+    let mut campaigns: Vec<_> = campaigns
+        .iter()
+        .filter(|c| c.can_earn_within(settings, now, now + Duration::hours(1)))
+        .collect();
+    campaigns.sort_by_key(|c| c.mining_priority(settings));
+    for campaign in campaigns {
+        let policy = campaign.mining_policy(settings, now);
+        let drops: Vec<_> = campaign
+            .drops
+            .iter()
+            .filter(|d| d.watch_reward() && now < d.ends_at && policy.mineable.contains(&d.id))
+            .filter_map(|d| {
+                // The mining policy already selects targets and required prerequisites.
+                // A prerequisite must stay visible even when its own benefit type is off.
+                let benefits = &d.benefits;
+                (!benefits.is_empty()).then(|| WantedDrop {
+                    name: d.name.clone(),
+                    benefits: benefits.iter().map(|b| b.view.name.clone()).collect(),
+                    image_url: benefits
+                        .iter()
+                        .find(|b| !b.view.image_url.is_empty())
+                        .map(|b| b.view.image_url.clone())
+                        .unwrap_or_default(),
                 })
-                .collect();
-            if drops.is_empty() {
-                continue;
-            }
-            let entry = WantedCampaign {
-                id: campaign.id.clone(),
-                name: campaign.name.clone(),
-                url: campaign.url(),
-                drops,
-            };
-            if let Some(game) = result
-                .iter_mut()
-                .find(|g| g.game_id == Some(campaign.game.id))
-            {
-                game.campaigns.push(entry);
-            } else {
-                result.push(WantedGame {
-                    game_name: campaign.game.name.clone(),
-                    game_icon: Some(campaign.game.image_url.clone()),
-                    game_id: Some(campaign.game.id),
-                    campaigns: vec![entry],
-                });
-            }
+            })
+            .collect();
+        if drops.is_empty() {
+            continue;
+        }
+        let entry = WantedCampaign {
+            id: campaign.id.clone(),
+            name: campaign.name.clone(),
+            url: campaign.url(),
+            drops,
+        };
+        if let Some(game) = result
+            .iter_mut()
+            .find(|g| g.game_id == Some(campaign.game.id))
+        {
+            game.campaigns.push(entry);
+        } else {
+            result.push(WantedGame {
+                game_name: campaign.game.name.clone(),
+                game_icon: Some(campaign.game.image_url.clone()),
+                game_id: Some(campaign.game.id),
+                campaigns: vec![entry],
+            });
         }
     }
     result
@@ -884,6 +902,106 @@ mod tests {
         assert!(c.can_watch(&stream, &selected(), now()));
         stream.drops_enabled = false;
         assert!(!c.can_watch(&stream, &selected(), now()));
+    }
+
+    #[test]
+    fn automatic_types_target_rewards_and_dependencies_without_selecting_games() {
+        let mut emote = raw_drop("emote", &["starter"]);
+        emote["benefitEdges"][0]["benefit"]["distributionType"] = "EMOTE".into();
+        let mut badge = raw_drop("badge", &[]);
+        badge["benefitEdges"][0]["benefit"]["distributionType"] = "BADGE".into();
+        let mut c = campaign(vec![
+            raw_drop("starter", &[]),
+            emote,
+            badge,
+            raw_drop("item", &[]),
+        ]);
+        let defaults = Settings::default();
+        assert!(!c.can_mine(&defaults, now()));
+        let settings = defaults.patched(&json!({"auto_mine_emotes":true})).unwrap();
+        assert!(settings.games_to_watch.is_empty());
+        assert_eq!(
+            c.mining_policy(&settings, now()).mineable,
+            HashSet::from(["starter".into(), "emote".into()])
+        );
+        assert_eq!(c.first_drop(&settings, now()).unwrap().id, "starter");
+        assert!(c.can_watch(&channel(), &settings, now()));
+        let queue = wanted_items(&[c.clone()], &settings, now());
+        assert_eq!(
+            queue[0].campaigns[0]
+                .drops
+                .iter()
+                .map(|d| d.name.as_str())
+                .collect::<Vec<_>>(),
+            ["starter", "emote"]
+        );
+        c.bump_estimates(&settings, now());
+        assert_eq!(
+            c.drops
+                .iter()
+                .map(|d| d.estimated_minutes)
+                .collect::<Vec<_>>(),
+            [1, 0, 0, 0]
+        );
+        c.drops[0].mark_claimed(now());
+        assert_eq!(c.first_drop(&settings, now()).unwrap().id, "emote");
+        c.drops[1].mark_claimed(now());
+        assert!(!c.can_mine(&settings, now()));
+        let badges = settings.patched(&json!({"auto_mine_badges":true})).unwrap();
+        assert_eq!(c.first_drop(&badges, now()).unwrap().id, "badge");
+        assert!(
+            !c.can_mine(
+                &badges
+                    .patched(&json!({"mining_benefits":{"BADGE":false}}))
+                    .unwrap(),
+                now()
+            )
+        );
+        assert!(
+            !c.can_mine(
+                &badges
+                    .patched(&json!({"drop_name_blacklist":["badge"]}))
+                    .unwrap(),
+                now()
+            )
+        );
+        c.drops[2].required_minutes = 0;
+        assert!(!c.can_mine(&badges, now()));
+    }
+
+    #[test]
+    fn automatic_targets_respect_ignored_dependencies_expiry_and_display_filters() {
+        let mut target = raw_drop("emote", &["starter"]);
+        target["benefitEdges"][0]["benefit"]["distributionType"] = "EMOTE".into();
+        let mut c = campaign(vec![raw_drop("starter", &[]), target]);
+        let settings = Settings::default()
+            .patched(&json!({"auto_mine_emotes":true,
+            "inventory_filters":{"show_benefit_emote":false},
+            "mining_benefits":{"DIRECT_ENTITLEMENT":false}}))
+            .unwrap();
+        assert!(
+            c.can_mine(&settings, now()),
+            "required item remains eligible despite item filter"
+        );
+        assert_eq!(
+            wanted_items(&[c.clone()], &settings, now())[0].campaigns[0]
+                .drops
+                .iter()
+                .map(|d| d.name.as_str())
+                .collect::<Vec<_>>(),
+            ["starter", "emote"]
+        );
+        assert!(
+            !c.can_mine(
+                &settings
+                    .patched(&json!({"drop_name_blacklist":["starter"]}))
+                    .unwrap(),
+                now()
+            )
+        );
+        c.drops[1].ends_at = now();
+        assert!(!c.can_mine(&settings, now()));
+        assert!(wanted_items(&[c], &settings, now()).is_empty());
     }
 
     #[test]

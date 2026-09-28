@@ -821,7 +821,7 @@ impl Mining {
                             d.id == id
                                 && c.drop_eligible(
                                     d,
-                                    &c.policy(settings),
+                                    &c.mining_policy(settings, now),
                                     now,
                                     now + chrono::Duration::nanoseconds(1),
                                 )
@@ -1452,15 +1452,17 @@ impl Mining {
     }
 
     async fn idle_status(&self, settings: &Settings) {
-        let key = if settings.games_to_watch.is_empty() {
+        let key = if settings.games_to_watch.is_empty()
+            && !settings.auto_mine_badges
+            && !settings.auto_mine_emotes
+        {
             "status.no_selection"
         } else if !self.campaigns.iter().any(|c| {
-            settings.selected(&c.game.name)
-                && c.can_earn_within(
-                    settings,
-                    Utc::now(),
-                    Utc::now() + chrono::Duration::hours(1),
-                )
+            c.can_earn_within(
+                settings,
+                Utc::now(),
+                Utc::now() + chrono::Duration::hours(1),
+            )
         }) {
             if self.status.available {
                 "status.no_campaign"

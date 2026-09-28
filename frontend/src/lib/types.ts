@@ -71,6 +71,8 @@ export interface Filters {
 export interface Settings {
   revision?: string;
   games_to_watch: string[];
+  auto_mine_badges: boolean;
+  auto_mine_emotes: boolean;
   games_available: string[];
   drop_name_blacklist: string[];
   proxy: string;

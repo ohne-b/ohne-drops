@@ -54,6 +54,8 @@ impl Default for Filters {
 #[serde(default)]
 pub struct Settings {
     pub games_to_watch: Vec<String>,
+    pub auto_mine_badges: bool,
+    pub auto_mine_emotes: bool,
     pub drop_name_blacklist: Vec<String>,
     pub inventory_filters: Filters,
     pub inventory_filters_version: u32,
@@ -68,6 +70,8 @@ impl Default for Settings {
     fn default() -> Self {
         Self {
             games_to_watch: vec![],
+            auto_mine_badges: false,
+            auto_mine_emotes: false,
             drop_name_blacklist: vec![],
             inventory_filters: Filters::default(),
             inventory_filters_version: 2,
@@ -197,6 +201,23 @@ pub fn validate_proxy(proxy: &str) -> Result<(), InvalidSettings> {
 mod tests {
     use super::*;
     use serde_json::json;
+
+    #[test]
+    fn old_settings_default_automatic_types_off_and_patches_preserve_them() {
+        let settings = Settings::from_saved(json!({"games_to_watch":["Rust"]})).unwrap();
+        assert!(!settings.auto_mine_badges && !settings.auto_mine_emotes);
+        let settings = settings.patched(&json!({"auto_mine_emotes":true})).unwrap();
+        let settings = settings.patched(&json!({"auto_mine_badges":true})).unwrap();
+        assert!(settings.auto_mine_badges && settings.auto_mine_emotes);
+        assert_eq!(settings.games_to_watch, ["Rust"]);
+        let restored = Settings::from_saved(serde_json::to_value(&settings).unwrap()).unwrap();
+        assert!(restored == settings);
+        assert!(
+            settings
+                .patched(&json!({"auto_mine_badges":"true"}))
+                .is_err()
+        );
+    }
 
     #[test]
     fn defaults_and_partial_updates_preserve_selection() {

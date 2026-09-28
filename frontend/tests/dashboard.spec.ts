@@ -5,6 +5,37 @@ import type { Snapshot } from '../src/lib/types';
 const snapshot: Snapshot = fixture;
 const headers = { 'X-TDM-Request': '1' };
 
+test('automatic reward types persist without changing games or display filters', async ({
+  page,
+  request,
+}) => {
+  await page.goto('/settings#mining');
+  const before = await (await request.get('/api/settings')).json();
+  const badges = page.getByRole('checkbox', { name: 'Badges from any game', exact: true });
+  const emotes = page.getByRole('checkbox', { name: 'Emotes from any game', exact: true });
+  await expect(badges).not.toBeChecked();
+  await expect(emotes).not.toBeChecked();
+  await badges.check();
+  await emotes.check();
+  await expect
+    .poll(async () => {
+      const settings = await (await request.get('/api/settings')).json();
+      return [settings.auto_mine_badges, settings.auto_mine_emotes];
+    })
+    .toEqual([true, true]);
+  await page.reload();
+  await expect(badges).toBeChecked();
+  await expect(emotes).toBeChecked();
+  const after = await (await request.get('/api/settings')).json();
+  expect(after.games_to_watch).toEqual(before.games_to_watch);
+  expect(after.inventory_filters).toEqual(before.inventory_filters);
+  await badges.uncheck();
+  await expect
+    .poll(async () => (await (await request.get('/api/settings')).json()).auto_mine_badges)
+    .toBe(false);
+  await expect(emotes).toBeChecked();
+});
+
 test('refresh button tracks completion, failures, stale events and reconnects without notices', async ({
   page,
   request,

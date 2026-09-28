@@ -126,10 +126,19 @@ Use `--help` for host, port, data directory, and log directory options.
    eligible live channel and claims rewards when Twitch makes them available.
 
 > [!IMPORTANT]
-> Automatic mining only watches selected games. Discovery does not select games, and
-> an empty game list pauses automatic watching. An explicit **Mine channel** request
+> Automatic mining watches selected games first. In **Settings > Mining**, opt into
+> **Automatically mine reward types** to also mine badges or emotes from other games.
+> Both options default off. With an empty game list and both options off, automatic
+> watching pauses. Discovery never changes your game list. An explicit **Mine channel** request
 > temporarily overrides this list. **Stop mining** removes a game from the automatic
 > list. Already-earned rewards can still be claimed.
+
+Automatic reward types target individual watch rewards and their required prerequisite
+drops, not every reward in a matching campaign. Other games follow selected games and
+use soonest-ending campaign order. Mining benefit filters, ignored names, dates and
+channel restrictions still apply; subscription-only rewards are excluded. Campaigns
+display filters do not affect these rules. Removing a game from the priority list still
+allows matching badges/emotes when their automatic rule is enabled.
 
 Login uses Twitch's Smart TV device authorization flow. The saved session survives
 restarts; enter your Twitch password only on Twitch's authorization page.

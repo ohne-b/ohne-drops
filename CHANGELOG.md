@@ -1,5 +1,15 @@
 # Changelog
 
+## [v1.1.1](https://github.com/ohne-b/twitch-drops-miner/releases/tag/v1.1.1) — 2026-09-28
+
+- add opt-in automatic badge and emote mining across games, including required prerequisite drops
+- keep selected games first, then prioritize other matching campaigns by soonest expiry; preserve manual watching, benefit filters and ignore rules
+
+Both new options default off under Settings > Mining. Existing selections, settings,
+credentials, data and container configuration remain compatible.
+
+[Compare v1.1.0...v1.1.1](https://github.com/ohne-b/twitch-drops-miner/compare/v1.1.0...v1.1.1)
+
 ## [v1.1.0](https://github.com/ohne-b/twitch-drops-miner/releases/tag/v1.1.0) — 2026-09-28
 
 - add campaign sorting by Default, Newest, Ending Soonest, Most Drops and A-Z; move the campaign count into the heading and Clear filters inside Filters ([#24](https://github.com/ohne-b/twitch-drops-miner/pull/24))

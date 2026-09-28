@@ -108,7 +108,9 @@ export default function Overview() {
             detail={t(
               !data.login.user_id
                 ? 'connect_help'
-                : data.settings.games_to_watch.length
+                : data.settings.games_to_watch.length ||
+                    data.settings.auto_mine_badges ||
+                    data.settings.auto_mine_emotes
                   ? 'waiting_help'
                   : 'select_games_help',
             )}
