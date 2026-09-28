@@ -195,7 +195,7 @@ async fn completed_transition_uses_successor_evidence_even_when_final_progress_a
     let server = MockServer::start().await;
     let (dir, mut miner, _intent, mut pool) = miner(&server).await;
     let settings = select(&mut miner).await;
-    miner.campaigns[0].drops[0].confirmed_minutes = 59;
+    miner.campaigns[0].drops[0].confirmed_minutes = 58;
     let mut next = miner.campaigns[0].drops[0].clone();
     next.id = "next".into();
     next.confirmed_minutes = 0;
@@ -264,8 +264,23 @@ async fn completed_transition_uses_successor_evidence_even_when_final_progress_a
             .unwrap()
             .drop_id,
         "next",
-        "duplicate old progress must not replace the reported successor"
+        "late predecessor progress must not replace the reported successor"
     );
+    assert_eq!(miner.campaigns[0].drops[0].confirmed_minutes, 59);
+    // The same ordering holds through intermediate rewards, even without benefits.
+    let mut intermediate = miner.campaigns[0].drops[1].clone();
+    intermediate.id = "intermediate".into();
+    intermediate.benefits.clear();
+    miner.campaigns[0].drops[1].prerequisites = vec!["intermediate".into()];
+    miner.campaigns[0].drops.push(intermediate);
+    miner
+        .event(Event::Progress {
+            id: "drop-one".into(),
+            minutes: 59,
+        })
+        .await
+        .unwrap();
+    assert_eq!(miner.last_progress.as_ref().unwrap().0, "next");
     pool.close().await;
 }
 

@@ -423,6 +423,23 @@ impl Campaign {
             })
     }
 
+    pub fn is_prerequisite(&self, id: &str, drop: &Drop) -> bool {
+        let by_id: HashMap<_, _> = self.drops.iter().map(|d| (d.id.as_str(), d)).collect();
+        let mut pending: Vec<_> = drop.prerequisites.iter().map(String::as_str).collect();
+        let mut seen = HashSet::new();
+        while let Some(parent) = pending.pop() {
+            if parent == id {
+                return true;
+            }
+            if seen.insert(parent)
+                && let Some(parent) = by_id.get(parent)
+            {
+                pending.extend(parent.prerequisites.iter().map(String::as_str));
+            }
+        }
+        false
+    }
+
     pub fn drop_eligible(
         &self,
         drop: &Drop,

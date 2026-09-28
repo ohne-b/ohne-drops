@@ -826,13 +826,21 @@ impl Mining {
                 .watching
                 .and_then(|channel| self.reported_drop(id, channel, settings));
             let blocked = reported.is_some_and(|(c, d)| !c.prerequisites_met(d));
-            if reported.is_some() && (advanced || self.last_progress.is_none())
-                || completed
-                    && eligible
-                    && self
-                        .last_progress
-                        .as_ref()
-                        .is_none_or(|(previous, _)| previous == id)
+            let predecessor = self.last_progress.as_ref().is_some_and(|(current, _)| {
+                self.watching
+                    .and_then(|channel| self.reported_drop(current, channel, settings))
+                    .is_some_and(|(c, d)| c.is_prerequisite(id, d))
+            });
+            // PubSub has no channel/request ordering; a predecessor cannot displace
+            // the successor already reported for this watch. Still retain its minutes.
+            if !predecessor
+                && (reported.is_some() && (advanced || self.last_progress.is_none())
+                    || completed
+                        && eligible
+                        && self
+                            .last_progress
+                            .as_ref()
+                            .is_none_or(|(previous, _)| previous == id))
             {
                 self.last_progress = Some((id.to_owned(), Instant::now()));
             }
@@ -1613,13 +1621,9 @@ impl Mining {
                 })
             {
                 // A new broadcast on the same channel also starts a new watch context.
-                self.cancel_watch();
                 self.watch_started = Instant::now();
-                self.next_watch = self.watch_started;
-                self.watch_failures = 0;
                 self.last_progress = None;
                 self.poll_at = None;
-                self.claim_wait = None;
             }
         }
     }
