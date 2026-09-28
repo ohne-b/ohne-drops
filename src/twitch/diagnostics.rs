@@ -32,10 +32,16 @@ pub(super) fn invalid(
 
 pub(super) fn json(body: &[u8], status: u16) -> Result<Value, TwitchError> {
     serde_json::from_slice(body).map_err(|error| {
-        // Value's syntax errors carry positions, not deserialized account values.
+        // Transitive serde_json features can also produce Data errors (e.g. its
+        // reserved RawValue key). Their Display may echo an upstream value.
+        let reason = if error.is_syntax() || error.is_eof() {
+            error.to_string()
+        } else {
+            "JSON value decoding failed (details withheld)".to_owned()
+        };
         tracing::warn!(
             status, bytes = body.len(), category = ?error.classify(),
-            line = error.line(), column = error.column(), reason = %error,
+            line = error.line(), column = error.column(), %reason,
             "Upstream response is not valid JSON"
         );
         TwitchError::InvalidResponse
@@ -222,6 +228,10 @@ mod tests {
                 "unrecognized (withheld)",
             ),
             ("null", "expected response object"),
+            (
+                r#"{"$serde_json::private::RawValue":987654321}"#,
+                "JSON value decoding failed (details withheld)",
+            ),
         ] {
             let server = MockServer::start().await;
             Mock::given(method("POST"))
@@ -243,7 +253,14 @@ mod tests {
                 text.contains("DropCurrentSessionContext") && text.contains(expected),
                 "{text}"
             );
-            for secret in ["private-", "password", "testtoken", "<html>"] {
+            for secret in [
+                "private-",
+                "password",
+                "testtoken",
+                "<html>",
+                "987654321",
+                "RawValue",
+            ] {
                 assert!(!text.contains(secret), "{text}");
             }
         }
