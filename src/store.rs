@@ -157,24 +157,14 @@ impl History {
     }
 
     pub fn record(&mut self, entry: HistoryEntry) -> Result<bool> {
-        Ok(self.append([entry], false)? > 0)
+        Ok(self.import_claims(vec![entry])? > 0)
     }
 
     pub fn import_claims(&mut self, entries: Vec<HistoryEntry>) -> Result<usize> {
-        self.append(entries, true)
-    }
-
-    fn append(
-        &mut self,
-        entries: impl IntoIterator<Item = HistoryEntry>,
-        imported: bool,
-    ) -> Result<usize> {
         let mut next = self.entries.clone();
         let mut known: HashSet<_> = next.iter().map(|e| e.id.clone()).collect();
-        let mut cleared = self.cleared_ids.clone();
         for entry in entries {
-            if (!imported || !cleared.contains(&entry.id)) && known.insert(entry.id.clone()) {
-                cleared.remove(&entry.id);
+            if !self.cleared_ids.contains(&entry.id) && known.insert(entry.id.clone()) {
                 next.push(entry);
             }
         }
@@ -185,7 +175,7 @@ impl History {
                     .cmp(&b.claimed_at)
                     .then_with(|| a.id.cmp(&b.id))
             });
-            self.replace(next, cleared)?;
+            self.replace(next, self.cleared_ids.clone())?;
         }
         Ok(added)
     }
@@ -209,6 +199,11 @@ impl History {
         let mut cleared = self.cleared_ids.clone();
         cleared.extend(self.entries.iter().map(|entry| entry.id.clone()));
         self.replace(vec![], cleared)
+    }
+
+    #[cfg(feature = "dashboard-fixture")]
+    pub fn reset_fixture(&mut self) -> Result<()> {
+        self.replace(vec![], BTreeSet::new())
     }
     pub fn total(&self) -> usize {
         self.entries.len()
@@ -592,6 +587,10 @@ mod tests {
         assert!(entries[1].claimed_at_is_observed);
         history.clear().unwrap();
         let mut history = History::load(dir.path());
+        assert!(
+            !history.record(recent.clone()).unwrap(),
+            "late claim recovery must respect clearing too"
+        );
         assert_eq!(history.import_claims(vec![old, recent]).unwrap(), 0);
         assert_eq!(history.total(), 0);
         assert_eq!(history.import_claims(vec![entry("new")]).unwrap(), 1);

@@ -122,8 +122,9 @@ embed it and run without a build tool/runtime companion. Production builds never
   selection and reward type. Require account claim state or complete in-window award evidence;
   stale local progress must not override newer award evidence. Deduplicate by drop ID and use
   known award timestamps, labeling unknown claim times as first observed (also in exports).
-  Persist cleared IDs in the compatible version-1 history file so imports cannot resurrect
-  cleared entries. Imports never issue claim RPCs or fabricate missing campaign metadata.
+  Persist cleared IDs in the compatible version-1 history file so imports and late claim
+  receipt recovery cannot resurrect cleared entries. Imports never issue claim RPCs or
+  fabricate missing campaign metadata.
 - Every session/job/socket task is owned and drained. Logout coalesces and removes only Twitch
   credentials after drainage; concurrent shutdown cannot interrupt removal in either queue order.
   Hourly validation/network reconfiguration preserves manual selection/deadlines and queues

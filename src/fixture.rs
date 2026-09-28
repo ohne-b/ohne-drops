@@ -35,7 +35,7 @@ async fn reset_state(app: &App) -> anyhow::Result<()> {
     app.data.save_settings(&state.settings.values)?;
     *app.snapshot.write().await = state;
     let mut history = app.history.lock().await;
-    history.clear()?;
+    history.reset_fixture()?;
     history.record(HistoryEntry {
         id: "past-drop".into(),
         claimed_at: "2026-09-25T18:00:00Z".parse()?,

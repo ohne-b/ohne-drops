@@ -480,6 +480,7 @@ struct Mining {
     next_retry: Instant,
     refresh_channels: HashMap<u64, Instant>,
     channel_events: HashMap<u64, Instant>,
+    beacon_events: HashMap<u64, Instant>,
     viewer_events: HashMap<u64, Instant>,
     notifications: HashSet<String>,
     claim_retry: HashMap<String, Instant>,
@@ -561,6 +562,7 @@ impl Mining {
             next_retry: now,
             refresh_channels: HashMap::new(),
             channel_events: HashMap::new(),
+            beacon_events: HashMap::new(),
             viewer_events: HashMap::new(),
             notifications: HashSet::new(),
             claim_retry: HashMap::new(),
@@ -657,6 +659,7 @@ impl Mining {
             self.claim_wait = None;
             self.refresh_channels.clear();
             self.channel_events.clear();
+            self.beacon_events.clear();
             self.viewer_events.clear();
             self.status = InventoryStatus::default();
             pool.set_channels(&[]);
@@ -745,6 +748,7 @@ impl Mining {
             }
             Event::Offline(id) => {
                 self.channel_events.insert(id, Instant::now());
+                self.beacon_events.insert(id, Instant::now());
                 if let Some(channel) = self.channels.iter_mut().find(|c| c.identity.id == id) {
                     channel.broadcast_id = None;
                     channel.game = None;
@@ -757,11 +761,13 @@ impl Mining {
             }
             Event::Changed(id) => {
                 self.channel_events.insert(id, Instant::now());
+                self.beacon_events.insert(id, Instant::now());
                 if let Some(channel) = self.channels.iter_mut().find(|c| c.identity.id == id) {
                     // The old category is no longer evidence of eligibility.
                     channel.broadcast_id = None;
                     channel.game = None;
                     channel.drops_enabled = false;
+                    channel.beacon_url = None;
                     self.publish = true;
                     self.refresh_channels
                         .insert(id, Instant::now() + CHANNEL_DELAY);
@@ -980,8 +986,8 @@ impl Mining {
                 {
                     self.next_watch = now + WATCH_INTERVAL;
                     let client = self.client.clone();
+                    let requested_at = now;
                     self.spawn(JobKind::Watch, async move {
-                        let requested_at = Instant::now();
                         let result = client.send_watch(&mut channel, Utc::now()).await;
                         Job::Watch {
                             channel: Box::new(channel),
@@ -1157,10 +1163,11 @@ impl Mining {
                             .iter()
                             .find(|c| c.id == campaign.id)
                             .and_then(|c| c.drops.iter().find(|d| d.id == drop.id))
+                            && !drop.claimed
                             && previous.required_minutes == drop.required_minutes
-                            && previous.confirmed_at.is_some_and(|at| {
-                                at > requested_at || (!drop.claimed && drop.confirmed_at.is_none())
-                            })
+                            && previous
+                                .confirmed_at
+                                .is_some_and(|at| at > requested_at || drop.confirmed_at.is_none())
                         {
                             drop.confirmed_minutes = previous.confirmed_minutes;
                             drop.confirmed_at = previous.confirmed_at;
@@ -1234,6 +1241,8 @@ impl Mining {
                 self.apply_manual(&intent);
                 self.channel_events
                     .retain(|id, _| self.channels.iter().any(|c| c.identity.id == *id));
+                self.beacon_events
+                    .retain(|id, _| self.channels.iter().any(|c| c.identity.id == *id));
                 self.viewer_events
                     .retain(|id, _| self.channels.iter().any(|c| c.identity.id == *id));
                 self.refresh_channels
@@ -1268,7 +1277,7 @@ impl Mining {
                         && c.identity.id == channel.identity.id
                         && c.broadcast_id == channel.broadcast_id
                         && self
-                            .channel_events
+                            .beacon_events
                             .get(&c.identity.id)
                             .is_none_or(|at| *at <= requested_at)
                 });
@@ -1279,7 +1288,7 @@ impl Mining {
                 // refresh from restoring the stale beacon cached in its clone.
                 if current.beacon_url != channel.beacon_url {
                     current.beacon_url = channel.beacon_url;
-                    self.channel_events.insert(current.identity.id, at);
+                    self.beacon_events.insert(current.identity.id, at);
                 }
                 if result == Ok(true) {
                     self.watch_failures = 0;
@@ -1459,6 +1468,7 @@ impl Mining {
         self.channels
             .truncate(crate::twitch::channels::MAX_CHANNELS);
         self.channel_events.insert(id, Instant::now());
+        self.beacon_events.insert(id, Instant::now());
         self.manual = Some(ManualSelection::new(id, duration));
         self.channels_dirty = true;
         None
@@ -1487,6 +1497,13 @@ impl Mining {
                     .find(|c| c.identity.id == channel.identity.id)
             {
                 *channel = current.clone();
+            }
+            // Stream metadata never discovers beacon addresses. For the same
+            // broadcast, the owner has the latest acknowledgement/invalidation.
+            if let Some(current) = self.channels.iter().find(|c| {
+                c.identity.id == channel.identity.id && c.broadcast_id == channel.broadcast_id
+            }) {
+                channel.beacon_url = current.beacon_url.clone();
             }
         }
     }
