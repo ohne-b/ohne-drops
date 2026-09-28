@@ -231,10 +231,18 @@ channel; every watched channel must be live.
 
 ### History and saved data
 
-**History** filters by game and a starting date at midnight UTC. Claim times display in
-your browser's timezone. CSV and JSON exports contain the filtered results.
-**Clear local history** removes the local claim list; Twitch claims and completed
-campaign snapshots in **Finished** are kept.
+**History** includes the miner's claims and imports Twitch-confirmed rewards during
+inventory refresh, including badges/emotes and claims made elsewhere. Imports require
+matching campaign/drop metadata; rewards no longer available from either inventory or
+the catalog cannot be reconstructed. Public catalog entries alone never prove a claim.
+Twitch award times are used when available; otherwise **First seen** labels the time
+the miner first recorded the confirmed claim. Game/date filters and monthly summaries
+use that stored timestamp, displayed in your browser's timezone (date filters start at
+midnight UTC). CSV and JSON exports include `claimed_at_is_observed` to identify these
+fallback timestamps.
+**Clear local history** removes the local claim list and remembers cleared reward IDs
+so imports cannot restore them. Twitch claims and completed campaign snapshots in
+**Finished** are kept.
 
 Docker stores application data in `/app/data` and logs in `/app/logs`, mounted to the
 directories in the Compose example. Settings, Twitch credentials, dashboard sessions,
@@ -348,6 +356,13 @@ docker compose logs --since=30m --tail=200 twitch-drops-miner
 
 Normal logs identify operations, HTTP status/retry attempts, JSON syntax positions,
 rejected field types and catalog problems. Unknown GraphQL messages are fingerprinted.
+
+Failed watch requests discard their cached beacon address before retrying. After three
+consecutive failures for the current stream, the miner renews its Twitch connections
+automatically, preserving settings and any manual channel timer. Changing **Connection
+Quality** also rebuilds connections and changes timeouts; it is no longer necessary to
+toggle it just to trigger recovery from repeated watch failures. This does not bypass
+an unavailable Twitch endpoint or guarantee that Twitch credits watch time.
 
 **Advanced diagnostics are off by default**, including with `-v`/`-vv`. To enable them,
 add this entry under the miner service's **existing** `environment` section in Compose:

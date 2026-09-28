@@ -36,6 +36,7 @@ export default function History() {
   const queryString = query.toString();
   // ponytail: fetch the personal history once; add API pagination if its size becomes a problem.
   const claimed = data?.campaigns.reduce((sum, campaign) => sum + campaign.claimed_drops, 0);
+  const inventoryChecked = data?.inventory_status?.checked_at;
   useEffect(() => {
     const controller = new AbortController();
     setLoading(true);
@@ -59,7 +60,7 @@ export default function History() {
         if (!controller.signal.aborted) setLoading(false);
       });
     return () => controller.abort();
-  }, [queryString, refresh, connected, claimed]);
+  }, [queryString, refresh, connected, claimed, inventoryChecked]);
   function filter(key: string, value: string) {
     const next = new URLSearchParams(params);
     value ? next.set(key, value) : next.delete(key);
@@ -159,7 +160,11 @@ export default function History() {
                 {entry.benefits.length > 0 && <p className="muted">{entry.benefits.join(', ')}</p>}
               </div>
               <div className="text-[13px] text-muted sm:text-end">
-                <p>{dateTime(entry.claimed_at)}</p>
+                <p>
+                  {entry.claimed_at_is_observed
+                    ? t('gui.history.first_seen', { time: dateTime(entry.claimed_at) })
+                    : dateTime(entry.claimed_at)}
+                </p>
                 <p>
                   {entry.required_minutes} {t('gui.history.minutes')}
                 </p>

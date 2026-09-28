@@ -196,6 +196,8 @@ pub struct Snapshot {
 pub struct HistoryEntry {
     pub id: String,
     pub claimed_at: DateTime<Utc>,
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub claimed_at_is_observed: bool,
     pub game: String,
     pub campaign: String,
     pub drop_name: String,

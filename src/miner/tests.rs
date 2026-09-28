@@ -239,6 +239,343 @@ async fn only_selected_games_send_beacons_and_inventory_io_does_not_block_watch_
 }
 
 #[tokio::test]
+async fn failed_cached_beacon_is_rediscovered_and_late_metadata_cannot_restore_it() {
+    let server = MockServer::start().await;
+    Mock::given(method("GET"))
+        .and(path("/streamer"))
+        .respond_with(
+            ResponseTemplate::new(200)
+                .set_body_string(format!(r#"{{"beacon_url":"{}/new-track"}}"#, server.uri())),
+        )
+        .expect(1)
+        .mount(&server)
+        .await;
+    for (endpoint, status) in [("/old-track", 410), ("/new-track", 204)] {
+        Mock::given(method("POST"))
+            .and(path(endpoint))
+            .respond_with(ResponseTemplate::new(status))
+            .expect(1)
+            .mount(&server)
+            .await;
+    }
+    let (_dir, mut miner, _intent, mut pool) = miner(&server).await;
+    miner.channels[0].beacon_url = Some(format!("{}/old-track", server.uri()).parse().unwrap());
+    let stale_channels = miner.channels.clone();
+    let requested_at = Instant::now();
+    let settings = select(&mut miner).await;
+    miner.schedule(&settings).await;
+    finish_job(&mut miner, &pool).await;
+    assert!(miner.channels[0].beacon_url.is_none());
+    miner
+        .complete(
+            Job::Update {
+                result: Ok(stale_channels),
+                requested_at,
+            },
+            &pool,
+        )
+        .await
+        .unwrap();
+    assert!(miner.channels[0].beacon_url.is_none());
+    miner.next_watch = Instant::now();
+    miner.schedule(&settings).await;
+    finish_job(&mut miner, &pool).await;
+    assert_eq!(
+        miner.channels[0].beacon_url.as_ref().unwrap().path(),
+        "/new-track"
+    );
+    pool.close().await;
+}
+
+#[tokio::test]
+async fn watch_cache_changes_preserve_overlapping_stream_metadata_in_both_completion_orders() {
+    for discovery in [false, true] {
+        for change in [
+            "offline",
+            "broadcast",
+            "category",
+            "drops-disabled",
+            "unchanged",
+        ] {
+            let server = MockServer::start().await;
+            let (_dir, mut miner, _intent, mut pool) = miner(&server).await;
+            select(&mut miner).await;
+            miner.channels[0].beacon_url = Some(format!("{}/old", server.uri()).parse().unwrap());
+            let watch_started = Instant::now();
+            let mut watched = miner.channels[0].clone();
+            watched.beacon_url = None;
+            let metadata_started = Instant::now();
+            let mut fresh = miner.channels[0].clone();
+            match change {
+                "offline" => fresh = Channel::offline(fresh.identity, false),
+                "broadcast" => {
+                    fresh.broadcast_id = Some("stream2".into());
+                    fresh.beacon_url = None;
+                }
+                "category" => fresh.game = None,
+                "drops-disabled" => fresh.drops_enabled = false,
+                _ => {}
+            }
+            let update = if discovery {
+                Job::Channels {
+                    result: Ok(vec![fresh.clone()]),
+                    requested_at: metadata_started,
+                }
+            } else {
+                Job::Update {
+                    result: Ok(vec![fresh.clone()]),
+                    requested_at: metadata_started,
+                }
+            };
+            let watch = Job::Watch {
+                channel: Box::new(watched),
+                result: Err(TwitchError::Network),
+                requested_at: watch_started,
+                at: Instant::now(),
+            };
+            if change == "unchanged" {
+                // A newer unchanged refresh cannot suppress an in-flight failure.
+                miner.complete(update, &pool).await.unwrap();
+                miner.complete(watch, &pool).await.unwrap();
+            } else {
+                miner.complete(watch, &pool).await.unwrap();
+                miner.complete(update, &pool).await.unwrap();
+            }
+            let current = &miner.channels[0];
+            assert_eq!(current.broadcast_id, fresh.broadcast_id, "{change}");
+            assert_eq!(current.game, fresh.game, "{change}");
+            assert_eq!(current.drops_enabled, fresh.drops_enabled, "{change}");
+            assert!(current.beacon_url.is_none(), "{change}");
+            assert_eq!(miner.watch_failures, 1, "{change}");
+            pool.close().await;
+        }
+    }
+}
+
+#[tokio::test]
+async fn repeated_watch_failures_renew_connections_but_success_and_stale_results_do_not() {
+    let server = MockServer::start().await;
+    let (_dir, mut miner, _intent, mut pool) = miner(&server).await;
+    select(&mut miner).await;
+    for (result, count) in [
+        (Err(TwitchError::Network), 1),
+        (Ok(false), 2),
+        (Ok(true), 0),
+        (Err(TwitchError::Network), 1),
+        (Err(TwitchError::Network), 2),
+        (Err(TwitchError::Network), 3),
+    ] {
+        let completed = miner
+            .complete(
+                Job::Watch {
+                    channel: Box::new(miner.channels[0].clone()),
+                    result,
+                    requested_at: Instant::now(),
+                    at: Instant::now(),
+                },
+                &pool,
+            )
+            .await;
+        assert_eq!(miner.watch_failures, count);
+        assert_eq!(
+            completed,
+            if count == 3 {
+                Err(TwitchError::Network)
+            } else {
+                Ok(())
+            }
+        );
+    }
+    miner.watch_failures = 0;
+    miner.refresh_channels.clear();
+    let stale = miner.channels[0].clone();
+    let requested_at = Instant::now();
+    miner.channels[0].beacon_url = Some(format!("{}/fresh", server.uri()).parse().unwrap());
+    miner
+        .beacon_events
+        .insert(10, requested_at + Duration::from_nanos(1));
+    for result in [Err(TwitchError::Network), Ok(true)] {
+        miner
+            .complete(
+                Job::Watch {
+                    channel: Box::new(stale.clone()),
+                    result,
+                    requested_at,
+                    at: Instant::now(),
+                },
+                &pool,
+            )
+            .await
+            .unwrap();
+    }
+    assert_eq!(
+        miner.channels[0].beacon_url.as_ref().unwrap().path(),
+        "/fresh"
+    );
+    assert_eq!(miner.watch_failures, 0);
+    assert!(miner.refresh_channels.is_empty());
+    pool.close().await;
+}
+
+#[tokio::test]
+async fn already_claimed_automatic_badge_is_recorded_once_and_does_not_block_next_reward() {
+    let server = MockServer::start().await;
+    gql_mock(&server, |q| {
+        assert_eq!(q["operationName"], "DropsPage_ClaimDropRewards");
+        json!({"data":{"claimDropRewards":{"status":"DROP_INSTANCE_ALREADY_CLAIMED"}}})
+    })
+    .await;
+    let (dir, mut miner, _intent, mut pool) = miner(&server).await;
+    let settings = Settings {
+        auto_mine_badges: true,
+        ..Settings::default()
+    };
+    miner.app.snapshot.write().await.settings.values = settings.clone();
+    miner.campaigns[0].drops[0].benefits[0].view.kind = "BADGE".into();
+    let mut next = miner.campaigns[0].drops[0].clone();
+    next.id = "next-badge".into();
+    next.prerequisites = vec!["drop-one".into()];
+    miner.campaigns[0].drops.push(next);
+    miner.campaigns[0].drops[0].claim_id = Some("earned-instance".into());
+    miner.reselect(&settings).await;
+    miner.schedule(&settings).await;
+    finish_job(&mut miner, &pool).await;
+    assert!(miner.campaigns[0].drops[0].claimed);
+    assert_eq!(History::load(dir.path()).total(), 1);
+    for _ in 0..8 {
+        miner
+            .complete(
+                Job::Poll {
+                    channel: 10,
+                    requested_at: Instant::now(),
+                    result: Ok(Some(("drop-one".into(), 60))),
+                },
+                &pool,
+            )
+            .await
+            .unwrap();
+    }
+    assert!(
+        miner.claim_wait.is_none(),
+        "a stale CurrentDrop must not block watching forever"
+    );
+    assert_eq!(
+        miner.campaigns[0]
+            .first_drop(&settings, Utc::now())
+            .unwrap()
+            .id,
+        "next-badge"
+    );
+    assert!(miner.journal.lock().await.pending(42).is_empty());
+    miner.schedule(&settings).await;
+    assert!(miner.busy.contains(&JobKind::Watch));
+    assert!(!miner.busy.contains(&JobKind::Claim));
+    miner.client.http.cancel.cancel();
+    while miner.jobs.join_next().await.is_some() {}
+    pool.close().await;
+}
+
+#[tokio::test]
+async fn inventory_imports_confirmed_badges_without_claiming_or_resurrecting_cleared_history() {
+    let server = MockServer::start().await;
+    let (dir, mut miner, _intent, mut pool) = miner(&server).await;
+    let awarded_at = Utc::now() - chrono::Duration::minutes(1);
+    let awards = HashMap::from([
+        ("benefit-one".into(), awarded_at),
+        ("benefit-unclaimed".into(), awarded_at),
+    ]);
+    let mut badge = campaign_json("one");
+    badge["timeBasedDrops"][0]["self"] = serde_json::Value::Null;
+    badge["timeBasedDrops"][0]["benefitEdges"][0]["benefit"]["distributionType"] = json!("BADGE");
+    let mut unknown_time = campaign_json("unknown-time");
+    unknown_time["timeBasedDrops"][0]["self"]["isClaimed"] = json!(true);
+    let campaigns: Vec<_> = [badge, unknown_time, campaign_json("unclaimed")]
+        .iter()
+        .map(|v| Campaign::parse(v, &awards, Utc::now()).unwrap())
+        .collect();
+    miner.campaigns.push(
+        Campaign::parse(&campaign_json("unknown-time"), &HashMap::new(), Utc::now()).unwrap(),
+    );
+    let started = Utc::now();
+    for round in 0..3 {
+        if round == 2 {
+            miner.app.history.lock().await.clear().unwrap();
+            *miner.app.history.lock().await = History::load(dir.path());
+        }
+        let (refresh_sequence, _) = miner.app.begin_inventory_refresh().await;
+        let requested_at = Utc::now();
+        if round == 0 {
+            // Progress during refresh is not evidence that an incoming confirmed
+            // claim (explicit account state or award inference) is unclaimed.
+            for id in ["drop-one", "drop-unknown-time"] {
+                miner
+                    .event(Event::Progress {
+                        id: id.into(),
+                        minutes: 30,
+                    })
+                    .await
+                    .unwrap();
+            }
+        }
+        miner
+            .complete(
+                Job::Inventory {
+                    result: Ok(Inventory {
+                        campaigns: campaigns.clone(),
+                        awards: awards.clone(),
+                        status: InventoryStatus {
+                            available: true,
+                            checked_at: Some(Utc::now()),
+                            catalog_updated_at: None,
+                        },
+                    }),
+                    requested_at,
+                    refresh_sequence,
+                },
+                &pool,
+            )
+            .await
+            .unwrap();
+        let history = History::load(dir.path());
+        assert_eq!(history.total(), if round == 2 { 0 } else { 2 });
+        if round == 0 {
+            let entries = history.entries(&HistoryFilter::default());
+            let badge = entries.iter().find(|e| e.id == "drop-one").unwrap();
+            assert_eq!(badge.claimed_at, awarded_at);
+            assert!(!badge.claimed_at_is_observed);
+            let unknown = entries
+                .iter()
+                .find(|e| e.id == "drop-unknown-time")
+                .unwrap();
+            assert!(unknown.claimed_at_is_observed);
+            assert!(unknown.claimed_at >= started);
+            assert!(
+                miner
+                    .campaigns
+                    .iter()
+                    .find(|c| c.id == "one")
+                    .unwrap()
+                    .drops[0]
+                    .claimed,
+                "progress received during refresh must not erase Twitch claim evidence"
+            );
+        }
+    }
+    assert!(miner.jobs.is_empty());
+    assert!(
+        server
+            .received_requests()
+            .await
+            .unwrap()
+            .iter()
+            .all(|r| r.method != "POST"),
+        "inventory imports must not make claim RPCs"
+    );
+    assert!(miner.journal.lock().await.pending(42).is_empty());
+    pool.close().await;
+}
+
+#[tokio::test]
 async fn ignored_and_unselected_earned_rewards_are_claimed_once_and_archived_durably() {
     let server = MockServer::start().await;
     gql_mock(&server, |q| {
@@ -275,6 +612,38 @@ async fn ignored_and_unselected_earned_rewards_are_claimed_once_and_archived_dur
     assert!(CampaignArchive::load(dir.path()).merge(vec![], Utc::now())[0].finished);
     miner.schedule(&settings).await;
     assert!(miner.jobs.is_empty());
+    pool.close().await;
+}
+
+#[tokio::test]
+async fn clearing_history_before_claim_receipt_reconciliation_does_not_restore_the_row() {
+    let server = MockServer::start().await;
+    gql_mock(
+        &server,
+        |_| json!({"data":{"claimDropRewards":{"status":"ELIGIBLE_FOR_ALL"}}}),
+    )
+    .await;
+    let (dir, mut miner, _intent, mut pool) = miner(&server).await;
+    miner.campaigns[0].drops[0].claim_id = Some("instance".into());
+    let pending = PendingClaim::new(
+        42,
+        &miner.campaigns[0],
+        &miner.campaigns[0].drops[0],
+        &Settings::default(),
+    );
+    assert!(
+        claim(&miner.app, &miner.client, &miner.journal, pending)
+            .await
+            .unwrap()
+    );
+    assert_eq!(miner.app.history.lock().await.total(), 1);
+    miner.app.history.lock().await.clear().unwrap();
+    *miner.app.history.lock().await = History::load(dir.path());
+    miner.recover_claims(&HashMap::new()).await.unwrap();
+    assert_eq!(History::load(dir.path()).total(), 0);
+    assert!(miner.journal.lock().await.pending(42).is_empty());
+    assert!(miner.campaigns[0].drops[0].claimed);
+    assert!(CampaignArchive::load(dir.path()).merge(vec![], Utc::now())[0].finished);
     pool.close().await;
 }
 
