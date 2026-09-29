@@ -1,8 +1,8 @@
 # Changelog
 
-## [v1.2.0](https://github.com/ohne-b/twitch-drops-miner/releases/tag/v1.2.0) ? 2026-09-29
+## [v1.2.0](https://github.com/ohne-b/twitch-drops-miner/releases/tag/v1.2.0) — 2026-09-29
 
-- standardize dashboard icons with the MDI React package and borderless icon actions, including campaign/history sorting, filtering, mining controls and game priorities
+- standardize dashboard icons with the MDI React package and borderless icon actions, including campaign/history sorting, filtering, mining controls and game priorities ([#35](https://github.com/ohne-b/twitch-drops-miner/pull/35))
 - move recorded claim history into Campaigns with shared search, game filters, sorting and layouts; retain older claims without catalog metadata and remove CSV/JSON exports
 - simplify Twitch account status and device authorization with a copy-code action and an aligned Activate/Done row; move dashboard connection status into Connection settings
 - include local claim history in the confirmed Clear All Cache action, remembering cleared reward IDs so refreshes and late claim receipts cannot restore them
