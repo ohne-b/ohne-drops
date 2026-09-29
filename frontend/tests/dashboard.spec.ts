@@ -1,6 +1,13 @@
 import { test, expect } from '@playwright/test';
 import AxeBuilder from '@axe-core/playwright';
-import { mdiCheck, mdiContentCopy, mdiPlayCircleOutline, mdiUpdate } from '@mdi/js';
+import {
+  mdiAlertCircleOutline,
+  mdiCheck,
+  mdiContentCopy,
+  mdiPlayCircleOutline,
+  mdiRefresh,
+  mdiUpdate,
+} from '@mdi/js';
 import fixture from './fixture.json' with { type: 'json' };
 import type { Snapshot } from '../src/lib/types';
 const snapshot: Snapshot = fixture;
@@ -37,68 +44,104 @@ test('automatic reward types persist without changing games or display filters',
   await expect(emotes).toBeChecked();
 });
 
-test('refresh button tracks completion, failures, stale events and reconnects without notices', async ({
-  page,
-  request,
-}) => {
-  const refresh = page.getByRole('button', { name: 'Refresh inventory', exact: true });
-  await page.evaluate(() => document.fonts.ready);
-  const iconCenter = () =>
-    page
-      .getByRole('button', { name: /^Refresh/ })
-      .locator('svg')
-      .evaluate((icon) => {
-        const box = icon.getBoundingClientRect();
-        return box.x + box.width / 2;
-      });
-  const idleIconCenter = await iconCenter();
-  const refreshIcon = await refresh.locator('svg').boundingBox();
-  expect(refreshIcon!.width).toBe(18);
-  expect(refreshIcon!.height).toBe(18);
-  await refresh.click();
-  await expect(page.getByRole('button', { name: 'Refreshing...', exact: true })).toBeDisabled();
-  expect(await iconCenter()).toBeCloseTo(idleIconCenter, 1);
-  await page.reload();
-  await expect(page.getByRole('button', { name: 'Refreshing...', exact: true })).toBeDisabled();
-  await page.goto('/settings#maintenance');
-  await expect(page.getByRole('button', { name: 'Refreshing...', exact: true })).toBeDisabled();
-  await page.goto('/');
-  await request.post('/__test/event', {
-    headers,
-    data: { event: 'inventory_refresh', data: { sequence: 2, state: 'refreshed', error: null } },
-  });
-  await expect(page.getByRole('button', { name: 'Refreshed', exact: true })).toBeEnabled();
-  expect(await iconCenter()).toBeCloseTo(idleIconCenter, 1);
-  await request.post('/__test/event', {
-    headers,
-    data: { event: 'inventory_refresh', data: { sequence: 1, state: 'refreshing', error: null } },
-  });
-  await expect(page.getByRole('button', { name: 'Refreshed', exact: true })).toBeEnabled();
-  await expect(page.getByText('Inventory refresh requested.', { exact: true })).toHaveCount(0);
-  await expect(refresh).toBeVisible({ timeout: 6000 });
-  await refresh.click();
-  await expect(page.getByRole('button', { name: 'Refreshing...', exact: true })).toBeDisabled();
-  await request.post('/__test/event', {
-    headers,
-    data: {
-      event: 'inventory_refresh',
+for (const width of [1280, 320]) {
+  test(`refresh button tracks completion, failures, stale events and reconnects without notices at ${width}px`, async ({
+    page,
+    request,
+  }) => {
+    await page.setViewportSize({ width, height: 900 });
+    const refresh = page.getByRole('button', { name: 'Refresh inventory', exact: true });
+    const control = page.getByRole('button', { name: /^Refresh/ });
+    const size = async () => {
+      const box = (await control.boundingBox())!;
+      return [box.width, box.height];
+    };
+    const expectedSize = width < 768 ? [44, 44] : [36, 36];
+    await expect(refresh).toHaveText('');
+    await expect(refresh.locator('path')).toHaveAttribute('d', mdiRefresh);
+    await expect(refresh).toHaveAttribute('title', /^Refresh inventory/);
+    expect(await size()).toEqual(expectedSize);
+    await page.evaluate(() => document.fonts.ready);
+    const iconCenter = () =>
+      page
+        .getByRole('button', { name: /^Refresh/ })
+        .locator('svg')
+        .evaluate((icon) => {
+          const box = icon.getBoundingClientRect();
+          return box.x + box.width / 2;
+        });
+    const idleIconCenter = await iconCenter();
+    const refreshIcon = await refresh.locator('svg').boundingBox();
+    expect(refreshIcon!.width).toBe(18);
+    expect(refreshIcon!.height).toBe(18);
+    await refresh.click();
+    await expect(page.getByRole('button', { name: 'Refreshing...', exact: true })).toBeDisabled();
+    await expect(control).toHaveAttribute('aria-busy', 'true');
+    await expect(control).toHaveAttribute('title', /^Refreshing\.\.\./);
+    expect(await size()).toEqual(expectedSize);
+    expect(await control.locator('svg').evaluate((el) => getComputedStyle(el).animationName)).toBe(
+      'spin',
+    );
+    await page.emulateMedia({ reducedMotion: 'reduce' });
+    expect(await control.locator('svg').evaluate((el) => getComputedStyle(el).animationName)).toBe(
+      'none',
+    );
+    expect(await iconCenter()).toBeCloseTo(idleIconCenter, 1);
+    await page.reload();
+    await expect(page.getByRole('button', { name: 'Refreshing...', exact: true })).toBeDisabled();
+    await page.goto('/settings#maintenance');
+    await expect(page.getByRole('button', { name: 'Refreshing...', exact: true })).toBeDisabled();
+    expect(await size()).toEqual(expectedSize);
+    await page.goto('/');
+    await request.post('/__test/event', {
+      headers,
+      data: { event: 'inventory_refresh', data: { sequence: 2, state: 'refreshed', error: null } },
+    });
+    await expect(page.getByRole('button', { name: 'Refreshed', exact: true })).toBeEnabled();
+    await expect(control.locator('path')).toHaveAttribute('d', mdiCheck);
+    await expect(control).toHaveAttribute('aria-busy', 'false');
+    await expect(page.locator('main [aria-live="polite"]')).toContainText('Refreshed');
+    expect(await size()).toEqual(expectedSize);
+    expect(await iconCenter()).toBeCloseTo(idleIconCenter, 1);
+    await request.post('/__test/event', {
+      headers,
+      data: { event: 'inventory_refresh', data: { sequence: 1, state: 'refreshing', error: null } },
+    });
+    await expect(page.getByRole('button', { name: 'Refreshed', exact: true })).toBeEnabled();
+    await expect(page.getByText('Inventory refresh requested.', { exact: true })).toHaveCount(0);
+    await expect(refresh).toBeVisible({ timeout: 6000 });
+    await refresh.click();
+    await expect(page.getByRole('button', { name: 'Refreshing...', exact: true })).toBeDisabled();
+    await request.post('/__test/event', {
+      headers,
       data: {
-        sequence: 4,
-        state: 'failed',
-        error: 'The public catalog is unavailable or incomplete.',
+        event: 'inventory_refresh',
+        data: {
+          sequence: 4,
+          state: 'failed',
+          error: 'The public catalog is unavailable or incomplete.',
+        },
       },
-    },
+    });
+    const retry = page.getByRole('button', { name: 'Refresh failed - Retry', exact: true });
+    await expect(retry).toBeEnabled();
+    expect(await iconCenter()).toBeCloseTo(idleIconCenter, 1);
+    await expect(retry.locator('path')).toHaveAttribute('d', mdiAlertCircleOutline);
+    expect(await size()).toEqual(expectedSize);
+    await expect(retry).toHaveAttribute(
+      'title',
+      'Refresh failed - Retry\nThe public catalog is unavailable or incomplete.',
+    );
+    await expect(retry).toHaveAccessibleDescription(
+      'The public catalog is unavailable or incomplete.',
+    );
+    await expect(page.getByRole('alert')).toHaveCount(0);
+    await page.screenshot({ path: `../artifacts/refresh-button-failure-${width}.png` });
+    expect((await new AxeBuilder({ page }).include('main').analyze()).violations).toEqual([]);
+    await retry.click();
+    await expect(page.getByRole('button', { name: 'Refreshing...', exact: true })).toBeDisabled();
   });
-  const retry = page.getByRole('button', { name: 'Refresh failed - Retry', exact: true });
-  await expect(retry).toBeEnabled();
-  expect(await iconCenter()).toBeCloseTo(idleIconCenter, 1);
-  await expect(retry).toHaveAttribute('title', 'The public catalog is unavailable or incomplete.');
-  await expect(page.getByRole('alert')).toHaveCount(0);
-  await page.screenshot({ path: '../artifacts/refresh-button-failure.png' });
-  expect((await new AxeBuilder({ page }).include('main').analyze()).violations).toEqual([]);
-  await retry.click();
-  await expect(page.getByRole('button', { name: 'Refreshing...', exact: true })).toBeDisabled();
-});
+}
 
 test('refresh request errors stay in the button and require a connected Twitch account', async ({
   page,
