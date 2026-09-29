@@ -1,6 +1,14 @@
 import { Icon } from '@mdi/react';
 import { useEffect, useRef, useState, type ReactNode } from 'react';
-import { mdiPlus, mdiOpenInNew, mdiLogout, mdiContentCopy, mdiCheck, mdiReload } from '@mdi/js';
+import {
+  mdiPlus,
+  mdiOpenInNew,
+  mdiLogout,
+  mdiContentCopy,
+  mdiCheck,
+  mdiReload,
+  mdiUpdate,
+} from '@mdi/js';
 import type { AuthStatus, ReleaseInfo, Result, Settings as SettingsData } from '../lib/types';
 import { request, safeUrl } from '../lib/api';
 import { useMiner } from '../lib/state';
@@ -23,17 +31,22 @@ import {
 function Section({
   id,
   title,
+  action,
   help,
   children,
 }: {
   id: string;
   title: ReactNode;
+  action?: ReactNode;
   help?: string;
   children: ReactNode;
 }) {
   return (
     <section id={id} className="scroll-mt-6 border-b border-divider pb-8 last:border-0">
-      <h2 className="mb-1 text-base font-semibold">{title}</h2>
+      <div className="mb-1 flex items-center gap-2">
+        <h2 className="min-w-0 text-base font-semibold">{title}</h2>
+        {action}
+      </div>
       {help && <p className="mb-5 max-w-2xl text-[13px] leading-relaxed text-muted">{help}</p>}
       <div className="mt-5 space-y-4">{children}</div>
     </section>
@@ -170,9 +183,14 @@ function ReleaseNotice({ disabled }: { disabled: boolean }) {
     <div className="space-y-3 text-[13px]">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <p className="text-muted">Drops Miner{release && ` · ${release.current_version}`}</p>
-        <Button disabled={disabled || busy} onClick={() => void check()}>
-          {t(busy ? 'checking_updates' : 'check_updates')}
-        </Button>
+        <IconButton
+          path={mdiUpdate}
+          label={t(busy ? 'checking_updates' : 'check_updates')}
+          className={busy ? '[&>svg]:animate-spin motion-reduce:[&>svg]:animate-none' : ''}
+          aria-busy={busy}
+          disabled={disabled || busy}
+          onClick={() => void check()}
+        />
       </div>
       <div>
         {busy ? (
@@ -322,16 +340,18 @@ function SettingsContent({ settings, auth }: { settings: SettingsData; auth: Aut
             <span className="font-normal text-soft">{plainText(data?.login.status ?? '')}</span>
           </>
         }
+        action={
+          data?.login.user_id && (
+            <IconButton
+              path={mdiLogout}
+              label={t('twitch_logout')}
+              disabled={!connected || logoutAction.busy}
+              onClick={() => void logoutAction.run(() => request('/api/twitch/logout', {}))}
+            />
+          )
+        }
       >
         {data?.login.user_id && <p className="muted">Twitch ID: {data.login.user_id}</p>}
-        {data?.login.user_id && (
-          <IconButton
-            path={mdiLogout}
-            label={t('twitch_logout')}
-            disabled={!connected || logoutAction.busy}
-            onClick={() => void logoutAction.run(() => request('/api/twitch/logout', {}))}
-          />
-        )}
         <ActionResult action={logoutAction} />
         {oauth ? (
           <div className="grid gap-3">

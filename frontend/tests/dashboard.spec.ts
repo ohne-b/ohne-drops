@@ -1,6 +1,6 @@
 import { test, expect } from '@playwright/test';
 import AxeBuilder from '@axe-core/playwright';
-import { mdiCheck, mdiContentCopy } from '@mdi/js';
+import { mdiCheck, mdiContentCopy, mdiPlayCircleOutline, mdiUpdate } from '@mdi/js';
 import fixture from './fixture.json' with { type: 'json' };
 import type { Snapshot } from '../src/lib/types';
 const snapshot: Snapshot = fixture;
@@ -182,6 +182,95 @@ test('failed release checks stay distinct from up-to-date and can be retried', a
   await expect(maintenance.getByText("You're up to date.")).toBeVisible();
   await expect(maintenance.getByRole('link', { name: 'Release notes' })).toHaveCount(0);
 });
+
+for (const width of [1280, 320]) {
+  test(`compact update, account and manual controls at ${width}px`, async ({ page }) => {
+    await page.setViewportSize({ width, height: 900 });
+    await page.getByRole('button', { name: 'Mine channel', exact: true }).click();
+    const mine = page.getByRole('button', { name: 'Mine', exact: true });
+    await expect(mine).toHaveText('');
+    await expect(mine).toHaveAttribute('title', 'Mine');
+    await expect(mine).toHaveAttribute('type', 'submit');
+    await expect(mine.locator('path')).toHaveAttribute('d', mdiPlayCircleOutline);
+    await expect(mine).toBeDisabled();
+    await page.getByRole('textbox', { name: 'Twitch channel name or URL' }).fill('extra_streamer');
+    await expect(mine).toBeEnabled();
+    await mine.focus();
+    await page.keyboard.press('Enter');
+    await expect(page.getByText('Watching extra_streamer', { exact: true })).toBeVisible();
+
+    let checks = 0;
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    await page.route('**/api/version', async (route) => {
+      if (++checks > 1) await gate;
+      await route.fulfill({
+        json: {
+          current_version: '1.2.0',
+          latest_version: '1.2.0',
+          update_available: false,
+          check_succeeded: true,
+          download_url: null,
+        },
+      });
+    });
+    await page.goto('/settings');
+    const account = page.locator('#account');
+    const heading = account.getByRole('heading', {
+      name: 'Twitch account: Logged in',
+      exact: true,
+    });
+    const logout = account.getByRole('button', { name: 'Log out of Twitch', exact: true });
+    await expect(logout).toBeEnabled();
+    const h = (await heading.boundingBox())!;
+    const l = (await logout.boundingBox())!;
+    expect(l.x).toBeGreaterThanOrEqual(h.x + h.width);
+    expect(l.x - (h.x + h.width)).toBeLessThanOrEqual(12);
+    expect(l.y + l.height / 2).toBeCloseTo(h.y + h.height / 2, 0);
+    expect(
+      (await account.getByText('Twitch ID: 123456', { exact: true }).boundingBox())!.y,
+    ).toBeGreaterThan(l.y + l.height);
+    await account.screenshot({ path: `../artifacts/account-controls-${width}.png` });
+
+    const update = page.getByRole('button', { name: 'Check for updates', exact: true });
+    await expect(update).toBeEnabled();
+    await expect(update).toHaveText('');
+    await expect(update.locator('path')).toHaveAttribute('d', mdiUpdate);
+    await update.scrollIntoViewIfNeeded();
+    const before = (await update.boundingBox())!;
+    expect(before.width).toBe(width < 768 ? 44 : 36);
+    await update.click();
+    const checking = page.getByRole('button', { name: 'Checking for updates…', exact: true });
+    await expect(checking).toBeDisabled();
+    await expect(checking).toHaveAttribute('aria-busy', 'true');
+    await expect(checking).toHaveAttribute('title', 'Checking for updates…');
+    expect((await checking.boundingBox())!.width).toBe(before.width);
+    expect((await checking.boundingBox())!.height).toBe(before.height);
+    expect(await checking.locator('svg').evaluate((el) => getComputedStyle(el).animationName)).toBe(
+      'spin',
+    );
+    await page.emulateMedia({ reducedMotion: 'reduce' });
+    expect(await checking.locator('svg').evaluate((el) => getComputedStyle(el).animationName)).toBe(
+      'none',
+    );
+    await expect(page.locator('#maintenance').getByRole('status')).toHaveText(
+      'Checking for updates…',
+    );
+    release();
+    await expect(update).toBeEnabled();
+    await expect(update).toHaveAttribute('aria-busy', 'false');
+    await expect(page.getByText("You're up to date.", { exact: true })).toBeVisible();
+    expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(
+      width,
+    );
+    expect(
+      (await new AxeBuilder({ page }).include('#account').include('#maintenance').analyze())
+        .violations,
+    ).toEqual([]);
+  });
+}
 
 test('retired notifications are absent from the dashboard and API', async ({ page, request }) => {
   await page.goto('/settings');

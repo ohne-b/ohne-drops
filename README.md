@@ -245,9 +245,12 @@ keep its rewards eligible. Other campaigns require a matching category and drops
 channel; every watched channel must be live.
 
 Icon-only controls share circular hover backgrounds, tooltips and accessible labels. Channel
-rows use a play-circle to watch; refresh-auto returns to automatic selection. The down arrow in
-Activity resumes following the latest messages, and reload icons retry errors. In Settings, Twitch
-account status and ID are shown separately; Dashboard connected lives under Connection.
+rows and manual-channel submission use a play-circle to watch; refresh-auto returns to automatic
+selection. The down arrow in Activity resumes following the latest messages, and reload icons retry
+errors. In Settings, Twitch
+account status and ID are shown separately, with Twitch logout beside the account status;
+Dashboard connected lives under Connection. Maintenance uses the MDI Update icon to check for
+updates, animating while checking (except with reduced motion) and keeping the result text below.
 The authorization row includes a copy-code action, Twitch Activate, and Done. Successful copying
 shows a tick for three seconds and updates the tooltip and screen-reader feedback without moving
 the surrounding layout. Copying again successfully restarts the confirmation. Clipboard access
