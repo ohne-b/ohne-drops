@@ -1696,6 +1696,56 @@ test('Settings saves silently and persists edits', async ({ page, request }) => 
   );
 });
 
+for (const width of [1280, 390, 320]) {
+  test(`copy feedback keeps the authorization layout stable at ${width}px`, async ({
+    page,
+    context,
+  }) => {
+    await page.setViewportSize({ width, height: 900 });
+    await context.grantPermissions(['clipboard-read', 'clipboard-write']);
+    await page.goto('/settings');
+    await page.getByRole('button', { name: 'Log out of Twitch', exact: true }).click();
+    const copy = page.getByRole('button', { name: 'Copy code', exact: true });
+    await expect(copy).toBeVisible();
+    await page.evaluate(() => document.fonts.ready);
+    const layout = () =>
+      page.evaluate(() => ({
+        accountHeight: document.querySelector('#account')!.getBoundingClientRect().height,
+        miningTop: document.querySelector('#mining')!.getBoundingClientRect().top + scrollY,
+      }));
+    const before = await layout();
+    await copy.click();
+    await expect(copy).toHaveAttribute('title', 'Code copied');
+    await expect(page.locator('#account [role="status"]')).toHaveText('Code copied');
+    expect(await layout()).toEqual(before);
+    await copy.click();
+    expect(await layout()).toEqual(before);
+
+    await page.evaluate(() => {
+      Object.defineProperty(navigator.clipboard, 'writeText', {
+        value: () => Promise.reject(new Error('denied')),
+        configurable: true,
+      });
+    });
+    await copy.click();
+    const error = page.getByRole('alert');
+    await expect(error).toContainText('Could not copy');
+    const row = await page.locator('.authorization-row').boundingBox();
+    const notice = await error.boundingBox();
+    expect(notice!.y - row!.y - row!.height).toBe(12);
+    await page.evaluate(() => {
+      Object.defineProperty(navigator.clipboard, 'writeText', {
+        value: () => Promise.resolve(),
+        configurable: true,
+      });
+    });
+    await copy.click();
+    await expect(error).toHaveCount(0);
+    await expect(copy).toHaveAttribute('title', 'Code copied');
+    expect(await layout()).toEqual(before);
+  });
+}
+
 test('icon actions and authorization row use compact accessible controls', async ({
   page,
   context,

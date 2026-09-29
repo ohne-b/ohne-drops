@@ -311,7 +311,7 @@ function SettingsContent({ settings, auth }: { settings: SettingsData; auth: Aut
         )}
         <ActionResult action={logoutAction} />
         {oauth ? (
-          <div className="space-y-3">
+          <div className="grid gap-3">
             <div className="authorization-row">
               <div className="flex items-center gap-2 rounded border border-divider bg-field ps-3 pe-1">
                 <code className="select-all text-lg tracking-[.2em]">{oauth.code}</code>
