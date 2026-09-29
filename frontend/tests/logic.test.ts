@@ -187,3 +187,28 @@ it('keeps claim history independent of completion, preserving metadata-free entr
   expect(groups[1]!.entries.map((entry) => entry.id)).toEqual(['recent', 'another']);
   expect(entries.map((entry) => entry.id)).toEqual(['old', 'recent', 'another', 'different']);
 });
+
+it('sorts history chronologically when timestamps have different fractional precision', () => {
+  const entry: HistoryEntry = {
+    id: 'whole',
+    campaign_id: 'same',
+    campaign: 'Season',
+    game: 'Rust',
+    drop_name: 'Reward',
+    benefits: [],
+    required_minutes: 30,
+    claimed_at: '2026-09-28T10:00:00Z',
+  };
+  const fractional = { ...entry, id: 'fractional', claimed_at: '2026-09-28T10:00:00.100Z' };
+  expect(groupHistory([entry, fractional], [])[0]!.entries.map((item) => item.id)).toEqual([
+    'fractional',
+    'whole',
+  ]);
+  const groups = groupHistory([entry, { ...fractional, campaign_id: 'different' }], []);
+  for (const sort of ['default', 'newest', 'ending', 'drops', 'name'] as const) {
+    expect([...groups].sort((a, b) => historyOrder(a, b, sort)).map((item) => item.id)).toEqual([
+      'different',
+      'same',
+    ]);
+  }
+});

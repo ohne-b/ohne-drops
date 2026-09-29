@@ -1766,3 +1766,22 @@ test('History shares sort, search, game filters and layout while paging recorded
   await page.screenshot({ path: '../artifacts/history-phone.png', fullPage: true });
   expect((await new AxeBuilder({ page }).analyze()).violations).toEqual([]);
 });
+
+test('an authoritative history clear removes cached claims even when reloading fails', async ({
+  page,
+  request,
+}) => {
+  await page.goto('/campaigns?tab=history');
+  await expect(page.getByText('Autumn expedition', { exact: true })).toBeVisible();
+  await page.route('**/api/history', (route) =>
+    route.fulfill({ status: 503, json: { detail: 'request_failed' } }),
+  );
+  expect((await request.post('/api/cache/clear', { headers, data: {} })).ok()).toBe(true);
+  await expect(page.getByRole('alert')).toContainText('Could not load history');
+  await expect(page.getByText('Autumn expedition', { exact: true })).toHaveCount(0);
+  await expect(page.locator('main details')).toHaveCount(0);
+  expect((await (await request.get('/api/history')).json()).entries).toEqual([]);
+  await page.unroute('**/api/history');
+  await page.getByRole('button', { name: 'Try again', exact: true }).click();
+  await expect(page.getByText('No recorded claims yet', { exact: true })).toBeVisible();
+});

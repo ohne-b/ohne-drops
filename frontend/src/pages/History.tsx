@@ -17,6 +17,7 @@ export function useHistory(active: boolean) {
   const claimed = data?.campaigns.reduce((sum, campaign) => sum + campaign.claimed_drops, 0);
   const checked = data?.inventory_status?.checked_at;
   const user = data?.login.user_id;
+  useEffect(() => setEntries([]), [historyRevision]);
   useEffect(() => {
     if (!active || !connected) return;
     const controller = new AbortController();
@@ -64,7 +65,7 @@ export function groupHistory(entries: HistoryEntry[], campaigns: Campaign[]): Hi
   }
   for (const group of groups.values()) {
     group.entries.sort(
-      (a, b) => b.claimed_at.localeCompare(a.claimed_at) || a.id.localeCompare(b.id),
+      (a, b) => Date.parse(b.claimed_at) - Date.parse(a.claimed_at) || a.id.localeCompare(b.id),
     );
   }
   return [...groups.values()];
@@ -93,7 +94,7 @@ export function historyOrder(a: HistoryCampaign, b: HistoryCampaign, sort: Campa
           : 0;
   return (
     difference ||
-    b.entries[0]!.claimed_at.localeCompare(a.entries[0]!.claimed_at) ||
+    Date.parse(b.entries[0]!.claimed_at) - Date.parse(a.entries[0]!.claimed_at) ||
     a.id.localeCompare(b.id)
   );
 }
