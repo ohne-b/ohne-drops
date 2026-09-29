@@ -1,11 +1,14 @@
+import { Icon } from '@mdi/react';
 import { useEffect, useState } from 'react';
 import { Link, useSearchParams } from 'react-router';
 import {
-  mdiFilterVariant,
+  mdiFilterOutline,
   mdiViewList,
   mdiViewGridOutline,
-  mdiSortVariant,
-  mdiChevronDown,
+  mdiSortAscending,
+  mdiFilterOffOutline,
+  mdiPlayCircleOutline,
+  mdiStopCircleOutline,
 } from '@mdi/js';
 import { useMiner } from '../lib/state';
 import { useT } from '../lib/i18n';
@@ -13,9 +16,9 @@ import type { Campaign as CampaignData, Filters, HistoryEntry, Settings } from '
 import { request } from '../lib/api';
 import {
   Button,
+  IconButton,
   Check,
   Empty,
-  Icon,
   Search,
   useAction,
   ActionResult,
@@ -193,19 +196,17 @@ export default function Campaigns() {
             label={t('search_campaigns')}
           />
         </div>
-        <Button aria-expanded={showFilters} onClick={() => setShowFilters(!showFilters)}>
-          <Icon path={mdiFilterVariant} />
-          {t('filters')}
-        </Button>
-        <div className="relative shrink-0">
-          <Icon
-            path={mdiSortVariant}
-            className="pointer-events-none absolute start-3 top-1/2 -translate-y-1/2 text-soft"
-          />
+        <IconButton
+          path={mdiFilterOutline}
+          label={t('filters')}
+          aria-expanded={showFilters}
+          onClick={() => setShowFilters(!showFilters)}
+        />
+        <div className="icon-button" title={`${t('sort_campaigns')}: ${t(`sort_${sort}`)}`}>
+          <Icon className="mdi-icon pointer-events-none" path={mdiSortAscending} />
           <select
-            className="button h-9 appearance-none ps-9 pe-8"
+            className="absolute inset-0 size-full cursor-pointer opacity-0"
             aria-label={t('sort_campaigns')}
-            title={t('sort_campaigns')}
             value={sort}
             onChange={(event) =>
               setQuery('sort', event.target.value === 'default' ? '' : event.target.value)
@@ -217,19 +218,13 @@ export default function Campaigns() {
               </option>
             ))}
           </select>
-          <Icon
-            path={mdiChevronDown}
-            className="pointer-events-none absolute end-2 top-1/2 -translate-y-1/2 text-muted"
-          />
         </div>
-        <Button
-          aria-label={t('toggle_view')}
-          title={t('toggle_view')}
+        <IconButton
+          path={data.settings.inventory_list_view ? mdiViewGridOutline : mdiViewList}
+          label={t('toggle_view')}
           disabled={!connected || settingsBusy}
           onClick={() => void update({ inventory_list_view: !data.settings.inventory_list_view })}
-        >
-          <Icon path={data.settings.inventory_list_view ? mdiViewGridOutline : mdiViewList} />
-        </Button>
+        />
       </div>
       {showFilters && (
         <div className="panel space-y-4 p-4">
@@ -273,7 +268,9 @@ export default function Campaigns() {
               >
                 {t('all_games')}
               </Button>
-              <Button
+              <IconButton
+                path={mdiFilterOffOutline}
+                label={t('clear_filters')}
                 disabled={!connected || settingsBusy}
                 onClick={() => {
                   setQuery('q', '');
@@ -291,9 +288,7 @@ export default function Campaigns() {
                     show_benefit_other: true,
                   });
                 }}
-              >
-                {t('clear_filters')}
-              </Button>
+              />
             </div>
           </div>
         </div>
@@ -329,10 +324,16 @@ export default function Campaigns() {
               action={
                 !campaign.finished &&
                 !campaign.expired && (
-                  <Button
+                  <IconButton
+                    path={
+                      selectedGames.some(
+                        (game) => game.toLowerCase() === campaign.game_name.toLowerCase(),
+                      )
+                        ? mdiStopCircleOutline
+                        : mdiPlayCircleOutline
+                    }
                     disabled={!connected || action.busy}
-                    title={t('mine_game_help')}
-                    aria-label={t(
+                    label={t(
                       selectedGames.some(
                         (game) => game.toLowerCase() === campaign.game_name.toLowerCase(),
                       )
@@ -351,15 +352,7 @@ export default function Campaigns() {
                           : [...games, campaign.game_name],
                       );
                     }}
-                  >
-                    {t(
-                      selectedGames.some(
-                        (game) => game.toLowerCase() === campaign.game_name.toLowerCase(),
-                      )
-                        ? 'stop_mining'
-                        : 'mine',
-                    )}
-                  </Button>
+                  />
                 )
               }
             />

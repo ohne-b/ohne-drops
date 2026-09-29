@@ -1,3 +1,4 @@
+import { Icon } from '@mdi/react';
 import { useEffect, useState } from 'react';
 import { useSearchParams } from 'react-router';
 import { mdiDownload, mdiDeleteOutline } from '@mdi/js';
@@ -11,7 +12,6 @@ import {
   Dialog,
   Empty,
   Field,
-  Icon,
   Input,
   Notice,
   useAction,
@@ -94,7 +94,7 @@ export default function History() {
         </div>
         <div className="flex gap-2">
           <a href={`/api/history/export.csv?${queryString}`} className="button">
-            <Icon path={mdiDownload} />
+            <Icon className="mdi-icon" path={mdiDownload} />
             CSV
           </a>
           <Button disabled={loading || error} onClick={exportJson}>
@@ -126,7 +126,7 @@ export default function History() {
       <div className="flex items-center justify-between gap-3">
         <p className="muted">{t('gui.history.filtered_count', { shown: entries.length, total })}</p>
         <Button disabled={!connected || !total} onClick={() => setConfirm(true)}>
-          <Icon path={mdiDeleteOutline} />
+          <Icon className="mdi-icon" path={mdiDeleteOutline} />
           {t('clear_history')}
         </Button>
       </div>

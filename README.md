@@ -237,6 +237,11 @@ when the campaign has an enabled, nonempty channel list. Select the campaign's g
 keep its rewards eligible. Other campaigns require a matching category and drops-enabled
 channel; every watched channel must be live.
 
+Icon-only controls share a borderless hover style and accessible labels. In Settings, Twitch
+account status and ID are shown separately; Dashboard connected lives under Connection.
+The authorization row includes a copy-code action, Twitch Activate, and Done. Clipboard access
+requires HTTPS or localhost; if unavailable, the code can still be selected and copied manually.
+
 ### History and saved data
 
 **History** includes the miner's claims and imports Twitch-confirmed rewards during

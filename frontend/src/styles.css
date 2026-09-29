@@ -106,6 +106,10 @@
 :is(input, select, textarea):focus-visible {
   border-color: var(--color-text);
 }
+.icon-button:has(select:focus-visible) {
+  background-color: var(--color-hover);
+  color: var(--color-text);
+}
 label:has(> input[type='checkbox']:focus-visible) {
   background-color: var(--color-hover);
   text-decoration: underline;
@@ -115,8 +119,17 @@ label:has(> input[type='checkbox']:focus-visible) {
   :focus-visible {
     outline: 1px solid Highlight;
   }
+  .icon-button:has(select:focus-visible) {
+    outline: 1px solid Highlight;
+  }
 }
 @layer components {
+  .mdi-icon {
+    @apply size-[18px] shrink-0;
+  }
+  .icon-button {
+    @apply relative inline-flex size-9 shrink-0 items-center justify-center rounded border-0 bg-transparent p-0 text-muted transition-colors hover:bg-hover hover:text-text disabled:pointer-events-none;
+  }
   .button {
     @apply inline-flex min-h-9 shrink-0 items-center justify-center gap-2 rounded border border-divider bg-transparent px-3 py-1.5 text-[13px] font-medium text-soft transition-colors hover:bg-hover disabled:pointer-events-none;
   }
@@ -145,17 +158,12 @@ label:has(> input[type='checkbox']:focus-visible) {
     @apply flex items-center gap-3 border-b border-divider px-4 py-3 last:border-0;
   }
   .drag-handle {
-    @apply grid h-9 w-7 shrink-0 touch-none select-none place-items-center border-0 bg-transparent text-muted opacity-0 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100;
+    @apply touch-none select-none opacity-0 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100;
     cursor: grab;
   }
   .drag-handle:active {
     cursor: grabbing;
     opacity: 1;
-  }
-  .drag-handle > span {
-    width: 12px;
-    height: 18px;
-    background: radial-gradient(circle, currentColor 1.2px, transparent 1.4px) 0 0 / 6px 6px;
   }
   @media (pointer: coarse) {
     .drag-handle {
@@ -171,6 +179,9 @@ label:has(> input[type='checkbox']:focus-visible) {
     }
     .button {
       @apply min-h-11;
+    }
+    .icon-button {
+      @apply size-11;
     }
   }
 }

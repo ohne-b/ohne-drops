@@ -1,9 +1,10 @@
+import { Icon } from '@mdi/react';
 import { mdiChevronDown, mdiOpenInNew } from '@mdi/js';
 import type { ReactNode } from 'react';
 import type { Campaign as CampaignData } from '../lib/types';
 import { safeUrl } from '../lib/api';
 import { useT } from '../lib/i18n';
-import { Art, Icon, ProgressBar, dateTime } from './ui';
+import { Art, ProgressBar, dateTime } from './ui';
 export function Campaign({ campaign, action }: { campaign: CampaignData; action?: ReactNode }) {
   const t = useT();
   const status = campaign.finished
@@ -15,20 +16,14 @@ export function Campaign({ campaign, action }: { campaign: CampaignData; action?
     <div className="relative border-b border-divider last:border-0">
       <details className="group">
         <summary
-          className={`flex list-none items-center gap-3 py-4 ps-4 hover:bg-field ${action ? 'pe-40' : 'pe-12'}`}
+          className={`flex list-none items-center gap-3 py-4 ps-4 hover:bg-field ${action ? 'pe-24' : 'pe-12'}`}
         >
           <Art url={campaign.game_box_art_url} />
           <div className="min-w-0 flex-1">
             <p className="break-words font-medium">{campaign.name}</p>
             <p className="muted">{campaign.game_name}</p>
-            {!campaign.finished && campaign.linked !== true && (
-              <p className="muted">
-                {t(
-                  campaign.linked === null
-                    ? 'account_link_unknown'
-                    : 'gui.inventory.filters.not_linked',
-                )}
-              </p>
+            {!campaign.finished && campaign.linked === false && (
+              <p className="muted">{t('gui.inventory.filters.not_linked')}</p>
             )}
             <p className="muted mt-1 sm:hidden">
               {campaign.claimed_drops} / {campaign.total_drops} {t('gui.inventory.claimed_drops')} ·{' '}
@@ -43,7 +38,7 @@ export function Campaign({ campaign, action }: { campaign: CampaignData; action?
           </div>
           <Icon
             path={mdiChevronDown}
-            className="absolute end-4 top-6 text-muted transition-transform group-open:rotate-180"
+            className="mdi-icon absolute end-4 top-6 text-muted transition-transform group-open:rotate-180"
           />
         </summary>
         <div className="space-y-4 border-t border-divider bg-canvas/40 p-4 md:px-6">
@@ -72,7 +67,7 @@ export function Campaign({ campaign, action }: { campaign: CampaignData; action?
                   className="flex items-center gap-1 text-link text-[13px]"
                 >
                   {t('details')}
-                  <Icon path={mdiOpenInNew} className="size-3.5" />
+                  <Icon path={mdiOpenInNew} className="mdi-icon size-3.5" />
                 </a>
               )}
             </div>

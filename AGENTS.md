@@ -201,11 +201,15 @@ embed it and run without a build tool/runtime companion. Production builds never
 - Use `frontend/src/assets/twitch-drops-miner-logo.svg` for the app, login, favicon and README.
   Preserve its artwork and aspect ratio; Vite emits one hashed asset for browser caching.
   Keep adjacent brand text accessible and sidebar navigation reachable in short windows.
-- Keep the subtle charcoal/Manrope design, individual MDI paths and shared native controls.
+- Keep the subtle charcoal/Manrope design, individual `@mdi/js` paths rendered with `@mdi/react`, and shared native controls.
+  All icon-only actions use borderless transparent buttons with shared hover/keyboard backgrounds,
+  accessible names and tooltips; retain native selects for icon-only sorting.
   Render strings as React text, validate external links/artwork, expand Twitch image placeholders.
   No injected HTML or CDN scripts. Art provides safe missing/broken-image fallbacks.
 - Sidebar: enlarged GitHub glyph above Twitch account ID, overriding shared icon sizing.
-  Connection status lives in Settings and is labeled Dashboard connected, separate from Twitch.
+  Connection status lives in Settings > Connection and is labeled Dashboard connected, separate
+  from Twitch. Account status and Twitch ID occupy separate rows. Device authorization keeps the
+  copyable code, Twitch Activate and Done on one wrapping row with equal-height controls.
 - Overview: watching information only in Mining, no status subtitle or Recent activity. Channels
   and Up next have equal desktop dimensions and internal scrolling; stack on narrow screens and
   preserve access on short windows. Show confirmed values/timestamps without redundant labels.

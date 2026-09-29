@@ -56,7 +56,7 @@
         "login": {
             "oauth_prompt": "Enter this code at:",
             "oauth_activate": "Twitch Activate",
-            "oauth_confirm": "I've entered the code"
+            "oauth_confirm": "Done"
         },
         "progress": {
             "no_drop": "No active drop",
@@ -154,6 +154,9 @@
             "saving": "Saving…",
             "cancel": "Cancel",
             "close": "Close",
+            "copy_code": "Copy code",
+            "code_copied": "Code copied",
+            "copy_code_failed": "Could not copy. Select the code and copy it manually, or open the dashboard over HTTPS.",
             "retry": "Try again",
             "clear_search": "Clear search",
             "refresh": "Refresh inventory",

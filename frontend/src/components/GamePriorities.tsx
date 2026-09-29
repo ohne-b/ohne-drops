@@ -1,9 +1,10 @@
+import { Icon } from '@mdi/react';
 import { useEffect, useRef, useState, type PointerEvent } from 'react';
-import { mdiClose } from '@mdi/js';
+import { mdiClose, mdiDragVertical } from '@mdi/js';
 import { moveGame } from '../lib/api';
 import { useT } from '../lib/i18n';
 import type { Campaign } from '../lib/types';
-import { Art, Button, Empty, Icon } from './ui';
+import { Art, IconButton, Empty } from './ui';
 
 export function GamePriorities({
   games,
@@ -89,7 +90,7 @@ export function GamePriorities({
           >
             <button
               type="button"
-              className="drag-handle"
+              className="icon-button drag-handle"
               aria-label={t('reorder_game', { game })}
               aria-describedby="priority-instructions"
               title={t('reorder_game', { game })}
@@ -121,7 +122,7 @@ export function GamePriorities({
                 );
               }}
             >
-              <span aria-hidden="true" />
+              <Icon className="mdi-icon" path={mdiDragVertical} />
             </button>
             <Art
               url={
@@ -132,13 +133,11 @@ export function GamePriorities({
               className="size-9"
             />
             <span className="min-w-0 flex-1 break-words text-[13px]">{game}</span>
-            <Button
-              className="px-2"
-              aria-label={t('gui.settings.remove_game', { game })}
+            <IconButton
+              path={mdiClose}
+              label={t('gui.settings.remove_game', { game })}
               onClick={() => onChange(games.filter((item) => item !== game))}
-            >
-              <Icon path={mdiClose} />
-            </Button>
+            />
           </div>
         ))}
         {!games.length && <Empty title={t('no_game_priorities')} />}
