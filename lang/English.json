@@ -131,8 +131,8 @@
             "loading": "Loading history…",
             "empty": "No drops match these filters.",
             "filtered_count": "Showing {shown} of {total} recorded drops",
-            "previous": "Previous",
-            "next": "Next",
+            "previous": "Previous page",
+            "next": "Next page",
             "first_seen": "First seen {time}"
         },
         "redesign": {

@@ -204,7 +204,10 @@ embed it and run without a build tool/runtime companion. Production builds never
   Keep adjacent brand text accessible and sidebar navigation reachable in short windows.
 - Keep the subtle charcoal/Manrope design, individual `@mdi/js` paths rendered with `@mdi/react`, and shared native controls.
   Icon-only actions use borderless transparent buttons with circular hover/keyboard backgrounds,
-  accessible names and tooltips. Inset search-clear circles within the field border; game-priority
+  accessible names and tooltips.
+  History pagination uses chevrons beside the page count; channel watch/entry, return-to-auto,
+  Activity follow and error retries use play-circle/plus, refresh-auto, arrow-down and reload icons.
+  Inset search-clear circles within the field border; game-priority
   drag grips retain their plain six-dot pattern without pointer hover backgrounds. Retain native
   selects for icon-only sorting, with explicit legible dark select/option colors on light OS themes.
   Render strings as React text, validate external links/artwork, expand Twitch image placeholders.

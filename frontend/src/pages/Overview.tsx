@@ -1,7 +1,7 @@
 import { Icon } from '@mdi/react';
 import { useState } from 'react';
 import { Link } from 'react-router';
-import { mdiPencil, mdiRefreshAuto, mdiPlayOutline } from '@mdi/js';
+import { mdiPencil, mdiRefreshAuto, mdiPlayCircleOutline, mdiPlus } from '@mdi/js';
 import { InventoryRefreshButton } from '../components/InventoryRefreshButton';
 import { useMiner } from '../lib/state';
 import { useT } from '../lib/i18n';
@@ -9,6 +9,7 @@ import { request, safeUrl } from '../lib/api';
 import {
   Art,
   Button,
+  IconButton,
   Empty,
   ProgressBar,
   Search,
@@ -132,13 +133,13 @@ export default function Overview() {
           </Empty>
         )}
         {(data.manual_mode.active || data.manual_mode.pending_channel) && (
-          <Button
+          <IconButton
+            path={mdiRefreshAuto}
+            label={t('gui.progress.return_to_auto')}
             className="mt-4"
             disabled={!connected || action.busy}
             onClick={() => void action.run(() => request('/api/mode/exit-manual', {}))}
-          >
-            {t('gui.progress.return_to_auto')}
-          </Button>
+          />
         )}
         {data.manual_mode.expires_at && (
           <p className="muted mt-2">
@@ -156,9 +157,12 @@ export default function Overview() {
               </h2>
               <div className="flex items-center gap-3">
                 <span className="muted tabular-nums">{channels.length}</span>
-                <Button aria-expanded={enterChannel} onClick={() => setEnterChannel(!enterChannel)}>
-                  {t('gui.channels.mine_channel')}
-                </Button>
+                <IconButton
+                  path={mdiPlus}
+                  label={t('gui.channels.mine_channel')}
+                  aria-expanded={enterChannel}
+                  onClick={() => setEnterChannel(!enterChannel)}
+                />
               </div>
             </div>
             <Search value={search} onChange={setSearch} label={t('search_channels')} />
@@ -242,18 +246,16 @@ export default function Overview() {
                 {channel.watching ? (
                   <span className="muted">{t('watching_now')}</span>
                 ) : (
-                  <Button
-                    aria-label={t('watch_channel', { channel: channel.name })}
+                  <IconButton
+                    path={mdiPlayCircleOutline}
+                    label={t('watch_channel', { channel: channel.name })}
                     disabled={!connected || !channel.online || action.busy}
                     onClick={() =>
                       void action.run(() =>
                         request('/api/channels/select', { channel_id: channel.id }),
                       )
                     }
-                  >
-                    <Icon className="mdi-icon" path={mdiPlayOutline} />
-                    {t('watch')}
-                  </Button>
+                  />
                 )}
               </div>
             ))}

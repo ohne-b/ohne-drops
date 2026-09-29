@@ -173,7 +173,7 @@ rewards, plus your manually selected channel. Special-event campaigns can includ
 categories when their actual channel restriction allows it. Channel changes pause watching
 until fresh stream information is available.
 
-Use **Mine channel** to enter a Twitch login or a direct channel URL, including streams
+Use the **+** icon (**Mine channel**) to enter a Twitch login or a direct channel URL, including streams
 missing from the list or campaign catalog. A live channel can be watched even when no
 reward is discovered; this does not add games to your saved list. Twitch still determines
 whether any rewards accrue. Manual mode shows a known reward only after Twitch reports
@@ -244,7 +244,9 @@ when the campaign has an enabled, nonempty channel list. Select the campaign's g
 keep its rewards eligible. Other campaigns require a matching category and drops-enabled
 channel; every watched channel must be live.
 
-Icon-only controls share a borderless hover style and accessible labels. In Settings, Twitch
+Icon-only controls share circular hover backgrounds, tooltips and accessible labels. Channel
+rows use a play-circle to watch; refresh-auto returns to automatic selection. The down arrow in
+Activity resumes following the latest messages, and reload icons retry errors. In Settings, Twitch
 account status and ID are shown separately; Dashboard connected lives under Connection.
 The authorization row includes a copy-code action, Twitch Activate, and Done. Clipboard access
 requires HTTPS or localhost; if unavailable, the code can still be selected and copied manually.
@@ -263,6 +265,7 @@ and switch between list and grid layouts. The shared icon-only sort menu offers 
 choices as Available. History defaults to the most recently recorded claim, **Most Drops**
 counts recorded claims, and date sorts use campaign dates when available (older entries
 without dates come last). Claims are grouped by campaign, with 25 campaigns per page.
+Use the left/right chevrons beside the page count to navigate; unavailable directions are disabled.
 The former `/history` link redirects here. History has no export or separate clear action.
 
 Docker stores application data in `/app/data` and logs in `/app/logs`, mounted to the
