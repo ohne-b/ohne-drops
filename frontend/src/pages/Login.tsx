@@ -1,8 +1,18 @@
 import { useState } from 'react';
+import { mdiReload } from '@mdi/js';
 import logo from '../assets/twitch-drops-miner-logo.svg?no-inline';
 import { useT } from '../lib/i18n';
 import { request } from '../lib/api';
-import { Button, Check, Field, Input, Notice, useAction, ActionResult } from '../components/ui';
+import {
+  Button,
+  IconButton,
+  Check,
+  Field,
+  Input,
+  Notice,
+  useAction,
+  ActionResult,
+} from '../components/ui';
 export default function Login({
   onLogin,
   statusError = false,
@@ -32,9 +42,12 @@ export default function Login({
         {statusError && (
           <div className="mb-5 space-y-3">
             <Notice error>{t('server_unavailable')}</Notice>
-            <Button disabled={action.busy} onClick={() => void action.run(onLogin)}>
-              {t('retry')}
-            </Button>
+            <IconButton
+              path={mdiReload}
+              label={t('retry')}
+              disabled={action.busy}
+              onClick={() => void action.run(onLogin)}
+            />
           </div>
         )}
         <form

@@ -1,7 +1,8 @@
 import { useEffect, useRef, useState } from 'react';
+import { mdiArrowDown } from '@mdi/js';
 import { useMiner } from '../lib/state';
 import { plainText, useT } from '../lib/i18n';
-import { Button, Empty, Search } from '../components/ui';
+import { IconButton, Empty, Search } from '../components/ui';
 export default function Activity() {
   const { data } = useMiner();
   const t = useT();
@@ -23,7 +24,13 @@ export default function Activity() {
         <div className="flex-1">
           <Search value={search} onChange={setSearch} label={t('search_activity')} />
         </div>
-        {!following && <Button onClick={() => setFollowing(true)}>{t('follow_activity')}</Button>}
+        {!following && (
+          <IconButton
+            path={mdiArrowDown}
+            label={t('follow_activity')}
+            onClick={() => setFollowing(true)}
+          />
+        )}
       </div>
       <div
         ref={ref}

@@ -1,6 +1,6 @@
 import { Icon } from '@mdi/react';
 import { useEffect, useRef, useState, type ReactNode } from 'react';
-import { mdiPlus, mdiOpenInNew, mdiLogout, mdiContentCopy } from '@mdi/js';
+import { mdiPlus, mdiOpenInNew, mdiLogout, mdiContentCopy, mdiReload } from '@mdi/js';
 import type { AuthStatus, ReleaseInfo, Result, Settings as SettingsData } from '../lib/types';
 import { request, safeUrl } from '../lib/api';
 import { useMiner } from '../lib/state';
@@ -529,12 +529,12 @@ function SettingsContent({ settings, auth }: { settings: SettingsData; auth: Aut
             {autosave.error && (
               <Notice error>
                 {t(autosave.error)}{' '}
-                <Button
+                <IconButton
+                  path={mdiReload}
+                  label={t('retry')}
                   disabled={!connected || autosave.busy}
                   onClick={() => void autosave.retry()}
-                >
-                  {t('retry')}
-                </Button>
+                />
               </Notice>
             )}
           </div>

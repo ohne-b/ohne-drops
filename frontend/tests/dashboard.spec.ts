@@ -482,9 +482,16 @@ test('keyboard focus remains visible without outlines across controls', async ({
 test('channel search, clear, selection and automatic mode', async ({ page }) => {
   await page.getByRole('searchbox', { name: 'Search channels' }).fill('HARBOR');
   await expect(page.getByRole('link', { name: 'northwind', exact: true })).toHaveCount(0);
-  await page.getByRole('button', { name: 'Watch harbor' }).click();
+  const watch = page.getByRole('button', { name: 'Watch harbor' });
+  await expect(watch).toHaveText('');
+  await expect(watch).toHaveAttribute('title', 'Watch harbor');
+  await watch.click();
   await expect(page.getByText('Manual selection')).toBeVisible();
-  await page.getByRole('button', { name: 'Return to Auto Mode' }).click();
+  const automatic = page.getByRole('button', { name: 'Return to Auto Mode' });
+  await expect(automatic).toHaveText('');
+  await expect(automatic).toHaveAttribute('title', 'Return to Auto Mode');
+  await page.screenshot({ path: '../artifacts/overview-action-icons.png', fullPage: true });
+  await automatic.click();
   await expect(page.getByRole('img', { name: 'Automatic selection' })).toBeVisible();
   await page.getByRole('button', { name: 'Clear search' }).click();
   await expect(page.getByRole('link', { name: 'northwind', exact: true })).toBeVisible();
@@ -756,7 +763,10 @@ test('History claims honor game filters and retry failed loading', async ({ page
       },
     }),
   );
-  await page.getByRole('button', { name: 'Try again', exact: true }).click();
+  const retry = page.getByRole('button', { name: 'Try again', exact: true });
+  await expect(retry).toHaveText('');
+  await expect(retry).toHaveAttribute('title', 'Try again');
+  await retry.click();
   await expect(page.getByText('Historical campaign', { exact: true })).toBeVisible();
   await page.getByRole('button', { name: 'Filters', exact: true }).click();
   await expect(page.getByRole('checkbox', { name: 'Old game', exact: true })).toBeVisible();
@@ -1112,7 +1122,10 @@ test('a failed initial auth status remains recoverable without a page reload', a
   );
   await page.reload();
   await expect(page.getByLabel('Password', { exact: true })).toBeVisible();
-  await page.getByRole('button', { name: 'Try again', exact: true }).click();
+  const retry = page.getByRole('button', { name: 'Try again', exact: true });
+  await expect(retry).toHaveText('');
+  await expect(retry).toHaveAttribute('title', 'Try again');
+  await retry.click();
   await expect(page.getByRole('heading', { name: 'Overview', exact: true })).toBeVisible();
 });
 
@@ -1225,12 +1238,21 @@ test('activity follows through bounded-buffer rollover and pauses for reading', 
   await log.evaluate((el) => {
     el.scrollTop = 0;
   });
-  await expect(page.getByRole('button', { name: 'Follow latest', exact: true })).toBeVisible();
+  const follow = page.getByRole('button', { name: 'Follow latest', exact: true });
+  await expect(follow).toBeVisible();
+  await expect(follow).toHaveText('');
+  await expect(follow).toHaveAttribute('title', 'Follow latest');
   await request.post('/__test/event', {
     headers,
     data: { event: 'console_output', data: { message: 'Another message' } },
   });
   await expect.poll(() => log.evaluate((el) => el.scrollTop)).toBe(0);
+  await follow.focus();
+  await page.keyboard.press('Enter');
+  await expect
+    .poll(() => log.evaluate((el) => el.scrollHeight - el.scrollTop - el.clientHeight))
+    .toBeLessThan(2);
+  await expect(follow).toHaveCount(0);
 });
 
 test('artwork expands Twitch dimensions before making a request', async ({ page, request }) => {
@@ -1410,7 +1432,12 @@ test('manual lookup has no preparation message and clears pending state without 
   page,
   request,
 }) => {
-  await page.getByRole('button', { name: 'Mine channel', exact: true }).click();
+  const entry = page.getByRole('button', { name: 'Mine channel', exact: true });
+  await expect(entry).toHaveText('');
+  await expect(entry).toHaveAttribute('title', 'Mine channel');
+  await expect(entry).toHaveAttribute('aria-expanded', 'false');
+  await entry.click();
+  await expect(entry).toHaveAttribute('aria-expanded', 'true');
   await page.getByRole('textbox', { name: 'Twitch channel name or URL' }).fill('ronnyberger');
   const mine = page.getByRole('button', { name: 'Mine', exact: true });
   await expect(mine).toBeEnabled();
@@ -1839,8 +1866,33 @@ test('History shares sort, search, game filters and layout while paging recorded
   const titles = page.locator('main summary > div > p.font-medium');
   await expect(titles).toHaveCount(25);
   await expect(titles.first()).toHaveText('Campaign 26');
-  await page.getByRole('button', { name: 'Next', exact: true }).click();
+  const previous = page.getByRole('button', { name: 'Previous page', exact: true });
+  const next = page.getByRole('button', { name: 'Next page', exact: true });
+  await expect(previous).toBeDisabled();
+  await expect(next).toBeEnabled();
+  for (const [button, label] of [
+    [previous, 'Previous page'],
+    [next, 'Next page'],
+  ] as const) {
+    await expect(button).toHaveText('');
+    await expect(button).toHaveAttribute('title', label);
+  }
+  await page.setViewportSize({ width: 390, height: 844 });
+  await next.scrollIntoViewIfNeeded();
+  await page.screenshot({
+    path: '../artifacts/history-pagination-icons-phone.png',
+    fullPage: true,
+  });
+  await next.focus();
+  await page.keyboard.press('Enter');
   await expect(titles).toHaveText(['Campaign 1', 'Campaign 0']);
+  await expect(next).toBeDisabled();
+  await expect(previous).toBeEnabled();
+  await previous.click();
+  await expect(titles).toHaveCount(25);
+  await expect(previous).toBeDisabled();
+  await next.click();
+  await page.setViewportSize({ width: 1280, height: 720 });
   const sort = page.getByRole('combobox', { name: 'Sort history' });
   await sort.selectOption('name');
   await expect(titles.first()).toHaveText('Campaign 0');

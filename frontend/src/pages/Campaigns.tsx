@@ -9,6 +9,9 @@ import {
   mdiFilterOffOutline,
   mdiPlayCircleOutline,
   mdiStopCircleOutline,
+  mdiChevronLeft,
+  mdiChevronRight,
+  mdiReload,
 } from '@mdi/js';
 import { useMiner } from '../lib/state';
 import { useT } from '../lib/i18n';
@@ -305,9 +308,12 @@ export default function Campaigns() {
       {autosave.error && (
         <Notice error>
           {t(autosave.error)}{' '}
-          <Button disabled={!connected || autosave.busy} onClick={() => void autosave.retry()}>
-            {t('retry')}
-          </Button>
+          <IconButton
+            path={mdiReload}
+            label={t('retry')}
+            disabled={!connected || autosave.busy}
+            onClick={() => void autosave.retry()}
+          />
         </Notice>
       )}
       {(autosave.busy || autosave.pending) && !autosave.error && (
@@ -319,7 +325,8 @@ export default function Campaigns() {
         <>
           {history.error && (
             <Notice error>
-              {t('history_error')} <Button onClick={history.retry}>{t('retry')}</Button>
+              {t('history_error')}
+              <IconButton path={mdiReload} label={t('retry')} onClick={history.retry} />
             </Notice>
           )}
           {history.loading && (
@@ -336,18 +343,21 @@ export default function Campaigns() {
           )}
           {historical.length > 25 && (
             <nav className="flex items-center justify-end gap-3" aria-label={t('history_pages')}>
-              <Button disabled={page === 0} onClick={() => setQuery('page', String(page - 1))}>
-                {t('gui.history.previous')}
-              </Button>
+              <IconButton
+                path={mdiChevronLeft}
+                label={t('gui.history.previous')}
+                disabled={page === 0}
+                onClick={() => setQuery('page', String(page - 1))}
+              />
               <span className="muted">
                 {page + 1} / {Math.ceil(historical.length / 25)}
               </span>
-              <Button
+              <IconButton
+                path={mdiChevronRight}
+                label={t('gui.history.next')}
                 disabled={(page + 1) * 25 >= historical.length}
                 onClick={() => setQuery('page', String(page + 1))}
-              >
-                {t('gui.history.next')}
-              </Button>
+              />
             </nav>
           )}
         </>
