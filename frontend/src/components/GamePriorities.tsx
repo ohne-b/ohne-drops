@@ -1,6 +1,5 @@
-import { Icon } from '@mdi/react';
 import { useEffect, useRef, useState, type PointerEvent } from 'react';
-import { mdiClose, mdiDragVertical } from '@mdi/js';
+import { mdiClose } from '@mdi/js';
 import { moveGame } from '../lib/api';
 import { useT } from '../lib/i18n';
 import type { Campaign } from '../lib/types';
@@ -90,7 +89,7 @@ export function GamePriorities({
           >
             <button
               type="button"
-              className="icon-button drag-handle"
+              className="drag-handle"
               aria-label={t('reorder_game', { game })}
               aria-describedby="priority-instructions"
               title={t('reorder_game', { game })}
@@ -122,7 +121,7 @@ export function GamePriorities({
                 );
               }}
             >
-              <Icon className="mdi-icon" path={mdiDragVertical} />
+              <span aria-hidden="true" />
             </button>
             <Art
               url={

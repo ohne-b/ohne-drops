@@ -1,6 +1,6 @@
 import { Icon } from '@mdi/react';
 import { useEffect, useRef, useState, type ReactNode } from 'react';
-import { mdiPlus, mdiOpenInNew, mdiLogout, mdiContentCopy, mdiCheck } from '@mdi/js';
+import { mdiPlus, mdiOpenInNew, mdiLogout, mdiContentCopy } from '@mdi/js';
 import type { AuthStatus, ReleaseInfo, Result, Settings as SettingsData } from '../lib/types';
 import { request, safeUrl } from '../lib/api';
 import { useMiner } from '../lib/state';
@@ -311,13 +311,15 @@ function SettingsContent({ settings, auth }: { settings: SettingsData; auth: Aut
         )}
         <ActionResult action={logoutAction} />
         {oauth ? (
-          <div className="panel space-y-3 p-4">
-            <div className="flex flex-wrap items-center gap-3">
-              <div className="flex h-11 items-center gap-2 rounded border border-divider bg-field ps-3 pe-1">
+          <div className="space-y-3">
+            <div className="authorization-row">
+              <div className="flex items-center gap-2 rounded border border-divider bg-field ps-3 pe-1">
                 <code className="select-all text-lg tracking-[.2em]">{oauth.code}</code>
                 <IconButton
-                  path={copyState === 'copied' ? mdiCheck : mdiContentCopy}
+                  path={mdiContentCopy}
                   label={t('copy_code')}
+                  title={t(copyState === 'copied' ? 'code_copied' : 'copy_code')}
+                  className="size-7 max-md:size-9"
                   onClick={() => {
                     void (async () => {
                       try {
@@ -330,13 +332,11 @@ function SettingsContent({ settings, auth }: { settings: SettingsData; auth: Aut
                   }}
                 />
               </div>
-              <a className="button h-11" href={safeUrl(oauth.url)} target="_blank" rel="noreferrer">
+              <a className="button" href={safeUrl(oauth.url)} target="_blank" rel="noreferrer">
                 {t('gui.login.oauth_activate')}
                 <Icon className="mdi-icon" path={mdiOpenInNew} />
               </a>
               <Button
-                primary
-                className="h-11"
                 disabled={!connected || oauthAction.busy}
                 onClick={() =>
                   void oauthAction.run(

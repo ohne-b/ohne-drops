@@ -1694,13 +1694,16 @@ test('icon actions and authorization row use compact accessible controls', async
   await expect(page.getByText('Enter this code at:', { exact: true })).toHaveCount(0);
   await context.grantPermissions(['clipboard-read', 'clipboard-write']);
   await page.getByRole('button', { name: 'Copy code', exact: true }).click();
+  await expect(page.locator('#account .panel')).toHaveCount(0);
   expect(await page.evaluate(() => navigator.clipboard.readText())).toBe('NEWCODE');
   const code = await page.locator('#account code').locator('..').boundingBox();
   const activate = await page.getByRole('link', { name: 'Twitch Activate' }).boundingBox();
   const done = await page.getByRole('button', { name: 'Done', exact: true }).boundingBox();
   expect(activate!.height).toBe(code!.height);
   expect(done!.height).toBe(code!.height);
+  expect(code!.height).toBe(36);
   expect(done!.y).toBe(code!.y);
+  await page.screenshot({ path: '../artifacts/authorization-controls.png', fullPage: true });
   await page.evaluate(() => {
     Object.defineProperty(navigator.clipboard, 'writeText', {
       value: () => Promise.reject(new Error('denied')),
@@ -1712,11 +1715,103 @@ test('icon actions and authorization row use compact accessible controls', async
   await page.screenshot({ path: '../artifacts/settings-authorization.png', fullPage: true });
   for (const width of [390, 320]) {
     await page.setViewportSize({ width, height: 844 });
+    const controls = await Promise.all([
+      page.locator('#account code').locator('..').boundingBox(),
+      page.getByRole('link', { name: 'Twitch Activate' }).boundingBox(),
+      page.getByRole('button', { name: 'Done', exact: true }).boundingBox(),
+    ]);
+    expect(controls.map((box) => box!.height)).toEqual([44, 44, 44]);
     expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(
       width,
     );
   }
   expect((await new AxeBuilder({ page }).analyze()).violations).toEqual([]);
+});
+
+test('native sort options stay legible with a light operating system theme', async ({ page }) => {
+  await page.emulateMedia({ colorScheme: 'light' });
+  for (const [url, name] of [
+    ['/campaigns', 'Sort campaigns'],
+    ['/campaigns?tab=history', 'Sort history'],
+  ]) {
+    await page.goto(url!);
+    const sort = page.getByRole('combobox', { name: name! });
+    await expect(sort).toBeVisible();
+    expect(await sort.evaluate((node) => getComputedStyle(node).colorScheme)).toBe('dark');
+    for (const option of await sort.locator('option').all()) {
+      expect(await option.evaluate((node) => getComputedStyle(node).backgroundColor)).toBe(
+        'rgb(41, 41, 41)',
+      );
+      expect(await option.evaluate((node) => getComputedStyle(node).color)).toBe(
+        'rgb(244, 244, 245)',
+      );
+    }
+    await sort.click();
+    await page.screenshot({ path: `../artifacts/${name!.replaceAll(' ', '-')}-open.png` });
+    await page.keyboard.press('Escape');
+    await sort.focus();
+    await page.keyboard.press('ArrowDown');
+    await page.keyboard.press('Enter');
+    await expect(sort).toHaveValue('newest');
+  }
+});
+
+test('search clear circles stay inside every search field on desktop and phone', async ({
+  page,
+}) => {
+  for (const width of [1440, 390]) {
+    await page.setViewportSize({ width, height: 900 });
+    for (const url of ['/', '/settings', '/campaigns', '/campaigns?tab=history', '/activity']) {
+      await page.goto(url);
+      const search = page.getByRole('searchbox');
+      await search.fill('example');
+      const clear = page.getByRole('button', { name: 'Clear search', exact: true });
+      await clear.hover();
+      const fieldBox = (await search.boundingBox())!;
+      const clearBox = (await clear.boundingBox())!;
+      expect(clearBox.x).toBeGreaterThan(fieldBox.x);
+      expect(clearBox.y - fieldBox.y).toBeGreaterThanOrEqual(3);
+      expect(fieldBox.x + fieldBox.width - clearBox.x - clearBox.width).toBeGreaterThanOrEqual(3);
+      expect(fieldBox.y + fieldBox.height - clearBox.y - clearBox.height).toBeGreaterThanOrEqual(3);
+      expect(clearBox.width).toBe(clearBox.height);
+      expect(
+        await clear.evaluate((node) => parseFloat(getComputedStyle(node).borderRadius)),
+      ).toBeGreaterThanOrEqual(clearBox.width / 2);
+      if (url === '/' || url === '/settings')
+        await page.screenshot({
+          path: `../artifacts/search-${url === '/' ? 'channels' : 'mining'}-${width}.png`,
+        });
+      await clear.click();
+      await expect(search).toHaveValue('');
+      await expect(search).toBeFocused();
+    }
+  }
+});
+
+test('drag grips remain plain while icon actions have circular hover backgrounds', async ({
+  page,
+}) => {
+  await page.goto('/settings');
+  const grip = page.getByRole('button', { name: 'Reorder Rust', exact: true });
+  await grip.hover();
+  await expect(grip).toHaveCSS('opacity', '1');
+  expect(await grip.evaluate((node) => getComputedStyle(node).backgroundColor)).toBe(
+    'rgba(0, 0, 0, 0)',
+  );
+  await page.screenshot({ path: '../artifacts/plain-drag-grip.png' });
+  const remove = page.getByRole('button', { name: 'Remove Rust', exact: true });
+  await remove.hover();
+  const box = (await remove.boundingBox())!;
+  expect(
+    await remove.evaluate((node) => parseFloat(getComputedStyle(node).borderRadius)),
+  ).toBeGreaterThanOrEqual(box.width / 2);
+  await page.emulateMedia({ forcedColors: 'active' });
+  await grip.hover();
+  await expect(grip).toHaveCSS('opacity', '1');
+  expect(
+    await grip.locator('span').evaluate((node) => getComputedStyle(node).backgroundImage),
+  ).toContain('radial-gradient');
+  await page.screenshot({ path: '../artifacts/drag-grip-forced-colors.png' });
 });
 
 test('History shares sort, search, game filters and layout while paging recorded campaigns', async ({
