@@ -66,6 +66,12 @@ LAN address and enable [dashboard protection](#dashboard-password-and-remote-acc
 
 Release images use GitHub Container Registry at `ghcr.io/ohne-b/twitch-drops-miner`.
 `latest` follows stable releases; use an explicit version tag to pin a release.
+For reviewed fixes between releases, use `ghcr.io/ohne-b/twitch-drops-miner:edge`
+in the same Compose service, then run `docker compose pull twitch-drops-miner`
+and `docker compose up -d --no-deps twitch-drops-miner`. Edge is published manually
+from validated main, without a version bump or GitHub release. It retains the Cargo
+version; the image's `org.opencontainers.image.revision` label identifies its commit.
+Switch the image back to `:latest` to return to stable releases.
 The historical 0.1.0 image remains at `ghcr.io/ohne-b/twitch-miner:0.1.0` for rollback.
 Renaming the GitHub repository does not rename that old package or its pull command.
 [Release notes](https://github.com/ohne-b/twitch-drops-miner/releases)
@@ -202,6 +208,8 @@ Campaigns shows its filtered count beside the page title. Open **Filters** for
 with confirmed progress first), **Newest** (latest campaign start), **Ending Soonest**,
 **Most Drops** (total drops), and **A-Z** (campaign name). Sorting stays in the page URL
 through searches, tab changes and reloads; it does not change mining priorities.
+Icon-only actions have circular hover backgrounds. Search-clear actions stay inset
+inside the field, and game-priority drag grips remain plain six-dot handles.
 
 In **Game priorities**, drag games into order or focus a drag handle and use the arrow
 keys. The first game has the highest priority. Settings save silently; if a save

@@ -203,14 +203,18 @@ embed it and run without a build tool/runtime companion. Production builds never
   Preserve its artwork and aspect ratio; Vite emits one hashed asset for browser caching.
   Keep adjacent brand text accessible and sidebar navigation reachable in short windows.
 - Keep the subtle charcoal/Manrope design, individual `@mdi/js` paths rendered with `@mdi/react`, and shared native controls.
-  All icon-only actions use borderless transparent buttons with shared hover/keyboard backgrounds,
-  accessible names and tooltips; retain native selects for icon-only sorting.
+  Icon-only actions use borderless transparent buttons with circular hover/keyboard backgrounds,
+  accessible names and tooltips. Inset search-clear circles within the field border; game-priority
+  drag grips retain their plain six-dot pattern without pointer hover backgrounds. Retain native
+  selects for icon-only sorting, with explicit legible dark select/option colors on light OS themes.
   Render strings as React text, validate external links/artwork, expand Twitch image placeholders.
   No injected HTML or CDN scripts. Art provides safe missing/broken-image fallbacks.
 - Sidebar: enlarged GitHub glyph above Twitch account ID, overriding shared icon sizing.
   Connection status lives in Settings > Connection and is labeled Dashboard connected, separate
   from Twitch. Account status and Twitch ID occupy separate rows. Device authorization keeps the
-  copyable code, Twitch Activate and Done on one wrapping row with equal-height controls.
+  copyable code, Twitch Activate and Done on one unboxed wrapping row with equal-height controls
+  (36px desktop, 44px phone). Activate and Done use the same outlined button style; copying keeps
+  the copy glyph and reports success through its tooltip and accessible status.
 - Overview: watching information only in Mining, no status subtitle or Recent activity. Channels
   and Up next have equal desktop dimensions and internal scrolling; stack on narrow screens and
   preserve access on short windows. Show confirmed values/timestamps without redundant labels.
@@ -274,6 +278,11 @@ a centered title/tagline/license opener and GitHub Flavored Markdown alerts. Kee
 attribution in License and credits; do not add a contributor/PR table or automation that
 rewrites README after merges. No ordinary code merge may publish a release or bypass
 independent review/checks.
+
+Manual Publish edge image may publish only `:edge` from exact validated current main, using
+the scoped workflow token and the same image platforms/action pins. It creates no GitHub
+release, version tag or version bump and never changes `:latest`; the OCI revision identifies
+the build. Ordinary merges do not publish edge images either.
 
 For home-server work, inspect the current checkout/Compose/image before assumptions. Ask before
 changing the running deployment. Build while it runs, back up data and Compose before replacement,

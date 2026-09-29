@@ -90,3 +90,25 @@ test('English catalog covers production message keys and contains plain text', (
   }
   check(dictionary);
 });
+
+test('edge publishing is manual, validated-main-only and cannot advance release tags', () => {
+  const workflows = new URL('../../workflows/', import.meta.url);
+  const edge = readFileSync(new URL('docker-edge.yml', workflows), 'utf8');
+  const validation = readFileSync(new URL('validation.yml', workflows), 'utf8');
+  const release = readFileSync(new URL('docker-release.yml', workflows), 'utf8');
+  assert.match(edge, /on:\n  workflow_dispatch:\n\npermissions:/);
+  assert.match(edge, /if: github\.ref == 'refs\/heads\/main'/);
+  assert.match(edge, /ref: \$\{\{ github\.sha \}\}/);
+  assert.match(edge, /run: npm --prefix frontend ci/);
+  assert.match(edge, /test "\$\(cut -f1 <<< "\$remote_main"\)" = "\$GITHUB_SHA"/);
+  assert.match(edge, /--workflow validation\.yml --branch main --commit "\$GITHUB_SHA"/);
+  assert.match(edge, /test "\$conclusion" = success/);
+  assert.match(edge, /GH_TOKEN: \$\{\{ github\.token \}\}/);
+  assert.match(edge, /tags: ghcr\.io\/ohne-b\/twitch-drops-miner:edge\n/);
+  assert.doesNotMatch(edge, /contents: write|:latest|gh release|git push|secrets\./);
+  for (const action of ['setup-buildx-action', 'build-push-action']) {
+    const pattern = new RegExp(`docker/${action}@[a-f0-9]+`);
+    assert.equal(edge.match(pattern)?.[0], validation.match(pattern)?.[0]);
+    assert.equal(edge.match(pattern)?.[0], release.match(pattern)?.[0]);
+  }
+});

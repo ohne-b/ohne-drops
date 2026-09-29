@@ -204,6 +204,12 @@ offers release notes and manual checks; installing updates remains a terminal op
 Do not rewrite published tags or bypass checks. Revert source through a normal PR; an
 installation rollback redeploys a previously validated image with its backed-up data.
 
+For an explicitly requested image update without a release, manually run **Publish edge image**
+on main after exact-commit validation succeeds. It publishes only the GHCR `edge` tag with the
+same scoped workflow token, architecture builds and revision labels. It does not bump Cargo,
+create a GitHub release/version tag or move `latest`. The normal PR/review requirements apply.
+Keep its Buildx/Build Push action pins identical to validation and release.
+
 Keep upstream attribution and license links in README; contributor/PR tables are not
 maintained. README changes follow the same PR workflow as other documentation.
 Keep Buildx/Build Push action pins consistent between validation and release workflows.
