@@ -219,7 +219,7 @@ embed it and run without a build tool/runtime companion. Production builds never
   (36px desktop, 44px phone). Activate and Done use the same outlined button style. Successful
   copying shows a tick, tooltip and accessible status for three seconds; another successful copy
   restarts the timer. Restore the copy icon on expiry or failure, and clear timers and stale
-  clipboard results when the code changes or the component unmounts. Feedback never shifts the
+  clipboard results when the code changes or the component unmounts. Success feedback never shifts the
   row or following sections; visible failure feedback retains its spacing below the row.
 - Overview: watching information only in Mining, no status subtitle or Recent activity. Channels
   and Up next have equal desktop dimensions and internal scrolling; stack on narrow screens and
