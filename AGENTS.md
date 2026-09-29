@@ -63,7 +63,7 @@ embed it and run without a build tool/runtime companion. Production builds never
   Literal ignore substrings cascade through dependents while retaining shared prerequisites.
   Zero-minute subscription rewards are omitted from Campaigns/Up next; expired drops leave
   the queue without hiding upcoming or sequential rewards. Ignore/skip is never completion.
-- Active campaigns with existing progress appear first. Finished requires all watch rewards
+- Active campaigns with existing progress appear first. Campaign completion requires all watch rewards
   claimed; expiry alone never qualifies. Persistent completion archives are display-only,
   survive cache clears, and can be invalidated by newer contradictory account evidence or
   changed rewards. Older claim-only history remains completion-unverified.
@@ -142,7 +142,7 @@ embed it and run without a build tool/runtime companion. Production builds never
 - History imports Twitch-confirmed claims during inventory refresh, independent of mining
   selection and reward type. Require account claim state or complete in-window award evidence;
   stale local progress must not override newer award evidence. Deduplicate by drop ID and use
-  known award timestamps, labeling unknown claim times as first observed (also in exports).
+  known award timestamps, labeling unknown claim times as first observed.
   Persist cleared IDs in the compatible version-1 history file so imports and late claim
   receipt recovery cannot resurrect cleared entries. Imports never issue claim RPCs or
   fabricate missing campaign metadata.
@@ -150,7 +150,8 @@ embed it and run without a build tool/runtime companion. Production builds never
   credentials after drainage; concurrent shutdown cannot interrupt removal in either queue order.
   Hourly validation/network reconfiguration preserves manual selection/deadlines and queues
   new channel choices until fresh channel eligibility is available. Cache clear
-  preserves settings, credentials, claim history and completed campaigns.
+  preserves settings, credentials and completed campaigns, and clears local claim history with
+  durable cleared-ID tombstones before refreshing; failure to persist must fail the clear.
 - Requests use bounded concurrency/rate, retries and cancellation. Quality 1..6 controls connect
   timeout 5×quality and total 10×quality seconds; the saved refresh interval actually schedules
   inventory work. Slow discovery must not block watch cadence. Duplicate idle prompts collapse.
@@ -201,11 +202,15 @@ embed it and run without a build tool/runtime companion. Production builds never
 - Use `frontend/src/assets/twitch-drops-miner-logo.svg` for the app, login, favicon and README.
   Preserve its artwork and aspect ratio; Vite emits one hashed asset for browser caching.
   Keep adjacent brand text accessible and sidebar navigation reachable in short windows.
-- Keep the subtle charcoal/Manrope design, individual MDI paths and shared native controls.
+- Keep the subtle charcoal/Manrope design, individual `@mdi/js` paths rendered with `@mdi/react`, and shared native controls.
+  All icon-only actions use borderless transparent buttons with shared hover/keyboard backgrounds,
+  accessible names and tooltips; retain native selects for icon-only sorting.
   Render strings as React text, validate external links/artwork, expand Twitch image placeholders.
   No injected HTML or CDN scripts. Art provides safe missing/broken-image fallbacks.
 - Sidebar: enlarged GitHub glyph above Twitch account ID, overriding shared icon sizing.
-  Connection status lives in Settings and is labeled Dashboard connected, separate from Twitch.
+  Connection status lives in Settings > Connection and is labeled Dashboard connected, separate
+  from Twitch. Account status and Twitch ID occupy separate rows. Device authorization keeps the
+  copyable code, Twitch Activate and Done on one wrapping row with equal-height controls.
 - Overview: watching information only in Mining, no status subtitle or Recent activity. Channels
   and Up next have equal desktop dimensions and internal scrolling; stack on narrow screens and
   preserve access on short windows. Show confirmed values/timestamps without redundant labels.
@@ -219,6 +224,12 @@ embed it and run without a build tool/runtime companion. Production builds never
   ignore stale completion events. An acknowledgement is not completion. Keep request errors
   and partial-catalog failures retryable without clearing previous results or adding notices.
   Keep the refresh/check icon at the same left-aligned position when the label changes.
+- History lives in Campaigns in place of Finished; the old /history route redirects. Display
+  recorded claims grouped by campaign (25 per page), independent of completion/catalog coverage.
+  Share search, game filters, sorting and list/grid controls. History defaults to newest recorded
+  claim, Most Drops counts recorded claims, campaign date sorts place unknown dates last. No
+  CSV/JSON export, Since filter or separate history clear action. Clear all cache clears history
+  and publishes the durable change to open dashboards; archives never recreate cleared rows.
 - History artwork is optional; retain old rows and use matching live benefits as display fallback.
   No Telegram controls/API/credentials in responses and no dashboard updater.
 - Campaigns keeps the filtered count beside its heading and Clear filters beside All games

@@ -1,5 +1,6 @@
+import { Icon } from '@mdi/react';
 import { useEffect, useRef, useState, type ReactNode } from 'react';
-import { mdiPlus, mdiOpenInNew } from '@mdi/js';
+import { mdiPlus, mdiOpenInNew, mdiLogout, mdiContentCopy, mdiCheck } from '@mdi/js';
 import type { AuthStatus, ReleaseInfo, Result, Settings as SettingsData } from '../lib/types';
 import { request, safeUrl } from '../lib/api';
 import { useMiner } from '../lib/state';
@@ -13,7 +14,7 @@ import {
   Dialog,
   Empty,
   Field,
-  Icon,
+  IconButton,
   Input,
   Notice,
   Search,
@@ -26,7 +27,7 @@ function Section({
   children,
 }: {
   id: string;
-  title: string;
+  title: ReactNode;
   help?: string;
   children: ReactNode;
 }) {
@@ -229,6 +230,8 @@ function SettingsContent({ settings, auth }: { settings: SettingsData; auth: Aut
   const proxyAction = useAction();
   const oauthAction = useAction();
   const logoutAction = useAction();
+  const [copyState, setCopyState] = useState<'idle' | 'copied' | 'failed'>('idle');
+  useEffect(() => setCopyState('idle'), [data?.login.oauth_pending?.code]);
   const dirty = autosave.pending || autosave.busy;
   const change = autosave.change;
   function addGame(name: string) {
@@ -288,43 +291,69 @@ function SettingsContent({ settings, auth }: { settings: SettingsData; auth: Aut
           </a>
         ))}
       </nav>
-      <Section id="account" title={t('account')}>
-        <p className="muted">{t(connected ? 'connected' : 'connecting')}</p>
-        <p>{plainText(data?.login.status ?? '')}</p>
+      <Section
+        id="account"
+        title={
+          <>
+            {t('account')}:{' '}
+            <span className="font-normal text-soft">{plainText(data?.login.status ?? '')}</span>
+          </>
+        }
+      >
         {data?.login.user_id && <p className="muted">Twitch ID: {data.login.user_id}</p>}
         {data?.login.user_id && (
-          <Button
+          <IconButton
+            path={mdiLogout}
+            label={t('twitch_logout')}
             disabled={!connected || logoutAction.busy}
             onClick={() => void logoutAction.run(() => request('/api/twitch/logout', {}))}
-          >
-            {t('twitch_logout')}
-          </Button>
+          />
         )}
         <ActionResult action={logoutAction} />
         {oauth ? (
-          <div className="panel max-w-lg space-y-4 p-5">
-            <p className="text-[13px] text-muted">{t('gui.login.oauth_prompt')}</p>
-            <div className="flex flex-wrap items-center gap-4">
-              <code className="select-all rounded border border-divider bg-field px-4 py-2 text-xl tracking-[.2em]">
-                {oauth.code}
-              </code>
-              <a className="button" href={safeUrl(oauth.url)} target="_blank" rel="noreferrer">
+          <div className="panel space-y-3 p-4">
+            <div className="flex flex-wrap items-center gap-3">
+              <div className="flex h-11 items-center gap-2 rounded border border-divider bg-field ps-3 pe-1">
+                <code className="select-all text-lg tracking-[.2em]">{oauth.code}</code>
+                <IconButton
+                  path={copyState === 'copied' ? mdiCheck : mdiContentCopy}
+                  label={t('copy_code')}
+                  onClick={() => {
+                    void (async () => {
+                      try {
+                        await navigator.clipboard.writeText(oauth.code);
+                        setCopyState('copied');
+                      } catch {
+                        setCopyState('failed');
+                      }
+                    })();
+                  }}
+                />
+              </div>
+              <a className="button h-11" href={safeUrl(oauth.url)} target="_blank" rel="noreferrer">
                 {t('gui.login.oauth_activate')}
-                <Icon path={mdiOpenInNew} />
+                <Icon className="mdi-icon" path={mdiOpenInNew} />
               </a>
+              <Button
+                primary
+                className="h-11"
+                disabled={!connected || oauthAction.busy}
+                onClick={() =>
+                  void oauthAction.run(
+                    () => request('/api/oauth/confirm', {}),
+                    t('authorization_waiting'),
+                  )
+                }
+              >
+                {t('gui.login.oauth_confirm')}
+              </Button>
             </div>
-            <Button
-              primary
-              disabled={!connected || oauthAction.busy}
-              onClick={() =>
-                void oauthAction.run(
-                  () => request('/api/oauth/confirm', {}),
-                  t('authorization_waiting'),
-                )
-              }
-            >
-              {t('gui.login.oauth_confirm')}
-            </Button>
+            {copyState === 'copied' && (
+              <span className="sr-only" role="status">
+                {t('code_copied')}
+              </span>
+            )}
+            {copyState === 'failed' && <Notice error>{t('copy_code_failed')}</Notice>}
             <ActionResult action={oauthAction} />
           </div>
         ) : (
@@ -357,10 +386,12 @@ function SettingsContent({ settings, auth }: { settings: SettingsData; auth: Aut
                   label={t('gui.settings.search_games')}
                 />
               </div>
-              <Button onClick={resolveGame} disabled={!search.trim()}>
-                <Icon path={mdiPlus} />
-                {t('gui.settings.add_game')}
-              </Button>
+              <IconButton
+                path={mdiPlus}
+                label={t('gui.settings.add_game')}
+                onClick={resolveGame}
+                disabled={!search.trim()}
+              />
             </div>
             {gameError && <Notice error>{gameError}</Notice>}
             {search && available.length > 0 && (
@@ -456,6 +487,7 @@ function SettingsContent({ settings, auth }: { settings: SettingsData; auth: Aut
             </Field>
           </Section>
           <Section id="connection" title={t('connection')}>
+            <p className="muted">{t(connected ? 'connected' : 'connecting')}</p>
             <div className="grid gap-4 sm:grid-cols-2">
               <Field label={t('proxy')} help={t('proxy_help')}>
                 <Input

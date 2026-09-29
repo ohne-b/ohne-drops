@@ -1,9 +1,10 @@
+import { Icon } from '@mdi/react';
 import { useEffect, useState } from 'react';
 import { mdiRefresh, mdiCheck, mdiAlertCircleOutline } from '@mdi/js';
 import { useMiner } from '../lib/state';
 import { useT } from '../lib/i18n';
 import { request } from '../lib/api';
-import { Button, Icon, dateTime, useAction } from './ui';
+import { Button, dateTime, useAction } from './ui';
 
 export function InventoryRefreshButton() {
   const { data, connected } = useMiner();
@@ -41,7 +42,7 @@ export function InventoryRefreshButton() {
     >
       <Icon
         path={failed ? mdiAlertCircleOutline : done ? mdiCheck : mdiRefresh}
-        className={busy ? 'animate-spin motion-reduce:animate-none' : ''}
+        className={`mdi-icon ${busy ? 'animate-spin motion-reduce:animate-none' : ''}`}
       />
       <span className="grid" aria-live="polite">
         {['refresh', 'refreshing', 'refreshed', 'refresh_failed'].map((key) => (

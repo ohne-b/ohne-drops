@@ -1,6 +1,6 @@
 [package]
 name = "twitch-drops-miner"
-version = "1.1.5"
+version = "1.2.0"
 edition = "2024"
 rust-version = "1.94"
 license-file = "LICENSE.md"
@@ -27,7 +27,6 @@ base64 = "0.22"
 chrono = { version = "0.4", features = ["serde"] }
 clap = { version = "4", features = ["derive", "env"] }
 cookie = "0.18"
-csv = "1"
 futures-util = { version = "0.3", features = ["sink"] }
 getrandom = "0.4"
 hex = "0.4"

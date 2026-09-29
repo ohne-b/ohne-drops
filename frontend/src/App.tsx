@@ -1,9 +1,9 @@
+import { Icon } from '@mdi/react';
 import { useEffect, useState } from 'react';
 import { NavLink, Navigate, Route, Routes, useLocation, useNavigate } from 'react-router';
 import {
   mdiViewDashboardOutline,
   mdiGiftOutline,
-  mdiHistory,
   mdiTextBoxOutline,
   mdiCogOutline,
   mdiLogout,
@@ -13,10 +13,9 @@ import type { AuthStatus } from './lib/types';
 import { request } from './lib/api';
 import { I18n, useT } from './lib/i18n';
 import { MinerProvider, useMiner } from './lib/state';
-import { Button, Empty, Icon, Notice } from './components/ui';
+import { Button, Empty, Notice } from './components/ui';
 import Overview from './pages/Overview';
 import Campaigns from './pages/Campaigns';
-import History from './pages/History';
 import Activity from './pages/Activity';
 import Settings from './pages/Settings';
 import Login from './pages/Login';
@@ -29,7 +28,6 @@ function Shell({ auth, onLogout }: { auth: AuthStatus; onLogout: () => Promise<v
   const links = [
     ['/', 'overview', mdiViewDashboardOutline],
     ['/campaigns', 'campaigns', mdiGiftOutline],
-    ['/history', 'gui.tabs.history', mdiHistory],
     ['/activity', 'activity', mdiTextBoxOutline],
     ['/settings', 'gui.tabs.settings', mdiCogOutline],
   ] as const;
@@ -74,21 +72,21 @@ function Shell({ auth, onLogout }: { auth: AuthStatus; onLogout: () => Promise<v
                 `flex min-h-10 shrink-0 items-center gap-3 rounded px-3 text-[13px] transition-colors ${isActive ? 'bg-raised font-semibold text-text' : 'text-muted hover:bg-field hover:text-soft'}`
               }
             >
-              <Icon path={icon} className="hidden lg:block" />
+              <Icon path={icon} className="mdi-icon hidden lg:block" />
               {t(label)}
             </NavLink>
           ))}
         </nav>
         <div className="mt-auto hidden border-t border-divider p-4 lg:block">
           <a
-            className="inline-flex size-11 items-center justify-center rounded text-muted transition-colors hover:text-text"
+            className="icon-button size-11"
             href="https://github.com/ohne-b/twitch-drops-miner"
             target="_blank"
             rel="noreferrer"
             aria-label="GitHub repository"
             title="GitHub"
           >
-            <Icon path={mdiGithub} className="size-8!" />
+            <Icon path={mdiGithub} className="mdi-icon size-8!" />
           </a>
           {data?.login.user_id != null && (
             <p className="mt-2 text-xs tabular-nums text-muted">Twitch: {data.login.user_id}</p>
@@ -98,7 +96,7 @@ function Shell({ auth, onLogout }: { auth: AuthStatus; onLogout: () => Promise<v
               className="mt-3 w-full"
               onClick={() => void onLogout().catch(() => setLogoutError(true))}
             >
-              <Icon path={mdiLogout} />
+              <Icon className="mdi-icon" path={mdiLogout} />
               {t('gui.auth.logout')}
             </Button>
           )}
@@ -124,7 +122,7 @@ function Shell({ auth, onLogout }: { auth: AuthStatus; onLogout: () => Promise<v
           <Routes>
             <Route path="/" element={<Overview />} />
             <Route path="/campaigns" element={<Campaigns />} />
-            <Route path="/history" element={<History />} />
+            <Route path="/history" element={<Navigate to="/campaigns?tab=history" replace />} />
             <Route path="/activity" element={<Activity />} />
             <Route path="/settings" element={<Settings auth={auth} />} />
             <Route path="/login" element={<Navigate to="/" replace />} />

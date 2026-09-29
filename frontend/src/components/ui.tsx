@@ -10,17 +10,25 @@ import {
   type ReactElement,
 } from 'react';
 import { mdiClose, mdiMagnify, mdiImageOutline, mdiAlertCircleOutline, mdiLoading } from '@mdi/js';
+import { Icon } from '@mdi/react';
 import { ApiError, safeUrl } from '../lib/api';
 import { useT } from '../lib/i18n';
-export function Icon({ path, className = '' }: { path: string; className?: string }) {
+export function IconButton({
+  path,
+  label,
+  className = '',
+  ...props
+}: Omit<ButtonHTMLAttributes<HTMLButtonElement>, 'children'> & { path: string; label: string }) {
   return (
-    <svg
-      viewBox="0 0 24 24"
-      aria-hidden="true"
-      className={`size-[18px] shrink-0 fill-current ${className}`}
+    <button
+      type="button"
+      className={`icon-button ${className}`}
+      aria-label={label}
+      title={label}
+      {...props}
     >
-      <path d={path} />
-    </svg>
+      <Icon path={path} className="mdi-icon" />
+    </button>
   );
 }
 export function Button({
@@ -80,7 +88,7 @@ export function Search({
   return (
     <div className="relative min-w-0">
       <span className="pointer-events-none absolute start-2.5 top-2.5 text-muted">
-        <Icon path={mdiMagnify} className="size-4" />
+        <Icon path={mdiMagnify} className="mdi-icon size-4" />
       </span>
       <Input
         ref={ref}
@@ -95,18 +103,15 @@ export function Search({
         }}
       />
       {value && (
-        <button
-          type="button"
-          aria-label={t('clear_search')}
-          title={t('clear_search')}
-          className="absolute end-1 top-1 grid size-7 place-items-center rounded hover:bg-hover"
+        <IconButton
+          path={mdiClose}
+          label={t('clear_search')}
+          className="absolute end-0 top-0"
           onClick={() => {
             onChange('');
             ref.current?.focus();
           }}
-        >
-          <Icon path={mdiClose} />
-        </button>
+        />
       )}
     </div>
   );
@@ -152,7 +157,7 @@ export function Art({ url, className = '' }: { url?: string | null; className?: 
           onError={() => setFailed(true)}
         />
       ) : (
-        <Icon path={mdiImageOutline} />
+        <Icon className="mdi-icon" path={mdiImageOutline} />
       )}
     </span>
   );
@@ -208,7 +213,7 @@ export function Notice({ children, error = false }: { children: ReactNode; error
       role={error ? 'alert' : 'status'}
       className="flex items-start gap-2 rounded border border-divider bg-field px-3 py-2 text-[13px] leading-relaxed text-soft"
     >
-      {error && <Icon path={mdiAlertCircleOutline} />}
+      {error && <Icon className="mdi-icon" path={mdiAlertCircleOutline} />}
       {children}
     </div>
   );
@@ -265,7 +270,7 @@ export function ActionResult({ action }: { action: ReturnType<typeof useAction> 
 export function Busy({ label }: { label: string }) {
   return (
     <span className="flex items-center gap-2 text-muted">
-      <Icon path={mdiLoading} className="animate-spin motion-reduce:animate-none" />
+      <Icon path={mdiLoading} className="mdi-icon animate-spin motion-reduce:animate-none" />
       {label}
     </span>
   );
@@ -303,14 +308,7 @@ export function Dialog({
         <h2 id={id} className="text-lg font-semibold">
           {title}
         </h2>
-        <Button
-          aria-label={t('close')}
-          title={t('close')}
-          onClick={onClose}
-          className="size-9 px-0"
-        >
-          <Icon path={mdiClose} />
-        </Button>
+        <IconButton path={mdiClose} label={t('close')} onClick={onClose} />
       </div>
       {children}
     </dialog>

@@ -1,6 +1,7 @@
+import { Icon } from '@mdi/react';
 import { useState } from 'react';
 import { Link } from 'react-router';
-import { mdiPlayOutline } from '@mdi/js';
+import { mdiPencil, mdiRefreshAuto, mdiPlayOutline } from '@mdi/js';
 import { InventoryRefreshButton } from '../components/InventoryRefreshButton';
 import { useMiner } from '../lib/state';
 import { useT } from '../lib/i18n';
@@ -9,7 +10,6 @@ import {
   Art,
   Button,
   Empty,
-  Icon,
   ProgressBar,
   Search,
   Notice,
@@ -51,7 +51,18 @@ export default function Overview() {
           <h2 id="mining-heading" className="section-title">
             {t('mining')}
           </h2>
-          <span className="muted">{data.manual_mode.active ? t('manual') : t('automatic')}</span>
+          {data.manual_mode.active ? (
+            <span className="muted">{t('manual')}</span>
+          ) : (
+            <span
+              role="img"
+              aria-label={t('automatic')}
+              title={t('automatic')}
+              className="text-muted"
+            >
+              <Icon className="mdi-icon" path={mdiRefreshAuto} />
+            </span>
+          )}
         </div>
         {progress ? (
           <>
@@ -240,7 +251,7 @@ export default function Overview() {
                       )
                     }
                   >
-                    <Icon path={mdiPlayOutline} />
+                    <Icon className="mdi-icon" path={mdiPlayOutline} />
                     {t('watch')}
                   </Button>
                 )}
@@ -256,8 +267,13 @@ export default function Overview() {
             <h2 id="up-next-heading" className="section-title">
               {t('up_next')}
             </h2>
-            <Link className="text-[13px] text-muted hover:text-text" to="/settings#mining">
-              {t('edit')}
+            <Link
+              className="icon-button"
+              aria-label={t('edit')}
+              title={t('edit')}
+              to="/settings#mining"
+            >
+              <Icon className="mdi-icon" path={mdiPencil} />
             </Link>
           </div>
           <div

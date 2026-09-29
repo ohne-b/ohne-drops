@@ -16,6 +16,7 @@
   "dependencies": {
     "@fontsource-variable/manrope": "^5.2.0",
     "@mdi/js": "^7.4.47",
+    "@mdi/react": "^1.6.1",
     "react": "^19.0.0",
     "react-dom": "^19.0.0",
     "react-router": "^7.0.0",

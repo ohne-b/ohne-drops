@@ -229,37 +229,6 @@ impl History {
             .collect()
     }
 
-    pub fn csv(&self, filter: &HistoryFilter) -> Result<Vec<u8>> {
-        let mut writer = csv::WriterBuilder::new()
-            .terminator(csv::Terminator::CRLF)
-            .from_writer(vec![0xef, 0xbb, 0xbf]);
-        writer.write_record([
-            "claimed_at",
-            "game",
-            "campaign",
-            "drop_name",
-            "benefits",
-            "required_minutes",
-            "drop_id",
-            "campaign_id",
-            "claimed_at_is_observed",
-        ])?;
-        for entry in self.entries(filter) {
-            writer.write_record([
-                entry.claimed_at.to_rfc3339(),
-                entry.game,
-                entry.campaign,
-                entry.drop_name,
-                entry.benefits.join("; "),
-                entry.required_minutes.to_string(),
-                entry.id,
-                entry.campaign_id,
-                entry.claimed_at_is_observed.to_string(),
-            ])?;
-        }
-        Ok(writer.into_inner()?)
-    }
-
     pub fn stats(&self) -> serde_json::Value {
         let mut games = BTreeMap::<String, usize>::new();
         let mut months = BTreeMap::<String, usize>::new();
@@ -537,7 +506,7 @@ mod tests {
     }
 
     #[test]
-    fn history_preserves_old_artless_entries_and_exports_filtered_data() {
+    fn history_preserves_old_artless_entries_and_filters_data() {
         let dir = tempfile::tempdir().unwrap();
         let mut history = History::load(dir.path());
         assert!(history.record(entry("a")).unwrap());
@@ -558,10 +527,6 @@ mod tests {
             ["b", "a"]
         );
         assert!(restored.entries(&filter)[0].image_url.is_empty());
-        let csv = String::from_utf8(restored.csv(&filter).unwrap()).unwrap();
-        assert!(csv.starts_with('\u{feff}'));
-        assert!(csv.contains("\"Coat, warm\",Coat; Boots,30,b,c,false\r\n"));
-        assert_eq!(restored.stats()["by_month"]["2026-01"], 2);
         history.clear().unwrap();
         assert_eq!(History::load(dir.path()).total(), 0);
     }

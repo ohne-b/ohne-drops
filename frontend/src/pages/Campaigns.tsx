@@ -1,35 +1,33 @@
+import { Icon } from '@mdi/react';
 import { useEffect, useState } from 'react';
 import { Link, useSearchParams } from 'react-router';
 import {
-  mdiFilterVariant,
+  mdiFilterOutline,
   mdiViewList,
   mdiViewGridOutline,
-  mdiSortVariant,
-  mdiChevronDown,
+  mdiSortAscending,
+  mdiFilterOffOutline,
+  mdiPlayCircleOutline,
+  mdiStopCircleOutline,
 } from '@mdi/js';
 import { useMiner } from '../lib/state';
 import { useT } from '../lib/i18n';
-import type { Campaign as CampaignData, Filters, HistoryEntry, Settings } from '../lib/types';
+import type { Campaign as CampaignData, Filters, Settings } from '../lib/types';
 import { request } from '../lib/api';
 import {
   Button,
+  IconButton,
   Check,
   Empty,
-  Icon,
   Search,
   useAction,
   ActionResult,
   Notice,
-  Art,
 } from '../components/ui';
 import { Campaign } from '../components/Campaign';
-export function matchesCampaign(
-  campaign: CampaignData,
-  filters: Filters,
-  search: string,
-  finished = false,
-): boolean {
-  if (campaign.finished !== finished) return false;
+import History, { useHistory, groupHistory, matchesHistory, historyOrder } from './History';
+export function matchesCampaign(campaign: CampaignData, filters: Filters, search: string): boolean {
+  if (campaign.finished) return false;
   if (
     search &&
     !`${campaign.name} ${campaign.game_name} ${campaign.drops.map((drop) => drop.name).join(' ')}`
@@ -39,7 +37,6 @@ export function matchesCampaign(
     return false;
   const selected = filters.show_active || filters.show_upcoming || filters.show_expired;
   if (
-    !finished &&
     selected &&
     !(
       (filters.show_active && campaign.active) ||
@@ -48,7 +45,7 @@ export function matchesCampaign(
     )
   )
     return false;
-  if (!finished && filters.show_only_not_linked && campaign.linked !== false) return false;
+  if (filters.show_only_not_linked && campaign.linked !== false) return false;
   if (
     filters.game_name_search.length &&
     !filters.game_name_search.some(
@@ -57,11 +54,10 @@ export function matchesCampaign(
   )
     return false;
   if (
-    finished ||
-    (filters.show_benefit_badge &&
-      filters.show_benefit_emote &&
-      filters.show_benefit_item &&
-      filters.show_benefit_other)
+    filters.show_benefit_badge &&
+    filters.show_benefit_emote &&
+    filters.show_benefit_item &&
+    filters.show_benefit_other
   )
     return true;
   const types: Record<string, boolean> = {
@@ -77,7 +73,7 @@ export function matchesCampaign(
   );
 }
 const campaignSorts = ['default', 'newest', 'ending', 'drops', 'name'] as const;
-type CampaignSort = (typeof campaignSorts)[number];
+export type CampaignSort = (typeof campaignSorts)[number];
 export function campaignOrder(
   a: CampaignData,
   b: CampaignData,
@@ -110,7 +106,8 @@ export default function Campaigns() {
   const t = useT();
   const [params, setParams] = useSearchParams();
   const [showFilters, setShowFilters] = useState(false);
-  const [historicalGames, setHistoricalGames] = useState<string[]>([]);
+  const historyTab = ['history', 'finished'].includes(params.get('tab') ?? '');
+  const history = useHistory(historyTab);
   const action = useAction();
   const [pendingFilters, setPendingFilters] = useState<Filters | null>(null);
   useEffect(() => setPendingFilters(null), [data?.settings.revision]);
@@ -119,14 +116,25 @@ export default function Campaigns() {
   const selectedGames = (autosave.draft ?? data.settings).games_to_watch;
   const settingsBusy = action.busy || autosave.busy || autosave.pending;
   const search = params.get('q') ?? '';
-  const finished = params.get('tab') === 'finished';
+
   const sort = campaignSorts.find((value) => value === params.get('sort')) ?? 'default';
-  const total = data.campaigns.filter((campaign) => campaign.finished === finished).length;
+  const groups = groupHistory(history.entries, data.campaigns);
+  const total = historyTab
+    ? groups.length
+    : data.campaigns.filter((campaign) => !campaign.finished).length;
   const campaigns = data.campaigns
-    .filter((campaign) => matchesCampaign(campaign, filters, search, finished))
+    .filter((campaign) => matchesCampaign(campaign, filters, search))
     .sort((a, b) => campaignOrder(a, b, sort));
+  const historical = groups
+    .filter((group) => matchesHistory(group, filters.game_name_search, search))
+    .sort((a, b) => historyOrder(a, b, sort));
+  const page = Math.min(
+    Math.max(0, Math.trunc(Number(params.get('page'))) || 0),
+    Math.max(0, Math.ceil(historical.length / 25) - 1),
+  );
   function setQuery(key: string, value: string) {
     const next = new URLSearchParams(params);
+    if (key !== 'page') next.delete('page');
     value ? next.set(key, value) : next.delete(key);
     setParams(next, { replace: true });
   }
@@ -141,7 +149,7 @@ export default function Campaigns() {
   const games = [
     ...new Set([
       ...data.campaigns.map((campaign) => campaign.game_name),
-      ...(finished ? historicalGames : []),
+      ...(historyTab ? history.entries.map((entry) => entry.game) : []),
       ...filters.game_name_search,
     ]),
   ].sort();
@@ -160,52 +168,53 @@ export default function Campaigns() {
       <header className="flex flex-wrap items-center justify-between gap-3">
         <h1 className="text-[22px] font-semibold">{t('campaigns')}</h1>
         <p className="muted ms-auto text-right">
-          {t('campaign_count', { count: campaigns.length, total })}
+          {t('campaign_count', { count: historyTab ? historical.length : campaigns.length, total })}
         </p>
       </header>
       <nav aria-label={t('campaign_views')} className="flex gap-5 border-b border-divider">
         {[false, true].map((value) => (
           <Link
             key={String(value)}
-            className={`border-b-2 px-1 pb-3 text-[13px] ${finished === value ? 'border-soft text-text' : 'border-transparent text-muted hover:text-text'}`}
-            aria-current={finished === value ? 'page' : undefined}
+            className={`border-b-2 px-1 pb-3 text-[13px] ${historyTab === value ? 'border-soft text-text' : 'border-transparent text-muted hover:text-text'}`}
+            aria-current={historyTab === value ? 'page' : undefined}
             to={{
               pathname: '/campaigns',
               search: new URLSearchParams({
                 ...(search ? { q: search } : {}),
                 ...(sort !== 'default' ? { sort } : {}),
-                ...(value ? { tab: 'finished' } : {}),
+                ...(value ? { tab: 'history' } : {}),
               }).toString(),
             }}
           >
-            {t(value ? 'finished_campaigns' : 'available_campaigns')}
+            {t(value ? 'gui.tabs.history' : 'available_campaigns')}
           </Link>
         ))}
       </nav>
-      {data.inventory_status?.available === false && data.inventory_status.checked_at && (
-        <Notice error>{t('campaigns_unavailable')}</Notice>
-      )}
-      <div className="flex flex-wrap gap-3">
-        <div className="min-w-48 flex-1">
+      {!historyTab &&
+        data.inventory_status?.available === false &&
+        data.inventory_status.checked_at && <Notice error>{t('campaigns_unavailable')}</Notice>}
+      <div className="flex items-center gap-2">
+        <div className="min-w-0 flex-1">
           <Search
             value={search}
             onChange={(value) => setQuery('q', value)}
             label={t('search_campaigns')}
           />
         </div>
-        <Button aria-expanded={showFilters} onClick={() => setShowFilters(!showFilters)}>
-          <Icon path={mdiFilterVariant} />
-          {t('filters')}
-        </Button>
-        <div className="relative shrink-0">
-          <Icon
-            path={mdiSortVariant}
-            className="pointer-events-none absolute start-3 top-1/2 -translate-y-1/2 text-soft"
-          />
+        <IconButton
+          path={mdiFilterOutline}
+          label={t('filters')}
+          aria-expanded={showFilters}
+          onClick={() => setShowFilters(!showFilters)}
+        />
+        <div
+          className="icon-button"
+          title={`${t(historyTab ? 'sort_history' : 'sort_campaigns')}: ${t(`sort_${sort}`)}`}
+        >
+          <Icon className="mdi-icon pointer-events-none" path={mdiSortAscending} />
           <select
-            className="button h-9 appearance-none ps-9 pe-8"
-            aria-label={t('sort_campaigns')}
-            title={t('sort_campaigns')}
+            className="absolute inset-0 size-full cursor-pointer opacity-0"
+            aria-label={t(historyTab ? 'sort_history' : 'sort_campaigns')}
             value={sort}
             onChange={(event) =>
               setQuery('sort', event.target.value === 'default' ? '' : event.target.value)
@@ -217,26 +226,19 @@ export default function Campaigns() {
               </option>
             ))}
           </select>
-          <Icon
-            path={mdiChevronDown}
-            className="pointer-events-none absolute end-2 top-1/2 -translate-y-1/2 text-muted"
-          />
         </div>
-        <Button
-          aria-label={t('toggle_view')}
-          title={t('toggle_view')}
+        <IconButton
+          path={data.settings.inventory_list_view ? mdiViewGridOutline : mdiViewList}
+          label={t('toggle_view')}
           disabled={!connected || settingsBusy}
           onClick={() => void update({ inventory_list_view: !data.settings.inventory_list_view })}
-        >
-          <Icon path={data.settings.inventory_list_view ? mdiViewGridOutline : mdiViewList} />
-        </Button>
+        />
       </div>
       {showFilters && (
         <div className="panel space-y-4 p-4">
-          <div className="grid grid-cols-2 gap-x-6 gap-y-1 md:grid-cols-3">
-            {filterOptions
-              .filter(() => !finished)
-              .map(([key, name]) => (
+          {!historyTab && (
+            <div className="grid grid-cols-2 gap-x-6 gap-y-1 md:grid-cols-3">
+              {filterOptions.map(([key, name]) => (
                 <Check
                   key={key}
                   label={t(`gui.inventory.filters.${name}`)}
@@ -245,8 +247,9 @@ export default function Campaigns() {
                   onChange={(value) => changeFilters({ ...filters, [key]: value })}
                 />
               ))}
-          </div>
-          <div className="border-t border-divider pt-3">
+            </div>
+          )}
+          <div className={historyTab ? '' : 'border-t border-divider pt-3'}>
             <p className="mb-2 text-[13px] font-medium">{t('game')}</p>
             <div className="grid max-h-48 grid-cols-1 overflow-y-auto sm:grid-cols-2">
               {games.map((game) => (
@@ -273,7 +276,9 @@ export default function Campaigns() {
               >
                 {t('all_games')}
               </Button>
-              <Button
+              <IconButton
+                path={mdiFilterOffOutline}
+                label={t('clear_filters')}
                 disabled={!connected || settingsBusy}
                 onClick={() => {
                   setQuery('q', '');
@@ -291,9 +296,7 @@ export default function Campaigns() {
                     show_benefit_other: true,
                   });
                 }}
-              >
-                {t('clear_filters')}
-              </Button>
+              />
             </div>
           </div>
         </div>
@@ -312,165 +315,104 @@ export default function Campaigns() {
           {t('saving')}
         </p>
       )}
-      <div
-        className={
-          data.settings.inventory_list_view
-            ? 'panel overflow-hidden'
-            : 'grid items-start gap-4 md:grid-cols-2'
-        }
-      >
-        {campaigns.map((campaign) => (
+      {historyTab ? (
+        <>
+          {history.error && (
+            <Notice error>
+              {t('history_error')} <Button onClick={history.retry}>{t('retry')}</Button>
+            </Notice>
+          )}
+          {history.loading && (
+            <p role="status" className="muted">
+              {t('gui.history.loading')}
+            </p>
+          )}
+          <History
+            groups={historical.slice(page * 25, (page + 1) * 25)}
+            list={data.settings.inventory_list_view}
+          />
+          {!historical.length && !history.loading && !history.error && (
+            <Empty title={t(history.entries.length ? 'no_matches' : 'history_empty')} />
+          )}
+          {historical.length > 25 && (
+            <nav className="flex items-center justify-end gap-3" aria-label={t('history_pages')}>
+              <Button disabled={page === 0} onClick={() => setQuery('page', String(page - 1))}>
+                {t('gui.history.previous')}
+              </Button>
+              <span className="muted">
+                {page + 1} / {Math.ceil(historical.length / 25)}
+              </span>
+              <Button
+                disabled={(page + 1) * 25 >= historical.length}
+                onClick={() => setQuery('page', String(page + 1))}
+              >
+                {t('gui.history.next')}
+              </Button>
+            </nav>
+          )}
+        </>
+      ) : (
+        <>
           <div
-            key={campaign.id}
-            className={data.settings.inventory_list_view ? '' : 'panel overflow-hidden'}
+            className={
+              data.settings.inventory_list_view
+                ? 'panel overflow-hidden'
+                : 'grid items-start gap-4 md:grid-cols-2'
+            }
           >
-            <Campaign
-              campaign={campaign}
-              action={
-                !campaign.finished &&
-                !campaign.expired && (
-                  <Button
-                    disabled={!connected || action.busy}
-                    title={t('mine_game_help')}
-                    aria-label={t(
-                      selectedGames.some(
-                        (game) => game.toLowerCase() === campaign.game_name.toLowerCase(),
-                      )
-                        ? 'stop_mining_game'
-                        : 'mine_game',
-                      { game: campaign.game_name },
-                    )}
-                    onClick={() => {
-                      autosave.change('games_to_watch', (games) =>
-                        games.some(
-                          (game) => game.toLowerCase() === campaign.game_name.toLowerCase(),
-                        )
-                          ? games.filter(
-                              (game) => game.toLowerCase() !== campaign.game_name.toLowerCase(),
+            {campaigns.map((campaign) => (
+              <div
+                key={campaign.id}
+                className={data.settings.inventory_list_view ? '' : 'panel overflow-hidden'}
+              >
+                <Campaign
+                  campaign={campaign}
+                  action={
+                    !campaign.finished &&
+                    !campaign.expired && (
+                      <IconButton
+                        path={
+                          selectedGames.some(
+                            (game) => game.toLowerCase() === campaign.game_name.toLowerCase(),
+                          )
+                            ? mdiStopCircleOutline
+                            : mdiPlayCircleOutline
+                        }
+                        disabled={!connected || action.busy}
+                        label={t(
+                          selectedGames.some(
+                            (game) => game.toLowerCase() === campaign.game_name.toLowerCase(),
+                          )
+                            ? 'stop_mining_game'
+                            : 'mine_game',
+                          { game: campaign.game_name },
+                        )}
+                        onClick={() => {
+                          autosave.change('games_to_watch', (games) =>
+                            games.some(
+                              (game) => game.toLowerCase() === campaign.game_name.toLowerCase(),
                             )
-                          : [...games, campaign.game_name],
-                      );
-                    }}
-                  >
-                    {t(
-                      selectedGames.some(
-                        (game) => game.toLowerCase() === campaign.game_name.toLowerCase(),
-                      )
-                        ? 'stop_mining'
-                        : 'mine',
-                    )}
-                  </Button>
-                )
-              }
-            />
+                              ? games.filter(
+                                  (game) => game.toLowerCase() !== campaign.game_name.toLowerCase(),
+                                )
+                              : [...games, campaign.game_name],
+                          );
+                        }}
+                      />
+                    )
+                  }
+                />
+              </div>
+            ))}
           </div>
-        ))}
-      </div>
-      {!campaigns.length && (
-        <Empty
-          title={t(data.campaigns.length ? 'no_matches' : 'gui.inventory.no_campaigns')}
-          detail={t('campaign_empty_help')}
-        />
-      )}
-      {finished && (
-        <HistoricalClaims
-          knownIds={data.campaigns.map((campaign) => campaign.id)}
-          search={search}
-          games={filters.game_name_search}
-          setGames={setHistoricalGames}
-        />
+          {!campaigns.length && (
+            <Empty
+              title={t(data.campaigns.length ? 'no_matches' : 'gui.inventory.no_campaigns')}
+              detail={t('campaign_empty_help')}
+            />
+          )}
+        </>
       )}
     </div>
-  );
-}
-
-function HistoricalClaims({
-  knownIds,
-  search,
-  games,
-  setGames,
-}: {
-  knownIds: string[];
-  search: string;
-  games: string[];
-  setGames: (games: string[]) => void;
-}) {
-  const t = useT();
-  const { connected, data } = useMiner();
-  const claimed = data?.campaigns.reduce((sum, campaign) => sum + campaign.claimed_drops, 0);
-  const [entries, setEntries] = useState<HistoryEntry[]>([]);
-  const [failed, setFailed] = useState(false);
-  const [loading, setLoading] = useState(true);
-  const [retry, setRetry] = useState(0);
-  useEffect(() => {
-    const controller = new AbortController();
-    setFailed(false);
-    setLoading(true);
-    request<{ entries: HistoryEntry[] }>('/api/history', undefined, 'GET', controller.signal)
-      .then((result) => {
-        if (!controller.signal.aborted) {
-          setEntries(result.entries);
-          setGames([...new Set(result.entries.map((entry) => entry.game))]);
-        }
-      })
-      .catch(() => {
-        if (!controller.signal.aborted) setFailed(true);
-      })
-      .finally(() => {
-        if (!controller.signal.aborted) setLoading(false);
-      });
-    return () => controller.abort();
-  }, [retry, connected, claimed, setGames]);
-  const groups = new Map<string, HistoryEntry[]>();
-  for (const entry of entries) {
-    if (knownIds.includes(entry.campaign_id)) continue;
-    const group = groups.get(entry.campaign_id) ?? [];
-    group.push(entry);
-    groups.set(entry.campaign_id, group);
-  }
-  return (
-    <section className="space-y-3">
-      <h2 className="section-title">{t('historical_claims')}</h2>
-      <p className="muted">{t('historical_claims_help')}</p>
-      {loading && <p className="muted">{t('loading')}</p>}
-      {failed && (
-        <Notice error>
-          {t('history_error')} <Button onClick={() => setRetry(retry + 1)}>{t('retry')}</Button>
-        </Notice>
-      )}
-      {[...groups.entries()]
-        .filter(([, group]) =>
-          group.some(
-            (entry) =>
-              (!games.length ||
-                games.some((game) => game.toLowerCase() === entry.game.toLowerCase())) &&
-              `${entry.game} ${entry.campaign} ${entry.drop_name}`
-                .toLowerCase()
-                .includes(search.toLowerCase()),
-          ),
-        )
-        .map(([id, group]) => (
-          <details className="panel" key={id}>
-            <summary className="cursor-pointer p-4 text-[13px]">
-              {group[0]!.campaign} · {group[0]!.game}
-              <span className="muted ms-2">{t('completion_unknown')}</span>
-            </summary>
-            <div className="border-t border-divider px-4">
-              {group.map((entry) => (
-                <div className="flex items-center gap-3 py-3" key={entry.id}>
-                  <Art url={entry.image_url} />
-                  <div>
-                    <p>{entry.drop_name}</p>
-                    <p className="muted">{t('gui.inventory.status.claimed')}</p>
-                  </div>
-                </div>
-              ))}
-            </div>
-          </details>
-        ))}
-      <Link className="text-link text-[13px]" to="/history">
-        {t('view_claim_history')}
-      </Link>
-    </section>
   );
 }

@@ -12,14 +12,17 @@ export function upsert<T extends { id: string | number }>(items: T[], item: T): 
 const Context = createContext<{
   data: Snapshot | null;
   connected: boolean;
+  historyRevision: number;
   autosave: ReturnType<typeof useAutosave>;
 }>({
   data: null,
   connected: false,
+  historyRevision: 0,
   autosave: null as unknown as ReturnType<typeof useAutosave>,
 });
 export function MinerProvider({ children }: { children: ReactNode }) {
   const [data, setData] = useState<Snapshot | null>(null);
+  const [historyRevision, setHistoryRevision] = useState(0);
   const [connected, setConnected] = useState(false);
   const autosave = useAutosave(data?.settings, connected, (settings, revision) => {
     setData((current) =>
@@ -91,6 +94,7 @@ export function MinerProvider({ children }: { children: ReactNode }) {
     socket.on('drop_progress', (value) => update((state) => ({ ...state, current_drop: value })));
     socket.on('drop_progress_stop', () => update((state) => ({ ...state, current_drop: null })));
     socket.on('campaign_add', campaign);
+    socket.on('history_cleared', () => setHistoryRevision((value) => value + 1));
     socket.on('inventory_clear', () => update((state) => ({ ...state, campaigns: [] })));
     socket.on('inventory_batch_update', (value) =>
       update((state) => ({ ...state, campaigns: value.campaigns })),
@@ -146,7 +150,7 @@ export function MinerProvider({ children }: { children: ReactNode }) {
     };
   }, []);
   return (
-    <Context value={{ data, connected, autosave }}>
+    <Context value={{ data, connected, historyRevision, autosave }}>
       <I18n>{children}</I18n>
     </Context>
   );

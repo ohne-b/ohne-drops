@@ -27,7 +27,7 @@ watch events, and claims earned rewards. The Rust executable includes the React 
 - Reward-type filters and drop-name ignore rules that account for prerequisite rewards.
 - Live progress with a distinction between Twitch-confirmed values and local estimates.
 - Saved Twitch sessions, claimed-drop history, and completed campaigns.
-- History filters, statistics, and CSV or JSON export.
+- Claim history inside Campaigns, with shared search, game filters, sorting, and layouts.
 - Optional password protection for the dashboard, API, and live connections.
 - Docker images for amd64 and arm64, or a standalone executable built from source.
 
@@ -191,8 +191,7 @@ when the public catalog was last updated.
 | ------------------------ | ----------------------------------------------------------------------------------------- |
 | **Overview**             | Mining progress, live channels, and the **Up next** reward queue.                         |
 | **Campaigns**            | Available campaigns, eligibility, filters, and **Mine / Stop mining** controls.           |
-| **Campaigns > Finished** | Completed campaigns retained across restarts and refreshes.                               |
-| **History**              | Recorded claims, game/date filters, statistics, and exports.                              |
+| **Campaigns > History** | Recorded claims grouped by campaign, including older rewards no longer in the catalog. |
 | **Activity**             | Mining messages and errors.                                                               |
 | **Settings**             | Twitch login, game priorities, mining preferences, connection, password, and maintenance. |
 
@@ -210,9 +209,9 @@ fails or another browser changes the same settings, your edits stay available fo
 
 Campaign status filters combine **Active**, **Upcoming**, and **Expired**; **Not linked**
 narrows the result to campaigns known to need account linking. Active campaigns with
-existing progress appear first. **Finished** requires all watch rewards to be claimed;
-expiry alone does not count as completion. Older history without completion evidence
-appears separately as **Older recorded rewards**.
+existing progress appear first. Completed campaigns leave Available only when all watch rewards
+are claimed; expiry alone does not count as completion. History lists recorded claims even
+when their campaigns still have unclaimed rewards.
 
 The **Mining** card prefers current Twitch-reported reward progress. Confirmed watch
 completion releases automatic watching of that reward and prompts inventory reconciliation.
@@ -237,20 +236,26 @@ when the campaign has an enabled, nonempty channel list. Select the campaign's g
 keep its rewards eligible. Other campaigns require a matching category and drops-enabled
 channel; every watched channel must be live.
 
+Icon-only controls share a borderless hover style and accessible labels. In Settings, Twitch
+account status and ID are shown separately; Dashboard connected lives under Connection.
+The authorization row includes a copy-code action, Twitch Activate, and Done. Clipboard access
+requires HTTPS or localhost; if unavailable, the code can still be selected and copied manually.
+
 ### History and saved data
 
 **History** includes the miner's claims and imports Twitch-confirmed rewards during
 inventory refresh, including badges/emotes and claims made elsewhere. Imports require
 matching campaign/drop metadata; rewards no longer available from either inventory or
 the catalog cannot be reconstructed. Public catalog entries alone never prove a claim.
-Twitch award times are used when available; otherwise **First seen** labels the time
-the miner first recorded the confirmed claim. Game/date filters and monthly summaries
-use that stored timestamp, displayed in your browser's timezone (date filters start at
-midnight UTC). CSV and JSON exports include `claimed_at_is_observed` to identify these
-fallback timestamps.
-**Clear local history** removes the local claim list and remembers cleared reward IDs
-so imports cannot restore them. Twitch claims and completed campaign snapshots in
-**Finished** are kept.
+Twitch award times are used when available; otherwise **First observed** labels the time
+when the miner first recorded the confirmed claim, in your browser's timezone.
+
+Open **Campaigns > History** to search campaign, game, reward or benefit names, filter by game,
+and switch between list and grid layouts. The shared icon-only sort menu offers the same
+choices as Available. History defaults to the most recently recorded claim, **Most Drops**
+counts recorded claims, and date sorts use campaign dates when available (older entries
+without dates come last). Claims are grouped by campaign, with 25 campaigns per page.
+The former `/history` link redirects here. History has no export or separate clear action.
 
 Docker stores application data in `/app/data` and logs in `/app/logs`, mounted to the
 directories in the Compose example. Settings, Twitch credentials, dashboard sessions,
@@ -258,8 +263,9 @@ claim history, and interrupted-claim recovery records live in the data directory
 Run only one miner per data directory and keep it private.
 
 **Settings > Maintenance > Clear All Cache** discards derived campaign/channel state
-and refreshes Twitch inventory and the public catalog. It preserves settings, credentials,
-claim history, and completed campaigns.
+and local claim history, then refreshes Twitch inventory and the public catalog. It preserves
+settings, credentials, and completed campaign records. Cleared reward IDs stay recorded so
+inventory imports and interrupted claims cannot restore deleted history. This cannot be undone.
 
 ## Dashboard password and remote access
 
