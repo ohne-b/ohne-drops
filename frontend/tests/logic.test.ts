@@ -4,7 +4,8 @@ import { safeUrl, moveGame } from '../src/lib/api';
 import { matchesCampaign, campaignOrder } from '../src/pages/Campaigns';
 import { plainText, translator } from '../src/lib/i18n';
 import { upsert } from '../src/lib/state';
-import type { Snapshot } from '../src/lib/types';
+import { groupHistory, matchesHistory, historyOrder } from '../src/pages/History';
+import type { HistoryEntry, Snapshot } from '../src/lib/types';
 const snapshot: Snapshot = fixture;
 it('orders active confirmed progress before other available campaigns', () => {
   const progress = snapshot.campaigns[0]!;
@@ -109,17 +110,6 @@ describe('boundary behavior', () => {
       ),
     ).toBe(false);
     expect(matchesCampaign({ ...campaign, finished: true }, filters, '')).toBe(false);
-    expect(
-      matchesCampaign(
-        { ...campaign, finished: true, active: false, expired: true },
-        filters,
-        '',
-        true,
-      ),
-    ).toBe(true);
-    expect(matchesCampaign({ ...campaign, active: false, expired: true }, filters, '', true)).toBe(
-      false,
-    );
     expect(matchesCampaign({ ...campaign, mining_finished: true }, filters, '')).toBe(true);
     expect(matchesCampaign({ ...campaign, drops: [] }, filters, '')).toBe(true);
     expect(matchesCampaign(campaign, { ...filters, game_name_search: ['RUST'] }, '')).toBe(true);
@@ -137,4 +127,63 @@ describe('boundary behavior', () => {
       ),
     ).toBe(false);
   });
+});
+
+it('keeps claim history independent of completion, preserving metadata-free entries and deterministic sorting', () => {
+  const campaign = snapshot.campaigns[0]!;
+  const entries: HistoryEntry[] = [
+    {
+      id: 'old',
+      campaign_id: '',
+      campaign: 'Legacy',
+      game: 'Old game',
+      drop_name: 'Badge',
+      benefits: ['Founder'],
+      required_minutes: 15,
+      claimed_at: '2026-09-27T10:00:00Z',
+      claimed_at_is_observed: true,
+    },
+    {
+      id: 'recent',
+      campaign_id: campaign.id,
+      campaign: campaign.name,
+      game: campaign.game_name,
+      drop_name: 'Reward',
+      benefits: ['Coat'],
+      required_minutes: 30,
+      claimed_at: '2026-09-28T10:00:00Z',
+    },
+    {
+      id: 'another',
+      campaign_id: campaign.id,
+      campaign: campaign.name,
+      game: campaign.game_name,
+      drop_name: 'Second',
+      benefits: ['Boots'],
+      required_minutes: 60,
+      claimed_at: '2026-09-26T10:00:00Z',
+    },
+    {
+      id: 'different',
+      campaign_id: '',
+      campaign: 'Other legacy',
+      game: 'Old game',
+      drop_name: 'Emote',
+      benefits: ['Wave'],
+      required_minutes: 15,
+      claimed_at: '2026-09-25T10:00:00Z',
+    },
+  ];
+  const groups = groupHistory(entries, [campaign]);
+  expect(groups).toHaveLength(3);
+  const legacy = groups[0]!;
+  expect(legacy.metadata).toBeUndefined();
+  expect(matchesHistory(legacy, ['OLD GAME'], 'founder')).toBe(true);
+  expect(matchesHistory(legacy, ['Rust'], '')).toBe(false);
+  for (const sort of ['default', 'newest', 'ending', 'drops', 'name'] as const) {
+    expect([...groups].reverse().sort((a, b) => historyOrder(a, b, sort))[0]!.id).toBe(campaign.id);
+  }
+  expect(groupHistory([], [campaign])).toEqual([]); // Catalog/archive state cannot resurrect cleared claims.
+  expect(groups[1]!.entries.map((entry) => entry.id)).toEqual(['recent', 'another']);
+  expect(entries.map((entry) => entry.id)).toEqual(['old', 'recent', 'another', 'different']);
 });

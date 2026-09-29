@@ -42,7 +42,7 @@ export function InventoryRefreshButton() {
     >
       <Icon
         path={failed ? mdiAlertCircleOutline : done ? mdiCheck : mdiRefresh}
-        className={busy ? 'animate-spin motion-reduce:animate-none' : ''}
+        className={`mdi-icon ${busy ? 'animate-spin motion-reduce:animate-none' : ''}`}
       />
       <span className="grid" aria-live="polite">
         {['refresh', 'refreshing', 'refreshed', 'refresh_failed'].map((key) => (

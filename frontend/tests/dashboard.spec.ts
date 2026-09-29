@@ -51,6 +51,9 @@ test('refresh button tracks completion, failures, stale events and reconnects wi
         return box.x + box.width / 2;
       });
   const idleIconCenter = await iconCenter();
+  const refreshIcon = await refresh.locator('svg').boundingBox();
+  expect(refreshIcon!.width).toBe(18);
+  expect(refreshIcon!.height).toBe(18);
   await refresh.click();
   await expect(page.getByRole('button', { name: 'Refreshing...', exact: true })).toBeDisabled();
   expect(await iconCenter()).toBeCloseTo(idleIconCenter, 1);
@@ -436,7 +439,7 @@ test('every route loads directly and stays usable on a phone', async ({ page }) 
   await page.setViewportSize({ width: 390, height: 844 });
   for (const [route, title] of [
     ['/campaigns', 'Campaigns'],
-    ['/history', 'History'],
+    ['/history', 'Campaigns'],
     ['/activity', 'Activity'],
     ['/settings', 'Settings'],
   ]) {
@@ -482,7 +485,7 @@ test('channel search, clear, selection and automatic mode', async ({ page }) => 
   await page.getByRole('button', { name: 'Watch harbor' }).click();
   await expect(page.getByText('Manual selection')).toBeVisible();
   await page.getByRole('button', { name: 'Return to Auto Mode' }).click();
-  await expect(page.getByText('Automatic selection')).toBeVisible();
+  await expect(page.getByRole('img', { name: 'Automatic selection' })).toBeVisible();
   await page.getByRole('button', { name: 'Clear search' }).click();
   await expect(page.getByRole('link', { name: 'northwind', exact: true })).toBeVisible();
 });
@@ -619,12 +622,12 @@ test('campaign sort controls preserve filters and keep counts and resets in comp
   expect(countBox.x).toBeGreaterThan(heading.x + heading.width);
   await page.setViewportSize({ width: 1440, height: 900 });
   await page.screenshot({ path: '../artifacts/campaign-sort-desktop.png', fullPage: true });
-  await page.getByRole('link', { name: 'Finished', exact: true }).click();
-  await expect(page.getByRole('link', { name: 'Finished', exact: true })).toHaveAttribute(
+  await page.getByRole('link', { name: 'History', exact: true }).click();
+  await expect(page.getByRole('link', { name: 'History', exact: true })).toHaveAttribute(
     'aria-current',
     'page',
   );
-  await expect(sort).toHaveValue('newest');
+  await expect(page.getByRole('combobox', { name: 'Sort history' })).toHaveValue('newest');
   await page.getByRole('link', { name: 'Available', exact: true }).click();
   await expect(titles).toHaveText(['beta campaign', 'Alpha campaign', 'Zeta campaign']);
   await sort.selectOption('ending');
@@ -633,8 +636,10 @@ test('campaign sort controls preserve filters and keep counts and resets in comp
   await page.keyboard.press('Tab');
   await expect(sort).toBeFocused();
   await expect
-    .poll(() => sort.evaluate((element) => getComputedStyle(element).borderColor))
-    .toBe('rgb(244, 244, 245)');
+    .poll(() =>
+      sort.evaluate((element) => getComputedStyle(element.parentElement!).backgroundColor),
+    )
+    .toBe('rgb(51, 51, 51)');
   for (const width of [390, 320]) {
     await page.setViewportSize({ width, height: 750 });
     await expect(sort).toBeVisible();
@@ -650,7 +655,7 @@ test('campaign sort controls preserve filters and keep counts and resets in comp
   await publishCampaigns();
   await expect(titles).toHaveText(['Alpha campaign', 'Zeta campaign', 'beta campaign']);
 });
-test('Finished separates completed, expired, ignored, and unverifiable historical campaigns', async ({
+test('History contains recorded claims independently of campaign completion and coverage', async ({
   page,
   request,
 }) => {
@@ -705,25 +710,29 @@ test('Finished separates completed, expired, ignored, and unverifiable historica
       },
     }),
   );
-  await page.getByRole('link', { name: 'Finished', exact: true }).click();
-  await expect(page.getByText('Completed campaign', { exact: true })).toBeVisible();
-  await expect(page.getByText('Completed', { exact: true }).last()).toBeVisible();
+  await page.getByRole('link', { name: 'History', exact: true }).click();
+  await expect(page.getByText('Historical campaign', { exact: true })).toBeVisible();
+  await expect(page.getByText('Completed campaign', { exact: true })).toHaveCount(0);
   await expect(page.getByText('Expired campaign', { exact: true })).toHaveCount(0);
   await expect(page.getByText('Ignored campaign', { exact: true })).toHaveCount(0);
-  await expect(page.getByText('Completion unverified', { exact: true })).toBeVisible();
   await expect(page.getByRole('checkbox', { name: 'Item', exact: true })).toHaveCount(0);
   await page.getByRole('checkbox', { name: 'Rust', exact: true }).check();
-  await expect(page.getByText('Completion unverified', { exact: true })).toBeVisible();
+  await expect(page.getByText('Historical campaign', { exact: true })).toBeVisible();
   await page.getByRole('button', { name: 'All games', exact: true }).click();
-  await page.getByRole('searchbox', { name: 'Search campaigns and rewards' }).fill('Completed');
-  await expect(page.getByRole('link', { name: 'Finished', exact: true })).toHaveAttribute(
-    'aria-current',
-    'page',
-  );
-  await expect(page.getByText('Completed campaign', { exact: true })).toBeVisible();
-  await page.screenshot({ path: '../artifacts/campaigns-finished.png', fullPage: true });
+  await page.getByRole('searchbox', { name: 'Search campaigns and rewards' }).fill('Old reward');
+  await expect(page.getByText('Historical campaign', { exact: true })).toBeVisible();
+  await page.getByText('Historical campaign', { exact: true }).click();
+  await expect(page.getByText('Old reward', { exact: true }).first()).toBeVisible();
+  await expect(page.getByRole('button', { name: /Mine Rust|Stop mining Rust/ })).toHaveCount(0);
+  await expect(
+    page
+      .getByRole('navigation', { name: 'Main navigation' })
+      .getByRole('link', { name: 'History' }),
+  ).toHaveCount(0);
+  await page.screenshot({ path: '../artifacts/campaigns-history.png', fullPage: true });
 });
-test('Finished historical claims honor game filters and retry failed loading', async ({ page }) => {
+
+test('History claims honor game filters and retry failed loading', async ({ page }) => {
   await page.route('**/api/history', (route) => route.fulfill({ status: 500, json: {} }), {
     times: 1,
   });
@@ -748,13 +757,13 @@ test('Finished historical claims honor game filters and retry failed loading', a
     }),
   );
   await page.getByRole('button', { name: 'Try again', exact: true }).click();
-  await expect(page.getByText('Completion unverified', { exact: true })).toBeVisible();
+  await expect(page.getByText('Historical campaign', { exact: true })).toBeVisible();
   await page.getByRole('button', { name: 'Filters', exact: true }).click();
   await expect(page.getByRole('checkbox', { name: 'Old game', exact: true })).toBeVisible();
   await page.getByRole('checkbox', { name: 'Rust', exact: true }).check();
-  await expect(page.getByText('Completion unverified', { exact: true })).toHaveCount(0);
+  await expect(page.getByText('Historical campaign', { exact: true })).toHaveCount(0);
   await page.getByRole('checkbox', { name: 'Old game', exact: true }).check();
-  await expect(page.getByText('Completion unverified', { exact: true })).toBeVisible();
+  await expect(page.getByText('Historical campaign', { exact: true })).toBeVisible();
 });
 test('discovery stays visible without mining until Mine is explicitly selected', async ({
   page,
@@ -880,7 +889,7 @@ test('history displays saved artwork, old entries and clearly labels unknown cla
       body: '<svg xmlns="http://www.w3.org/2000/svg" width="40" height="40" />',
     }),
   );
-  await page.route('**/api/history?*', (route) =>
+  await page.route('**/api/history', (route) =>
     route.fulfill({
       json: {
         total: 3,
@@ -898,34 +907,41 @@ test('history displays saved artwork, old entries and clearly labels unknown cla
     }),
   );
   await page.goto('/history');
+  await page.getByText('Autumn expedition', { exact: true }).click();
   const image = page.locator('img[src="https://static-cdn.jtvnw.net/reward.png"]');
   await expect(image).toBeVisible();
   await expect.poll(() => image.evaluate((node: HTMLImageElement) => node.naturalWidth)).toBe(40);
   await expect(page.getByText('Older reward', { exact: true })).toBeVisible();
   await expect(page.getByText('Imported badge', { exact: true })).toBeVisible();
-  await expect(page.getByText(/^First seen /)).toBeVisible();
+  await expect(page.getByText(/^First observed /)).toBeVisible();
 });
 
-test('history filters, export and confirmed clearing', async ({ page }) => {
+test('cache clearing removes history across open dashboards without exporting or reimporting it', async ({
+  page,
+  context,
+  request,
+}) => {
   await page.goto('/history');
-  await expect(page.getByText('Canvas pack', { exact: true }).first()).toBeVisible();
-  const csv = page.waitForEvent('download');
-  await page.getByRole('link', { name: 'CSV', exact: true }).click();
-  expect((await csv).suggestedFilename()).toBe('drop_history.csv');
-  const json = page.waitForEvent('download');
-  await page.getByRole('button', { name: 'JSON', exact: true }).click();
-  expect((await json).suggestedFilename()).toBe('drop-history.json');
-  await page.getByLabel('Since (UTC)', { exact: true }).fill('2026-10-01');
-  await expect(page.getByText('No drops match these filters.')).toBeVisible();
-  await page.getByLabel('Since (UTC)', { exact: true }).fill('');
-  await page.getByRole('button', { name: 'Clear local history', exact: true }).click();
-  await expect(page.getByRole('dialog')).toBeVisible();
-  await page
-    .getByRole('dialog')
-    .getByRole('button', { name: 'Clear local history', exact: true })
-    .click();
-  await expect(page.getByText('No drops match these filters.')).toBeVisible();
+  await expect(page).toHaveURL(/\/campaigns\?tab=history$/);
+  await expect(page.getByText('Autumn expedition', { exact: true })).toBeVisible();
+  await expect(page.getByRole('link', { name: 'CSV', exact: true })).toHaveCount(0);
+  await expect(page.getByRole('button', { name: 'JSON', exact: true })).toHaveCount(0);
+  await expect(page.getByLabel('Since (UTC)', { exact: true })).toHaveCount(0);
+  await expect(page.getByRole('button', { name: 'Clear local history' })).toHaveCount(0);
+  const other = await context.newPage();
+  await other.goto('/settings#maintenance');
+  await other.getByRole('button', { name: 'Clear All Cache', exact: true }).click();
+  await expect(other.getByRole('dialog')).toContainText('local claim history');
+  await other.getByRole('dialog').getByRole('button', { name: 'Cancel', exact: true }).click();
+  expect((await (await request.get('/api/history')).json()).entries).toHaveLength(1);
+  await other.getByRole('button', { name: 'Clear All Cache', exact: true }).click();
+  await other.getByRole('dialog').getByRole('button', { name: 'Confirm', exact: true }).click();
+  await expect(page.getByText('No recorded claims yet')).toBeVisible();
+  await page.reload();
+  await expect(page.getByText('No recorded claims yet')).toBeVisible();
+  await other.close();
 });
+
 test('catalog restrictions and hostile strings remain explicit and inert', async ({
   page,
   request,
@@ -1025,7 +1041,7 @@ test('incomplete catalog preserves account data and unknown linkage without a di
   await expect(page.getByText(/Found \d+ campaigns through live Twitch channels/)).toHaveCount(0);
   await page.getByRole('link', { name: 'Campaigns', exact: true }).click();
   await expect(page.getByText(/Found \d+ campaigns through live Twitch channels/)).toHaveCount(0);
-  await expect(page.getByText('Account link unknown', { exact: true }).last()).toBeVisible();
+  await expect(page.getByText('Account link unknown', { exact: true })).toHaveCount(0);
   await page.locator('summary').first().click();
   await expect(page.getByRole('link', { name: 'Check account link' }).first()).toBeVisible();
 });
@@ -1325,9 +1341,10 @@ test('history refreshes after claims and reports clear failure inside its dialog
   request,
 }) => {
   await page.goto('/history');
+  await page.getByText('Autumn expedition', { exact: true }).click();
   await expect(page.getByText('Canvas pack', { exact: true }).first()).toBeVisible();
   const history = await (await request.get('/api/history')).json();
-  await page.route('**/api/history?*', (route) =>
+  await page.route('**/api/history', (route) =>
     route.fulfill({
       json: {
         total: 2,
@@ -1350,14 +1367,12 @@ test('history refreshes after claims and reports clear failure inside its dialog
     },
   });
   await expect(page.getByText('New reward', { exact: true })).toBeVisible();
-  await page.route('**/api/history', (route) =>
+  await page.route('**/api/cache/clear', (route) =>
     route.fulfill({ status: 500, json: { detail: 'failure' } }),
   );
-  await page.getByRole('button', { name: 'Clear local history', exact: true }).click();
-  await page
-    .getByRole('dialog')
-    .getByRole('button', { name: 'Clear local history', exact: true })
-    .click();
+  await page.goto('/settings#maintenance');
+  await page.getByRole('button', { name: 'Clear All Cache', exact: true }).click();
+  await page.getByRole('dialog').getByRole('button', { name: 'Confirm', exact: true }).click();
   await expect(page.getByRole('dialog').getByRole('alert')).toBeVisible();
   expect((await (await request.get('/api/history')).json()).entries).toHaveLength(1);
 });
@@ -1484,7 +1499,7 @@ test('manual channel entry accepts a URL and optional timer without selecting ga
   await page.screenshot({ path: '../artifacts/manual-channel-timer-short.png' });
   expect((await new AxeBuilder({ page }).include('main').analyze()).violations).toEqual([]);
   await page.getByRole('button', { name: 'Return to Auto Mode' }).click();
-  await expect(page.getByText('Automatic selection', { exact: true })).toBeVisible();
+  await expect(page.getByRole('img', { name: 'Automatic selection', exact: true })).toBeVisible();
   await expect(page.getByText(/^Auto mode at /)).toHaveCount(0);
 });
 
@@ -1652,4 +1667,102 @@ test('Settings saves silently and persists edits', async ({ page, request }) => 
   await expect(page.getByLabel('Minimum Refresh Interval (minutes):', { exact: true })).toHaveValue(
     '19',
   );
+});
+
+test('icon actions and authorization row use compact accessible controls', async ({
+  page,
+  context,
+}) => {
+  await page.goto('/campaigns');
+  await page.getByRole('button', { name: 'Filters', exact: true }).click();
+  const actions = page.locator('main .icon-button');
+  for (const action of await actions.all()) {
+    expect(await action.evaluate((node) => getComputedStyle(node).borderWidth)).toBe('0px');
+    if (await action.evaluate((node) => node.tagName === 'BUTTON'))
+      expect(await action.innerText()).toBe('');
+  }
+  const filters = page.getByRole('button', { name: 'Filters', exact: true });
+  await filters.hover();
+  await expect
+    .poll(() => filters.evaluate((node) => getComputedStyle(node).backgroundColor))
+    .toBe('rgb(51, 51, 51)');
+  await page.goto('/settings');
+  await expect(page.locator('#account')).toContainText('Twitch account: Logged in');
+  await expect(page.locator('#account')).not.toContainText('Dashboard connected');
+  await expect(page.locator('#connection')).toContainText('Dashboard connected');
+  await page.getByRole('button', { name: 'Log out of Twitch', exact: true }).click();
+  await expect(page.getByText('Enter this code at:', { exact: true })).toHaveCount(0);
+  await context.grantPermissions(['clipboard-read', 'clipboard-write']);
+  await page.getByRole('button', { name: 'Copy code', exact: true }).click();
+  expect(await page.evaluate(() => navigator.clipboard.readText())).toBe('NEWCODE');
+  const code = await page.locator('#account code').locator('..').boundingBox();
+  const activate = await page.getByRole('link', { name: 'Twitch Activate' }).boundingBox();
+  const done = await page.getByRole('button', { name: 'Done', exact: true }).boundingBox();
+  expect(activate!.height).toBe(code!.height);
+  expect(done!.height).toBe(code!.height);
+  expect(done!.y).toBe(code!.y);
+  await page.evaluate(() => {
+    Object.defineProperty(navigator.clipboard, 'writeText', {
+      value: () => Promise.reject(new Error('denied')),
+      configurable: true,
+    });
+  });
+  await page.getByRole('button', { name: 'Copy code', exact: true }).click();
+  await expect(page.getByRole('alert')).toContainText('Could not copy');
+  await page.screenshot({ path: '../artifacts/settings-authorization.png', fullPage: true });
+  for (const width of [390, 320]) {
+    await page.setViewportSize({ width, height: 844 });
+    expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(
+      width,
+    );
+  }
+  expect((await new AxeBuilder({ page }).analyze()).violations).toEqual([]);
+});
+
+test('History shares sort, search, game filters and layout while paging recorded campaigns', async ({
+  page,
+  request,
+}) => {
+  const original = (await (await request.get('/api/history')).json()).entries[0];
+  await page.route('**/api/history', (route) =>
+    route.fulfill({
+      json: {
+        entries: Array.from({ length: 27 }, (_, index) => ({
+          ...original,
+          id: `reward-${index}`,
+          campaign_id: `history-${index}`,
+          campaign: `Campaign ${index}`,
+          game: index === 26 ? 'Old game' : 'Rust',
+          claimed_at: new Date(Date.UTC(2026, 8, index + 1)).toISOString(),
+          benefits: [`Benefit ${index}`],
+        })),
+      },
+    }),
+  );
+  await page.goto('/campaigns?tab=history');
+  await expect(page.getByText('27 of 27 campaigns', { exact: true })).toBeVisible();
+  const titles = page.locator('main summary > div > p.font-medium');
+  await expect(titles).toHaveCount(25);
+  await expect(titles.first()).toHaveText('Campaign 26');
+  await page.getByRole('button', { name: 'Next', exact: true }).click();
+  await expect(titles).toHaveText(['Campaign 1', 'Campaign 0']);
+  const sort = page.getByRole('combobox', { name: 'Sort history' });
+  await sort.selectOption('name');
+  await expect(titles.first()).toHaveText('Campaign 0');
+  await page.getByRole('searchbox', { name: 'Search campaigns and rewards' }).fill('Benefit 26');
+  await expect(titles).toHaveText(['Campaign 26']);
+  await page.getByRole('button', { name: 'Filters', exact: true }).click();
+  await page.getByRole('checkbox', { name: 'Rust', exact: true }).check();
+  await expect(page.getByText('No matching results', { exact: true })).toBeVisible();
+  await page.getByRole('button', { name: 'Clear filters', exact: true }).click();
+  await expect(titles).toHaveCount(25);
+  await expect(sort).toHaveValue('name');
+  await page.getByRole('button', { name: 'Change campaign layout', exact: true }).click();
+  await expect(page.locator('main details').first().locator('..')).toHaveClass(/grid/);
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.getByRole('checkbox', { name: 'Old game', exact: true }).check();
+  await expect(titles).toHaveText(['Campaign 26']);
+  await page.getByText('Campaign 26', { exact: true }).click();
+  await page.screenshot({ path: '../artifacts/history-phone.png', fullPage: true });
+  expect((await new AxeBuilder({ page }).analyze()).violations).toEqual([]);
 });

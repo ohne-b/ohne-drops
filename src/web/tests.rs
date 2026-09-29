@@ -298,7 +298,6 @@ async fn public_assets_and_spa_allowlist_preserve_private_api_boundaries() {
         "/api/version",
         "/api/history",
         "/api/history/stats",
-        "/api/history/export.csv",
         "/socket.io/?EIO=4&transport=polling",
     ] {
         let (status, headers, _) = test.call(Method::GET, path, Value::Null, "", &[]).await;
@@ -583,7 +582,7 @@ async fn settings_commit_survives_the_request_future_being_dropped() {
 }
 
 #[tokio::test]
-async fn history_dates_exports_and_clear_use_real_persistence() {
+async fn history_dates_and_cache_clear_use_real_persistence() {
     let test = TestApp::new("");
     test.app.history.lock().await.record(serde_json::from_value(json!({"id":"reward","claimed_at":"2026-01-02T00:15:00Z","game":"Rüst / +","campaign":"Season","drop_name":"Jacket",
         "benefits":["Jacket"],"required_minutes":30,"campaign_id":"campaign"})).unwrap()).unwrap();
@@ -609,22 +608,12 @@ async fn history_dates_exports_and_clear_use_real_persistence() {
             expected
         );
     }
-    let (_, headers, body) = test
-        .call(
-            Method::GET,
-            "/api/history/export.csv?game=R%C3%BCst%20%2F%20%2B",
-            Value::Null,
-            "",
-            &[],
-        )
-        .await;
-    assert!(body.starts_with(&[0xef, 0xbb, 0xbf]));
-    assert!(
-        headers[header::CONTENT_DISPOSITION]
-            .to_str()
-            .unwrap()
-            .contains("filename*=UTF-8''drop_history_R%C3%BCst%20%2F%20%2B.csv")
-    );
+    for route in ["/api/history/export.csv", "/api/history/export.json"] {
+        assert_eq!(
+            test.call(Method::GET, route, Value::Null, "", &[]).await.0,
+            StatusCode::NOT_FOUND
+        );
+    }
     assert_eq!(
         test.call(
             Method::DELETE,
@@ -635,8 +624,88 @@ async fn history_dates_exports_and_clear_use_real_persistence() {
         )
         .await
         .0,
+        StatusCode::METHOD_NOT_ALLOWED
+    );
+    let entry = test
+        .app
+        .history
+        .lock()
+        .await
+        .entries(&crate::store::HistoryFilter::default())[0]
+        .clone();
+    let settings = std::fs::read(test.app.data.path.join("settings.json")).ok();
+    let session = test.app.data.path.join("twitch_session.json");
+    std::fs::write(&session, "fixture credentials stay in place").unwrap();
+    assert_eq!(
+        test.call(
+            Method::POST,
+            "/api/cache/clear",
+            json!({}),
+            "",
+            &[("x-tdm-request", "1")]
+        )
+        .await
+        .0,
         StatusCode::OK
     );
+    let mut restored = crate::store::History::load(&test.app.data.path);
+    assert_eq!(restored.total(), 0);
+    assert!(
+        !restored.record(entry).unwrap(),
+        "cleared claims cannot be reimported after restart"
+    );
+    assert_eq!(
+        std::fs::read(test.app.data.path.join("settings.json")).ok(),
+        settings
+    );
+    assert_eq!(
+        std::fs::read_to_string(session).unwrap(),
+        "fixture credentials stay in place"
+    );
+}
+
+#[tokio::test]
+async fn cache_clear_fails_closed_for_unreadable_history() {
+    let test = TestApp::new("");
+    let path = test.app.data.path.join("drop_history.json");
+    std::fs::write(&path, "unreadable history fixture").unwrap();
+    *test.app.history.lock().await = crate::store::History::load(&test.app.data.path);
+    assert_eq!(
+        test.call(
+            Method::POST,
+            "/api/cache/clear",
+            json!({}),
+            "",
+            &[("x-tdm-request", "1")]
+        )
+        .await
+        .0,
+        StatusCode::SERVICE_UNAVAILABLE
+    );
+    assert_eq!(
+        std::fs::read_to_string(path).unwrap(),
+        "unreadable history fixture"
+    );
+}
+
+#[tokio::test]
+async fn accepted_cache_clear_survives_client_disconnect() {
+    let test = TestApp::new("");
+    let mut history = test.app.history.lock().await;
+    history.record(serde_json::from_value(json!({"id":"reward","claimed_at":"2026-01-02T00:15:00Z","game":"Rust","campaign":"Season","drop_name":"Jacket","benefits":["Jacket"],"required_minutes":30,"campaign_id":"campaign"})).unwrap()).unwrap();
+    let app = test.app.clone();
+    let request = tokio::spawn(async move { app.clear_cache().await });
+    tokio::time::timeout(Duration::from_secs(3), async {
+        while test.app.writes.is_empty() {
+            tokio::task::yield_now().await;
+        }
+    })
+    .await
+    .unwrap();
+    request.abort();
+    let _ = request.await;
+    drop(history);
+    test.app.drain_writes().await;
     assert_eq!(crate::store::History::load(&test.app.data.path).total(), 0);
 }
 

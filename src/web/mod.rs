@@ -208,6 +208,28 @@ impl App {
             .map_err(|_| ApiError::unavailable())?
     }
 
+    async fn clear_cache(self: &Arc<Self>) -> Result<(), ApiError> {
+        let owned = self.clone();
+        self.writes
+            .spawn(async move {
+                if owned.shutdown.is_cancelled() {
+                    return Err(ApiError(StatusCode::CONFLICT, "shutting_down"));
+                }
+                // Persist cleared IDs before refreshing, so imports and late claim receipts
+                // cannot resurrect the removed history. Drain accepted work on disconnect.
+                owned
+                    .history
+                    .lock()
+                    .await
+                    .clear()
+                    .map_err(|_| ApiError::unavailable())?;
+                owned.sockets.emit("history_cleared", &json!({})).await;
+                owned.command(Command::Refresh { clear_cache: true }).await
+            })
+            .await
+            .map_err(|_| ApiError::unavailable())?
+    }
+
     pub async fn console(&self, text: String) {
         let line = format!("[{}] | {text}", Utc::now().format("%Y-%m-%d %H:%M:%S"));
         {
@@ -317,9 +339,8 @@ pub fn router(app: Arc<App>) -> Router {
         .route("/api/settings", get(settings).post(update_settings))
         .route("/api/settings/verify-proxy", post(verify_proxy))
         .route("/api/version", get(version))
-        .route("/api/history", get(history).delete(clear_history))
+        .route("/api/history", get(history))
         .route("/api/history/stats", get(history_stats))
-        .route("/api/history/export.csv", get(history_csv))
         .route("/api/twitch/logout", post(logout_twitch))
         .route("/api/oauth/confirm", post(confirm_oauth))
         .route("/api/reload", post(reload))
@@ -703,46 +724,6 @@ async fn history(State(app): State<Arc<App>>, Query(query): Query<HistoryQuery>)
 async fn history_stats(State(app): State<Arc<App>>) -> Json<Value> {
     Json(app.history.lock().await.stats())
 }
-async fn history_csv(
-    State(app): State<Arc<App>>,
-    Query(query): Query<HistoryQuery>,
-) -> Result<Response, ApiError> {
-    let name = query
-        .game
-        .as_ref()
-        .filter(|s| !s.is_empty())
-        .map(|game| format!("drop_history_{game}.csv"))
-        .unwrap_or_else(|| "drop_history.csv".into());
-    let encoded = url::form_urlencoded::byte_serialize(name.as_bytes())
-        .collect::<String>()
-        .replace('+', "%20");
-    let content = app
-        .history
-        .lock()
-        .await
-        .csv(&query.filter())
-        .map_err(|_| ApiError::unavailable())?;
-    Ok((
-        [
-            (header::CONTENT_TYPE, "text/csv; charset=utf-8".to_owned()),
-            (
-                header::CONTENT_DISPOSITION,
-                format!("attachment; filename=\"drop_history.csv\"; filename*=UTF-8''{encoded}"),
-            ),
-        ],
-        content,
-    )
-        .into_response())
-}
-async fn clear_history(State(app): State<Arc<App>>) -> Result<Json<Value>, ApiError> {
-    app.history
-        .lock()
-        .await
-        .clear()
-        .map_err(|_| ApiError::unavailable())?;
-    Ok(Json(json!({"success":true})))
-}
-
 async fn run_command(app: &App, command: Command) -> Result<Json<Value>, ApiError> {
     app.command(command).await?;
     Ok(Json(json!({"success":true})))
@@ -752,7 +733,8 @@ async fn reload(State(app): State<Arc<App>>) -> Result<Json<Value>, ApiError> {
     Ok(Json(json!({"success":true})))
 }
 async fn clear_cache(State(app): State<Arc<App>>) -> Result<Json<Value>, ApiError> {
-    run_command(&app, Command::Refresh { clear_cache: true }).await
+    app.clear_cache().await?;
+    Ok(Json(json!({"success":true})))
 }
 async fn logout_twitch(State(app): State<Arc<App>>) -> Result<Json<Value>, ApiError> {
     run_command(&app, Command::Logout).await

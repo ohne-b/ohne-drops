@@ -182,6 +182,7 @@ export interface ServerEvents {
   drop_progress_stop: () => void;
   campaign_add: (data: Campaign) => void;
   inventory_clear: () => void;
+  history_cleared: () => void;
   inventory_batch_update: (data: { campaigns: Campaign[] }) => void;
   inventory_status: (data: InventoryStatus) => void;
   inventory_refresh: (data: InventoryRefresh) => void;

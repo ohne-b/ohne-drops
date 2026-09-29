@@ -4,7 +4,6 @@ import { NavLink, Navigate, Route, Routes, useLocation, useNavigate } from 'reac
 import {
   mdiViewDashboardOutline,
   mdiGiftOutline,
-  mdiHistory,
   mdiTextBoxOutline,
   mdiCogOutline,
   mdiLogout,
@@ -17,7 +16,6 @@ import { MinerProvider, useMiner } from './lib/state';
 import { Button, Empty, Notice } from './components/ui';
 import Overview from './pages/Overview';
 import Campaigns from './pages/Campaigns';
-import History from './pages/History';
 import Activity from './pages/Activity';
 import Settings from './pages/Settings';
 import Login from './pages/Login';
@@ -30,7 +28,6 @@ function Shell({ auth, onLogout }: { auth: AuthStatus; onLogout: () => Promise<v
   const links = [
     ['/', 'overview', mdiViewDashboardOutline],
     ['/campaigns', 'campaigns', mdiGiftOutline],
-    ['/history', 'gui.tabs.history', mdiHistory],
     ['/activity', 'activity', mdiTextBoxOutline],
     ['/settings', 'gui.tabs.settings', mdiCogOutline],
   ] as const;
@@ -125,7 +122,7 @@ function Shell({ auth, onLogout }: { auth: AuthStatus; onLogout: () => Promise<v
           <Routes>
             <Route path="/" element={<Overview />} />
             <Route path="/campaigns" element={<Campaigns />} />
-            <Route path="/history" element={<History />} />
+            <Route path="/history" element={<Navigate to="/campaigns?tab=history" replace />} />
             <Route path="/activity" element={<Activity />} />
             <Route path="/settings" element={<Settings auth={auth} />} />
             <Route path="/login" element={<Navigate to="/" replace />} />
