@@ -1805,6 +1805,13 @@ test('drag grips remain plain while icon actions have circular hover backgrounds
   expect(
     await remove.evaluate((node) => parseFloat(getComputedStyle(node).borderRadius)),
   ).toBeGreaterThanOrEqual(box.width / 2);
+  await page.emulateMedia({ forcedColors: 'active' });
+  await grip.hover();
+  await expect(grip).toHaveCSS('opacity', '1');
+  expect(
+    await grip.locator('span').evaluate((node) => getComputedStyle(node).backgroundImage),
+  ).toContain('radial-gradient');
+  await page.screenshot({ path: '../artifacts/drag-grip-forced-colors.png' });
 });
 
 test('History shares sort, search, game filters and layout while paging recorded campaigns', async ({

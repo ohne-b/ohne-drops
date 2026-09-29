@@ -122,6 +122,10 @@ label:has(> input[type='checkbox']:focus-visible) {
   .icon-button:has(select:focus-visible) {
     outline: 1px solid Highlight;
   }
+  .drag-handle > span {
+    forced-color-adjust: none;
+    color: ButtonText;
+  }
 }
 @layer components {
   .mdi-icon {
