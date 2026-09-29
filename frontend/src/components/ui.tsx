@@ -87,7 +87,7 @@ export function Search({
   const t = useT();
   return (
     <div className="relative min-w-0">
-      <span className="pointer-events-none absolute start-2.5 top-2.5 text-muted">
+      <span className="pointer-events-none absolute start-2.5 top-1/2 -translate-y-1/2 text-muted">
         <Icon path={mdiMagnify} className="mdi-icon size-4" />
       </span>
       <Input
@@ -106,7 +106,7 @@ export function Search({
         <IconButton
           path={mdiClose}
           label={t('clear_search')}
-          className="absolute end-0 top-0"
+          className="absolute end-1 top-1/2 size-7 -translate-y-1/2 max-md:size-9"
           onClick={() => {
             onChange('');
             ref.current?.focus();

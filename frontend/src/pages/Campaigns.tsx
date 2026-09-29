@@ -213,7 +213,7 @@ export default function Campaigns() {
         >
           <Icon className="mdi-icon pointer-events-none" path={mdiSortAscending} />
           <select
-            className="absolute inset-0 size-full cursor-pointer opacity-0"
+            className="icon-select absolute inset-0 size-full cursor-pointer opacity-0"
             aria-label={t(historyTab ? 'sort_history' : 'sort_campaigns')}
             value={sort}
             onChange={(event) =>
