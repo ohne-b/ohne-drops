@@ -8,7 +8,6 @@ import { useT } from '../lib/i18n';
 import { request, safeUrl } from '../lib/api';
 import {
   Art,
-  Button,
   IconButton,
   Empty,
   ProgressBar,
@@ -197,7 +196,9 @@ export default function Overview() {
                         maxLength={256}
                         onChange={(event) => setChannelInput(event.target.value)}
                       />
-                      <Button
+                      <IconButton
+                        path={mdiPlayCircleOutline}
+                        label={t('mine')}
                         type="submit"
                         aria-busy={action.busy || !!data.manual_mode.pending_channel}
                         disabled={
@@ -207,9 +208,7 @@ export default function Overview() {
                           action.busy ||
                           !!data.manual_mode.pending_channel
                         }
-                      >
-                        {t('mine')}
-                      </Button>
+                      />
                     </div>
                     <Input
                       type="number"

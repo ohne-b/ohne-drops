@@ -214,7 +214,8 @@ embed it and run without a build tool/runtime companion. Production builds never
   No injected HTML or CDN scripts. Art provides safe missing/broken-image fallbacks.
 - Sidebar: enlarged GitHub glyph above Twitch account ID, overriding shared icon sizing.
   Connection status lives in Settings > Connection and is labeled Dashboard connected, separate
-  from Twitch. Account status and Twitch ID occupy separate rows. Device authorization keeps the
+  from Twitch. Account status and Twitch ID occupy separate rows, with the Twitch logout icon
+  immediately beside the status heading. Device authorization keeps the
   copyable code, Twitch Activate and Done on one unboxed wrapping row with equal-height controls
   (36px desktop, 44px phone). Activate and Done use the same outlined button style. Successful
   copying shows a tick, tooltip and accessible status for three seconds; another successful copy
@@ -225,7 +226,8 @@ embed it and run without a build tool/runtime companion. Production builds never
   and Up next have equal desktop dimensions and internal scrolling; stack on narrow screens and
   preserve access on short windows. Show confirmed values/timestamps without redundant labels.
   Keep expanded channel-entry controls and feedback inside the scrollable list body.
-  Manual lookup has no preparing message; retain the busy/disabled Mine button, inline
+  Manual lookup has no preparing message; use a play-circle icon submit button with the Mine
+  accessible name/tooltip, preserving its busy/disabled state, inline
   errors and return-to-auto control while a lookup is pending.
   Channel name/URL and optional timer use accessible input placeholders. Settings autosave
   has no saving/saved notices; preserve errors, edits and Retry.
@@ -250,6 +252,8 @@ embed it and run without a build tool/runtime companion. Production builds never
 - Maintenance checks the latest stable release's `latest.json`, compares SemVer precedence
   without build metadata, and distinguishes failure from up-to-date status. Keep requests
   bounded/coalesced and release links within this repository. No install/download execution.
+  Check for updates uses the fixed-size MDI Update icon button, with a checking label/tooltip,
+  busy state and spinning icon during requests (respect reduced motion); retain result text below.
 - Shared Field content starts at the top; helper text cannot stretch neighboring label rows.
   No focus rings, but visible keyboard background/border changes must outrank utility layers;
   keep system focus in forced colors. Verify computed field/button/checkbox focus and axe checks.
