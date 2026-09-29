@@ -1,10 +1,9 @@
-import { Icon } from '@mdi/react';
 import { useEffect, useState } from 'react';
 import { mdiRefresh, mdiCheck, mdiAlertCircleOutline } from '@mdi/js';
 import { useMiner } from '../lib/state';
 import { useT } from '../lib/i18n';
 import { request } from '../lib/api';
-import { Button, dateTime, useAction } from './ui';
+import { IconButton, dateTime, useAction } from './ui';
 
 export function InventoryRefreshButton() {
   const { data, connected } = useMiner();
@@ -26,34 +25,27 @@ export function InventoryRefreshButton() {
   const failed = !busy && (Boolean(error) || refresh?.state === 'failed');
   const done = !busy && !failed && refresh?.state === 'refreshed' && dismissed !== sequence;
   const catalogTime = data?.inventory_status?.catalog_updated_at;
+  const label = t(busy ? 'refreshing' : failed ? 'refresh_failed' : done ? 'refreshed' : 'refresh');
+  const detail = failed
+    ? (error ?? t('refresh_failed_detail'))
+    : catalogTime
+      ? t('catalog_updated', { time: dateTime(catalogTime) })
+      : undefined;
   return (
-    <Button
-      className="min-w-[160px] justify-start"
-      disabled={!connected || !data?.login.user_id || busy}
-      aria-busy={busy}
-      title={
-        failed
-          ? (error ?? t('refresh_failed_detail'))
-          : catalogTime
-            ? t('catalog_updated', { time: dateTime(catalogTime) })
-            : undefined
-      }
-      onClick={() => void action.run(() => request('/api/reload', {}))}
-    >
-      <Icon
+    <>
+      <IconButton
         path={failed ? mdiAlertCircleOutline : done ? mdiCheck : mdiRefresh}
-        className={`mdi-icon ${busy ? 'animate-spin motion-reduce:animate-none' : ''}`}
+        label={label}
+        className={busy ? '[&>svg]:animate-spin motion-reduce:[&>svg]:animate-none' : ''}
+        disabled={!connected || !data?.login.user_id || busy}
+        aria-busy={busy}
+        aria-description={detail}
+        title={detail ? `${label}\n${detail}` : label}
+        onClick={() => void action.run(() => request('/api/reload', {}))}
       />
-      <span className="grid" aria-live="polite">
-        {['refresh', 'refreshing', 'refreshed', 'refresh_failed'].map((key) => (
-          <span key={key} className="invisible col-start-1 row-start-1" aria-hidden="true">
-            {t(key)}
-          </span>
-        ))}
-        <span className="col-start-1 row-start-1">
-          {t(busy ? 'refreshing' : failed ? 'refresh_failed' : done ? 'refreshed' : 'refresh')}
-        </span>
+      <span className="sr-only" aria-live="polite">
+        {label}
       </span>
-    </Button>
+    </>
   );
 }
