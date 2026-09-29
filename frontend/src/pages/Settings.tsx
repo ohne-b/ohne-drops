@@ -1,6 +1,6 @@
 import { Icon } from '@mdi/react';
 import { useEffect, useRef, useState, type ReactNode } from 'react';
-import { mdiPlus, mdiOpenInNew, mdiLogout, mdiContentCopy, mdiReload } from '@mdi/js';
+import { mdiPlus, mdiOpenInNew, mdiLogout, mdiContentCopy, mdiCheck, mdiReload } from '@mdi/js';
 import type { AuthStatus, ReleaseInfo, Result, Settings as SettingsData } from '../lib/types';
 import { request, safeUrl } from '../lib/api';
 import { useMiner } from '../lib/state';
@@ -231,7 +231,30 @@ function SettingsContent({ settings, auth }: { settings: SettingsData; auth: Aut
   const oauthAction = useAction();
   const logoutAction = useAction();
   const [copyState, setCopyState] = useState<'idle' | 'copied' | 'failed'>('idle');
-  useEffect(() => setCopyState('idle'), [data?.login.oauth_pending?.code]);
+  const copyTimer = useRef<number | undefined>(undefined);
+  const copyRequest = useRef(0);
+  useEffect(() => {
+    setCopyState('idle');
+    return () => {
+      copyRequest.current += 1;
+      window.clearTimeout(copyTimer.current);
+    };
+  }, [data?.login.oauth_pending?.code]);
+  async function copyCode(code: string) {
+    const request = ++copyRequest.current;
+    let state: 'copied' | 'failed' = 'copied';
+    try {
+      await navigator.clipboard.writeText(code);
+    } catch {
+      state = 'failed';
+    }
+    if (request !== copyRequest.current) return;
+    window.clearTimeout(copyTimer.current);
+    setCopyState(state);
+    if (state === 'copied') {
+      copyTimer.current = window.setTimeout(() => setCopyState('idle'), 3000);
+    }
+  }
   const dirty = autosave.pending || autosave.busy;
   const change = autosave.change;
   function addGame(name: string) {
@@ -316,20 +339,11 @@ function SettingsContent({ settings, auth }: { settings: SettingsData; auth: Aut
               <div className="flex items-center gap-2 rounded border border-divider bg-field ps-3 pe-1">
                 <code className="select-all text-lg tracking-[.2em]">{oauth.code}</code>
                 <IconButton
-                  path={mdiContentCopy}
+                  path={copyState === 'copied' ? mdiCheck : mdiContentCopy}
                   label={t('copy_code')}
                   title={t(copyState === 'copied' ? 'code_copied' : 'copy_code')}
                   className="size-7 max-md:size-9"
-                  onClick={() => {
-                    void (async () => {
-                      try {
-                        await navigator.clipboard.writeText(oauth.code);
-                        setCopyState('copied');
-                      } catch {
-                        setCopyState('failed');
-                      }
-                    })();
-                  }}
+                  onClick={() => void copyCode(oauth.code)}
                 />
               </div>
               <a className="button" href={safeUrl(oauth.url)} target="_blank" rel="noreferrer">

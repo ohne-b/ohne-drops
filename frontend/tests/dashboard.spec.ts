@@ -1,5 +1,6 @@
 import { test, expect } from '@playwright/test';
 import AxeBuilder from '@axe-core/playwright';
+import { mdiCheck, mdiContentCopy } from '@mdi/js';
 import fixture from './fixture.json' with { type: 'json' };
 import type { Snapshot } from '../src/lib/types';
 const snapshot: Snapshot = fixture;
@@ -1696,6 +1697,77 @@ test('Settings saves silently and persists edits', async ({ page, request }) => 
   );
 });
 
+test('copy confirmation expires, restarts and ignores superseded code results', async ({
+  page,
+  request,
+}) => {
+  await page.clock.install();
+  await page.goto('/settings');
+  await page.getByRole('button', { name: 'Log out of Twitch', exact: true }).click();
+  const copy = page.getByRole('button', { name: 'Copy code', exact: true });
+  const icon = copy.locator('path');
+  await expect(copy).toBeVisible();
+  await page.clock.pauseAt(await page.evaluate(() => Date.now() + 5000));
+  await page.evaluate(() => {
+    Object.defineProperty(navigator.clipboard, 'writeText', {
+      value: () => Promise.resolve(),
+      configurable: true,
+    });
+  });
+  await expect(icon).toHaveAttribute('d', mdiContentCopy);
+  await copy.click();
+  await expect(icon).toHaveAttribute('d', mdiCheck);
+  await page.clock.runFor(2000);
+  await copy.click();
+  await page.clock.runFor(2000);
+  await expect(icon).toHaveAttribute('d', mdiCheck);
+  await page.clock.runFor(999);
+  await expect(icon).toHaveAttribute('d', mdiCheck);
+  await page.clock.runFor(1);
+  await expect(icon).toHaveAttribute('d', mdiContentCopy);
+  await expect(copy).toHaveAttribute('title', 'Copy code');
+  await expect(page.locator('#account [role="status"]')).toHaveCount(0);
+
+  await copy.click();
+  await expect(icon).toHaveAttribute('d', mdiCheck);
+  await page.evaluate(() => {
+    Object.defineProperty(navigator.clipboard, 'writeText', {
+      value: () => Promise.reject(new Error('denied')),
+      configurable: true,
+    });
+  });
+  await copy.click();
+  await expect(icon).toHaveAttribute('d', mdiContentCopy);
+  await expect(page.getByRole('alert')).toContainText('Could not copy');
+  await page.clock.runFor(4000);
+  await expect(page.getByRole('alert')).toContainText('Could not copy');
+
+  await page.evaluate(() => {
+    Object.defineProperty(navigator.clipboard, 'writeText', {
+      value: () =>
+        new Promise<void>((resolve) => {
+          document.addEventListener('finish-copy', () => resolve(), { once: true });
+        }),
+      configurable: true,
+    });
+  });
+  await copy.click();
+  const updated = await request.post('/__test/event', {
+    headers,
+    data: {
+      event: 'oauth_code_required',
+      data: { code: 'REPLACED', url: 'https://www.twitch.tv/activate' },
+    },
+  });
+  expect(updated.ok()).toBe(true);
+  await expect(page.locator('#account code')).toHaveText('REPLACED');
+  await page.evaluate(() => document.dispatchEvent(new Event('finish-copy')));
+  await page.clock.runFor(100);
+  await expect(icon).toHaveAttribute('d', mdiContentCopy);
+  await expect(copy).toHaveAttribute('title', 'Copy code');
+  await expect(page.getByRole('alert')).toHaveCount(0);
+});
+
 for (const width of [1280, 390, 320]) {
   test(`copy feedback keeps the authorization layout stable at ${width}px`, async ({
     page,
@@ -1717,6 +1789,7 @@ for (const width of [1280, 390, 320]) {
     await copy.click();
     await expect(copy).toHaveAttribute('title', 'Code copied');
     await expect(page.locator('#account [role="status"]')).toHaveText('Code copied');
+    await expect(copy.locator('path')).toHaveAttribute('d', mdiCheck);
     expect(await layout()).toEqual(before);
     await copy.click();
     expect(await layout()).toEqual(before);

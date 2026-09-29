@@ -216,9 +216,11 @@ embed it and run without a build tool/runtime companion. Production builds never
   Connection status lives in Settings > Connection and is labeled Dashboard connected, separate
   from Twitch. Account status and Twitch ID occupy separate rows. Device authorization keeps the
   copyable code, Twitch Activate and Done on one unboxed wrapping row with equal-height controls
-  (36px desktop, 44px phone). Activate and Done use the same outlined button style; copying keeps
-  the copy glyph and reports success through its tooltip and accessible status without shifting
-  the row or following sections. Visible failure feedback retains its spacing below the row.
+  (36px desktop, 44px phone). Activate and Done use the same outlined button style. Successful
+  copying shows a tick, tooltip and accessible status for three seconds; another successful copy
+  restarts the timer. Restore the copy icon on expiry or failure, and clear timers and stale
+  clipboard results when the code changes or the component unmounts. Success feedback never shifts the
+  row or following sections; visible failure feedback retains its spacing below the row.
 - Overview: watching information only in Mining, no status subtitle or Recent activity. Channels
   and Up next have equal desktop dimensions and internal scrolling; stack on narrow screens and
   preserve access on short windows. Show confirmed values/timestamps without redundant labels.

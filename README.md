@@ -249,7 +249,8 @@ rows use a play-circle to watch; refresh-auto returns to automatic selection. Th
 Activity resumes following the latest messages, and reload icons retry errors. In Settings, Twitch
 account status and ID are shown separately; Dashboard connected lives under Connection.
 The authorization row includes a copy-code action, Twitch Activate, and Done. Successful copying
-updates the tooltip and screen-reader feedback without moving the surrounding layout. Clipboard access
+shows a tick for three seconds and updates the tooltip and screen-reader feedback without moving
+the surrounding layout. Copying again successfully restarts the confirmation. Clipboard access
 requires HTTPS or localhost; if unavailable, the code can still be selected and copied manually.
 
 ### History and saved data
