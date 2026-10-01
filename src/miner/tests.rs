@@ -63,6 +63,86 @@ async fn finish_job(mining: &mut Mining, pool: &PubSub) {
 }
 
 #[tokio::test]
+async fn empty_current_drop_preserves_watching_polling_and_account_evidence() {
+    for manual in [false, true] {
+        for claim_wait in [false, true] {
+            let server = MockServer::start().await;
+            gql_mock(&server, |q| {
+                assert_eq!(q["operationName"], "DropCurrentSessionContext");
+                json!({"data":{"currentUser":{"dropCurrentSession":{
+                    "__typename":"DropCurrentSession", "channel":null,
+                    "currentMinutesWatched":0, "dropID":"", "game":null,
+                    "requiredMinutesWatched":0
+                }}}})
+            })
+            .await;
+            Mock::given(method("POST"))
+                .and(path("/beacon"))
+                .respond_with(ResponseTemplate::new(204))
+                .mount(&server)
+                .await;
+            let (dir, mut miner, _intent, mut pool) = miner(&server).await;
+            let settings = select(&mut miner).await;
+            if manual {
+                miner.manual = Some(ManualSelection::new(10, Some(Duration::from_secs(60))));
+            }
+            let selection = miner.manual;
+            if claim_wait {
+                miner.claim_wait = Some(("previous-reward".into(), Instant::now(), 0));
+            }
+            miner.channels[0].beacon_url =
+                Some(format!("{}/beacon", server.uri()).parse().unwrap());
+            miner.next_watch = Instant::now() + WATCH_INTERVAL;
+            let watch_due = miner.next_watch;
+            let retry_due = miner.next_retry;
+            let console = miner.app.snapshot.read().await.console.clone();
+            miner.poll_at = Some(Instant::now());
+            miner.schedule(&settings).await;
+            assert!(miner.busy.contains(&JobKind::Poll));
+            finish_job(&mut miner, &pool).await;
+
+            assert_eq!(miner.next_retry, retry_due, "no error-triggered backoff");
+            assert_eq!(miner.app.snapshot.read().await.console, console);
+            assert_eq!(miner.watching, Some(10));
+            assert_eq!(miner.manual, selection);
+            assert!(miner.claim_wait.is_none());
+            assert!(miner.last_progress.is_none());
+            let drop = &miner.campaigns[0].drops[0];
+            assert_eq!(drop.confirmed_minutes, 12);
+            assert!(drop.confirmed_at.is_some());
+            assert!(!drop.claimed);
+            assert!(drop.claim_id.is_none());
+            assert_eq!(drop.estimated_minutes, u32::from(!manual && !claim_wait));
+            assert_eq!(History::load(dir.path()).total(), 0);
+            if claim_wait {
+                assert!(
+                    miner.next_watch <= Instant::now(),
+                    "claim wait releases watching"
+                );
+            } else {
+                assert_eq!(miner.next_watch, watch_due, "keep normal watch cadence");
+                miner.schedule(&settings).await;
+                assert!(miner.jobs.is_empty(), "do not send an early watch event");
+                miner.next_watch = Instant::now();
+            }
+            miner.schedule(&settings).await;
+            assert!(miner.busy.contains(&JobKind::Watch));
+            finish_job(&mut miner, &pool).await;
+            assert!(
+                miner.poll_at.is_some(),
+                "acknowledged watches keep progress polling"
+            );
+            miner.poll_at = Some(Instant::now());
+            miner.schedule(&settings).await;
+            assert!(miner.busy.contains(&JobKind::Poll));
+            finish_job(&mut miner, &pool).await;
+            assert_eq!(miner.next_retry, retry_due);
+            pool.close().await;
+        }
+    }
+}
+
+#[tokio::test]
 async fn completed_transition_displays_twitchs_next_reward_before_claim_evidence() {
     let server = MockServer::start().await;
     gql_mock(&server, |q| {

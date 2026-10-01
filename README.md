@@ -230,6 +230,9 @@ it unlocks prerequisites,
 completes a campaign or enters **History**. Reported successor progress can appear while
 that claim evidence is still pending.
 
+Twitch can report no current drop as a null session or an empty session object.
+Both continue normal watching and progress checks without confirming progress or claims.
+
 **Ignored Drop Keywords** accepts one literal substring per line, matched without regard
 to case. Blank lines and duplicates are removed. A matching reward and dependent branches
 are ignored, while prerequisites shared with an allowed reward remain mineable. Ignored
