@@ -133,6 +133,8 @@ embed it and run without a build tool/runtime companion. Production builds never
   than the current watch, stream/account refresh or accepted progress. Unrelated/regressive
   progress must not restore an old card; duplicate PubSub progress cannot displace a reported
   successor or postpone polling. Stream replacements fence old polls even on the same channel.
+  A null CurrentDrop session or the empty object (explicit null channel/game, empty drop ID,
+  zero current/required minutes) is no result; retain validation for malformed nonempty sessions.
   Estimates alone never imply completion or a claim.
 - Claims require account-issued instance IDs, skip upcoming campaigns and stop at the strict
   campaign-end + 24-hour deadline. Earned claims are independent of mining/ignore selection.

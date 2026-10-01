@@ -46,6 +46,97 @@ mod protocol_regressions {
     }
 
     #[tokio::test]
+    async fn current_drop_accepts_null_and_empty_sessions() {
+        for drop in [
+            json!(null),
+            json!({
+                "__typename":"DropCurrentSession", "channel":null,
+                "currentMinutesWatched":0, "dropID":"", "game":null,
+                "requiredMinutesWatched":0
+            }),
+        ] {
+            let server = MockServer::start().await;
+            gql_mock(
+                &server,
+                move |_| json!({"data":{"currentUser":{"dropCurrentSession":drop}}}),
+            )
+            .await;
+            let client = TwitchClient::new(Arc::new(http(&server)), &session());
+            assert_eq!(client.current_drop(10).await, Ok(None));
+        }
+    }
+
+    #[tokio::test]
+    async fn current_drop_accepts_progress_from_the_requested_channel() {
+        let server = MockServer::start().await;
+        gql_mock(&server, |_| {
+            json!({"data":{"currentUser":{"dropCurrentSession":{
+                "channel":{"id":"10"}, "dropID":"reward", "currentMinutesWatched":3
+            }}}})
+        })
+        .await;
+        let client = TwitchClient::new(Arc::new(http(&server)), &session());
+        assert_eq!(
+            client.current_drop(10).await,
+            Ok(Some(("reward".into(), 3)))
+        );
+    }
+
+    #[tokio::test]
+    async fn current_drop_rejects_malformed_empty_sessions() {
+        let empty = json!({
+            "channel":null, "dropID":"", "currentMinutesWatched":0,
+            "game":null, "requiredMinutesWatched":0
+        });
+        for (field, value) in [
+            ("channel", json!({})),
+            ("channel", json!({"id":"10"})),
+            ("dropID", json!("reward")),
+            ("dropID", json!(null)),
+            ("currentMinutesWatched", json!(1)),
+            ("currentMinutesWatched", json!("0")),
+            ("game", json!({"id":"1"})),
+            ("requiredMinutesWatched", json!(60)),
+            ("requiredMinutesWatched", json!(null)),
+        ] {
+            let mut drop = empty.clone();
+            drop[field] = value;
+            let server = MockServer::start().await;
+            gql_mock(
+                &server,
+                move |_| json!({"data":{"currentUser":{"dropCurrentSession":drop}}}),
+            )
+            .await;
+            let client = TwitchClient::new(Arc::new(http(&server)), &session());
+            assert_eq!(
+                client.current_drop(10).await,
+                Err(TwitchError::InvalidResponse)
+            );
+        }
+        for field in [
+            "channel",
+            "dropID",
+            "currentMinutesWatched",
+            "game",
+            "requiredMinutesWatched",
+        ] {
+            let mut drop = empty.clone();
+            drop.as_object_mut().unwrap().remove(field);
+            let server = MockServer::start().await;
+            gql_mock(
+                &server,
+                move |_| json!({"data":{"currentUser":{"dropCurrentSession":drop}}}),
+            )
+            .await;
+            let client = TwitchClient::new(Arc::new(http(&server)), &session());
+            assert_eq!(
+                client.current_drop(10).await,
+                Err(TwitchError::InvalidResponse)
+            );
+        }
+    }
+
+    #[tokio::test]
     async fn current_drop_rejects_progress_from_another_channel() {
         let server = MockServer::start().await;
         gql_mock(&server, |_| {

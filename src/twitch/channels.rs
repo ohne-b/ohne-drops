@@ -377,6 +377,15 @@ impl TwitchClient {
         else {
             return Ok(None);
         };
+        // Twitch also reports an empty session object when no current drop is available.
+        if drop.get("channel") == Some(&Value::Null)
+            && drop.get("dropID").and_then(Value::as_str) == Some("")
+            && drop.get("currentMinutesWatched").and_then(Value::as_u64) == Some(0)
+            && drop.get("game") == Some(&Value::Null)
+            && drop.get("requiredMinutesWatched").and_then(Value::as_u64) == Some(0)
+        {
+            return Ok(None);
+        }
         let reported_channel = number(&drop["channel"]["id"]).ok_or_else(|| {
             diagnostics::invalid(
                 "CurrentDrop",
