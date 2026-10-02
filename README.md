@@ -161,6 +161,8 @@ including upcoming or account-specific campaigns. Refresh rejects feed timestamp
 than 30 minutes or over 5 minutes in the future. Failed, stale or malformed responses keep
 known active/upcoming campaigns in memory while preserving fresh Twitch inventory. A
 restart still needs the feed to rediscover campaigns outside your Twitch inventory.
+Public campaigns that explicitly disable channel restrictions remain discoverable when
+the feed omits their unused channel list.
 
 Malformed Twitch inventory records are treated as a partial refresh, preserving known
 campaigns instead of interpreting missing channel restrictions or prerequisites as empty.

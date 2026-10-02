@@ -391,10 +391,12 @@ mod tests {
                 _ => json!([damaged, campaign_json("owned")]),
             };
             account(&server, records).await;
+            let mut public_damaged = campaign_json("damaged");
+            public_damaged["allow"] = json!({"isEnabled":false});
             catalog(
                 &server,
                 ResponseTemplate::new(200)
-                    .set_body_json(feed(vec![campaign_json("damaged"), campaign_json("new")])),
+                    .set_body_json(feed(vec![public_damaged, campaign_json("new")])),
             )
             .await;
             let inventory = TwitchClient::new(Arc::new(http(&server)), &session())
@@ -418,6 +420,48 @@ mod tests {
                     12
                 );
             }
+        }
+    }
+
+    #[test]
+    fn public_catalog_accepts_omitted_channels_only_when_explicitly_disabled() {
+        let now = Utc::now();
+        let mut raw = campaign_json("public");
+        raw["allow"] = json!({"isEnabled":false});
+        raw["timeBasedDrops"][0]["preconditionDrops"] = Value::Null;
+        // This compact public-feed shape must not relax account inventory parsing.
+        assert!(Campaign::parse(&raw, &HashMap::new(), now).is_err());
+        let catalog = Catalog::parse(feed(vec![raw.clone()]), &HashMap::new(), now).unwrap();
+        assert!(catalog.complete);
+        let campaign = &catalog.campaigns["public"];
+        assert!(campaign.allowed_channels.is_empty());
+        assert!(campaign.can_mine(
+            &Settings {
+                games_to_watch: vec!["Rust".into()],
+                ..Settings::default()
+            },
+            now
+        ));
+        assert_eq!(campaign.linked, None);
+        assert_eq!(campaign.drops[0].confirmed_minutes, 0);
+        assert!(!campaign.drops[0].claimed);
+        assert!(campaign.drops[0].claim_id.is_none());
+        for acl in [
+            Value::Null,
+            json!({}),
+            json!({"channels":[]}),
+            json!({"isEnabled":null}),
+            json!({"isEnabled":"false"}),
+            json!({"isEnabled":false,"channels":{}}),
+            json!({"isEnabled":true}),
+            json!({"isEnabled":true,"channels":null}),
+            json!({"isEnabled":true,"channels":[]}),
+            json!({"isEnabled":true,"channels":[null,{"id":"10","name":"streamer"}]}),
+        ] {
+            raw["allow"] = acl.clone();
+            let catalog = Catalog::parse(feed(vec![raw.clone()]), &HashMap::new(), now).unwrap();
+            assert!(!catalog.complete, "{acl}");
+            assert!(catalog.campaigns.is_empty(), "{acl}");
         }
     }
 

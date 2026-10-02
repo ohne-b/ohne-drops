@@ -86,6 +86,9 @@ embed it and run without a build tool/runtime companion. Production builds never
   the configured proxy/timeouts, and bounded retries within 30 seconds. Cap bodies at 16 MiB
   and campaigns at 2000. Reject timestamps older than 30 minutes or over 5 minutes ahead.
   Strip public campaign/drop `self` records; preserve real ACLs, dependencies and timing.
+  The public adapter normalizes an omitted `allow.channels` to an empty list only when
+  `allow.isEnabled` is explicitly false. Never infer that from absent/invalid flags or
+  replace supplied channel values; account inventory still requires its channel field.
   Reject mixed-null enabled ACLs. Shared domain parsing rejects campaign/drop dates without
   room for the scheduler's one-hour lead and the claim journal's 24-hour grace period.
   Missing restrictions/dependencies, malformed/null entries and duplicate IDs are partial,
