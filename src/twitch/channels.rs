@@ -8,7 +8,7 @@ use serde_json::{Value, json};
 use url::Url;
 
 use super::{
-    TwitchClient, TwitchError, diagnostics,
+    RetryPolicy, TwitchClient, TwitchError, diagnostics,
     inventory::values,
     operations::{Operation, directory},
     success,
@@ -243,7 +243,7 @@ impl TwitchClient {
     async fn page(&self, url: Url) -> Result<String, TwitchError> {
         let response = self
             .http
-            .execute(self.http.request(Method::GET, url), true)
+            .execute(self.http.request(Method::GET, url), RetryPolicy::Replay)
             .await?;
         success(response.status())?;
         String::from_utf8(response.into_body()).map_err(|error| {
@@ -348,7 +348,7 @@ impl TwitchClient {
                 self.http
                     .request(Method::POST, url.clone())
                     .form(&[("data", STANDARD.encode(payload.to_string()))]),
-                true,
+                RetryPolicy::Transport,
             )
             .await?;
         let acknowledged = response.status() == StatusCode::NO_CONTENT;

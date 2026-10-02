@@ -27,6 +27,15 @@ pub const CLIENT_ORIGIN: &str = "https://android.tv.twitch.tv";
 pub const USER_AGENT: &str = "Mozilla/5.0 (Linux; Android 7.1; Smart Box C1) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/138.0.0.0 Safari/537.36";
 const MAX_BODY: usize = 16 * 1024 * 1024;
 
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub(crate) enum RetryPolicy {
+    Never,
+    // Keep the existing send/429/5xx retries for operations with side effects.
+    Transport,
+    // Also retry an interrupted successful response for reads that are safe to replay.
+    Replay,
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq, thiserror::Error)]
 pub enum TwitchError {
     #[error("operation cancelled")]
@@ -181,7 +190,10 @@ impl TwitchHttp {
 
     pub async fn discover_device(&mut self) -> Result<(), TwitchError> {
         let response = self
-            .execute(self.request(Method::GET, self.endpoints.tv.clone()), true)
+            .execute(
+                self.request(Method::GET, self.endpoints.tv.clone()),
+                RetryPolicy::Replay,
+            )
             .await?;
         success(response.status())?;
         if let Some(cookie) = self
@@ -238,7 +250,7 @@ impl TwitchHttp {
     pub(crate) async fn execute(
         &self,
         request: reqwest::RequestBuilder,
-        retry: bool,
+        retry: RetryPolicy,
     ) -> Result<http::Response<Vec<u8>>, TwitchError> {
         self.execute_with(&self.client, request, retry).await
     }
@@ -248,7 +260,7 @@ impl TwitchHttp {
         &self,
         client: &reqwest::Client,
         request: reqwest::RequestBuilder,
-        retry: bool,
+        retry: RetryPolicy,
     ) -> Result<http::Response<Vec<u8>>, TwitchError> {
         let request = request.build().map_err(|_| TwitchError::Configuration)?;
         let endpoint = if request.url() == &self.endpoints.gql {
@@ -284,7 +296,7 @@ impl TwitchHttp {
                 Ok(response) => response,
                 Err(error) => {
                     capture.network(&error, "send", attempt + 1, started.elapsed().as_millis());
-                    if retry && attempt < 4 {
+                    if retry != RetryPolicy::Never && attempt < 4 {
                         self.sleep(Duration::from_secs(1 << attempt)).await?;
                         continue;
                     }
@@ -298,7 +310,7 @@ impl TwitchHttp {
                     "Upstream HTTP response is unsuccessful"
                 );
             }
-            if retry
+            if retry != RetryPolicy::Never
                 && attempt < 4
                 && (response.status().is_server_error()
                     || response.status() == StatusCode::TOO_MANY_REQUESTS)
@@ -324,9 +336,37 @@ impl TwitchHttp {
                 self.sleep(Duration::from_secs(delay)).await?;
                 continue;
             }
-            return self
+            let status = response.status();
+            let result = self
                 .read_response(response, attempt + 1, &capture, started)
                 .await;
+            match result {
+                // A broken error body cannot erase the status already received.
+                Err(TwitchError::Network | TwitchError::InvalidResponse)
+                    if !status.is_success() =>
+                {
+                    let authenticated = request.url() == &self.endpoints.gql
+                        || request.url().origin() == self.endpoints.oauth.origin()
+                            && request.url().path().starts_with("/oauth2/");
+                    return Err(
+                        if authenticated
+                            && matches!(status, StatusCode::UNAUTHORIZED | StatusCode::FORBIDDEN)
+                        {
+                            TwitchError::Unauthorized
+                        } else {
+                            TwitchError::Status(status.as_u16())
+                        },
+                    );
+                }
+                Err(TwitchError::Network)
+                    if retry == RetryPolicy::Replay
+                        && status != StatusCode::NO_CONTENT
+                        && attempt < 4 =>
+                {
+                    self.sleep(Duration::from_secs(1 << attempt)).await?;
+                }
+                result => return result,
+            }
         }
         Err(TwitchError::Network)
     }
@@ -448,7 +488,8 @@ impl TwitchHttp {
                 .header(header::ORIGIN, CLIENT_ORIGIN)
                 .header(header::REFERER, CLIENT_ORIGIN)
                 .body(body),
-            true,
+            // A successful single-use OAuth exchange cannot safely be replayed.
+            RetryPolicy::Transport,
         )
         .await
     }
@@ -503,7 +544,11 @@ impl TwitchClient {
                         .header(header::ORIGIN, CLIENT_ORIGIN)
                         .header(header::REFERER, CLIENT_ORIGIN)
                         .json(&operation),
-                    true,
+                    if operations::can_replay_response(&operation) {
+                        RetryPolicy::Replay
+                    } else {
+                        RetryPolicy::Transport
+                    },
                 )
                 .await?;
             // Only authenticated API responses can invalidate the saved session.

@@ -168,6 +168,9 @@ Duplicate account campaign IDs are also excluded. Rejected account records canno
 replaced by public catalog assumptions or used to infer a pending claim from awards;
 confirmed claim receipts still recover after a restart.
 
+Interrupted inventory and progress responses use bounded retries. Successful device-login
+exchanges and acknowledged watch events are never replayed because of a response-body failure.
+
 > [!WARNING]
 > Avoid watching Twitch manually with the same account while mining. Simultaneous
 > viewing can interfere with drop progress.

@@ -161,6 +161,10 @@ embed it and run without a build tool/runtime companion. Production builds never
 - Requests use bounded concurrency/rate, retries and cancellation. Quality 1..6 controls connect
   timeout 5×quality and total 10×quality seconds; the saved refresh interval actually schedules
   inventory work. Slow discovery must not block watch cadence. Duplicate idle prompts collapse.
+  Interrupted response bodies retry within the existing five-attempt budget only for replayable
+  GETs and known persisted read-only GraphQL operations/batches. Never replay successful OAuth
+  exchanges, mutation responses or acknowledged 204 beacons. Preserve known failure statuses
+  when error bodies fail, including authenticated 401/403 versus ordinary public HTTP failures.
 - Upstream diagnostics use server tracing only, never dashboard console/socket payloads.
   Record operation/status/attempt, JSON syntax positions, rejected field types, typed network
   causes and catalog rejection summaries. Basic logs allowlist known GraphQL messages and
