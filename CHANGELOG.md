@@ -1,5 +1,14 @@
 # Changelog
 
+## [v1.3.1](https://github.com/ohne-b/twitch-drops-miner/releases/tag/v1.3.1) — 2026-10-02
+
+- fix the v1.3.0 inventory refresh and campaign discovery regression when unrestricted public campaigns omit their unused channel list; preserve strict Twitch account validation and claim evidence ([#47](https://github.com/ohne-b/twitch-drops-miner/pull/47))
+
+Existing settings, credentials, history, service names and container mounts remain compatible.
+Unavailable, stale or malformed catalog data still reports incomplete refreshes.
+
+[Compare v1.3.0...v1.3.1](https://github.com/ohne-b/twitch-drops-miner/compare/v1.3.0...v1.3.1)
+
 ## [v1.3.0](https://github.com/ohne-b/twitch-drops-miner/releases/tag/v1.3.0) — 2026-10-02
 
 - add the Mining priority selector with Default (manual order), Short events first and Ending soonest; preserve saved game order, manual-channel timers and selected-game priority ([#45](https://github.com/ohne-b/twitch-drops-miner/pull/45))
