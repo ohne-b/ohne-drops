@@ -5,13 +5,160 @@ import {
   mdiCheck,
   mdiContentCopy,
   mdiPlayCircleOutline,
+  mdiPriorityHigh,
   mdiRefresh,
   mdiUpdate,
 } from '@mdi/js';
 import fixture from './fixture.json' with { type: 'json' };
 import type { Snapshot } from '../src/lib/types';
-const snapshot: Snapshot = fixture;
+const snapshot: Snapshot = {
+  ...fixture,
+  settings: { ...fixture.settings, mining_priority_mode: 'manual' },
+};
 const headers = { 'X-TDM-Request': '1' };
+
+for (const width of [1280, 320]) {
+  test(`mining priority uses a persistent icon selector without rewriting the manual order at ${width}px`, async ({
+    page,
+    request,
+  }) => {
+    await page.setViewportSize({ width, height: 900 });
+    const initial = await (await request.get('/api/settings')).json();
+    expect(
+      (
+        await request.post('/api/settings', {
+          headers,
+          data: { revision: initial.revision, games_to_watch: ['Rust', 'Other'] },
+        })
+      ).ok(),
+    ).toBe(true);
+    const before = await (await request.get('/api/settings')).json();
+    await page.goto('/settings#mining');
+    const priority = page.getByRole('combobox', { name: 'Mining priority', exact: true });
+    const control = priority.locator('..');
+    await expect(priority).toHaveValue('manual');
+    await expect(priority.locator('option')).toHaveText([
+      'Default (manual order)',
+      'Short events first',
+      'Ending soonest',
+    ]);
+    await expect(control.locator('path')).toHaveAttribute('d', mdiPriorityHigh);
+    const box = (await control.boundingBox())!;
+    expect([box.width, box.height]).toEqual(width < 768 ? [44, 44] : [36, 36]);
+    const rows = page
+      .getByRole('list', { name: 'Game priorities', exact: true })
+      .getByRole('listitem');
+    const order = await rows.allTextContents();
+    await priority.focus();
+    await page.keyboard.press('ArrowDown');
+    await page.keyboard.press('Enter');
+    await expect(priority).toHaveValue('short_events');
+    await expect(control).toHaveAttribute('title', 'Mining priority: Short events first');
+    await expect(priority).toHaveAccessibleDescription(/24 hours or less/);
+    await expect
+      .poll(async () => (await (await request.get('/api/settings')).json()).mining_priority_mode)
+      .toBe('short_events');
+    expect(await rows.allTextContents()).toEqual(order);
+    await page.reload();
+    await expect(priority).toHaveValue('short_events');
+    await priority.selectOption('ending_soonest');
+    await expect
+      .poll(async () => (await (await request.get('/api/settings')).json()).mining_priority_mode)
+      .toBe('ending_soonest');
+    await expect(priority).toHaveAccessibleDescription(/nearest reward deadlines/);
+    const after = await (await request.get('/api/settings')).json();
+    expect(after.games_to_watch).toEqual(before.games_to_watch);
+    expect(after.inventory_filters).toEqual(before.inventory_filters);
+    expect([after.auto_mine_badges, after.auto_mine_emotes]).toEqual([
+      before.auto_mine_badges,
+      before.auto_mine_emotes,
+    ]);
+    await page.getByRole('button', { name: 'Reorder Rust', exact: true }).focus();
+    await page.keyboard.press('ArrowDown');
+    await expect
+      .poll(async () => (await (await request.get('/api/settings')).json()).games_to_watch)
+      .not.toEqual(before.games_to_watch);
+    const reordered = await rows.allTextContents();
+    await priority.selectOption('manual');
+    await expect
+      .poll(async () => (await (await request.get('/api/settings')).json()).mining_priority_mode)
+      .toBe('manual');
+    expect(await rows.allTextContents()).toEqual(reordered);
+    const restoredBox = (await control.boundingBox())!;
+    expect([restoredBox.width, restoredBox.height]).toEqual([box.width, box.height]);
+    expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(
+      width,
+    );
+    await page.locator('#mining').screenshot({ path: `../artifacts/mining-priority-${width}.png` });
+    expect((await new AxeBuilder({ page }).analyze()).violations).toEqual([]);
+  });
+}
+
+test('mining priority retains rapid edits through conflicts, retry and reconnect', async ({
+  page,
+  request,
+}) => {
+  await page.goto('/settings#mining');
+  const priority = page.getByRole('combobox', { name: 'Mining priority', exact: true });
+  let release!: () => void;
+  const gate = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  await page.route(
+    '**/api/settings',
+    async (route) => {
+      await gate;
+      await route.continue();
+    },
+    { times: 1 },
+  );
+  const sent = page.waitForRequest('**/api/settings');
+  await priority.selectOption('short_events');
+  await sent;
+  await priority.selectOption('ending_soonest');
+  const current = await (await request.get('/api/settings')).json();
+  expect(
+    (
+      await request.post('/api/settings', {
+        headers,
+        data: { revision: current.revision, games_to_watch: ['Other', 'Rust'] },
+      })
+    ).ok(),
+  ).toBe(true);
+  release();
+  await expect(page.getByRole('alert')).toContainText('Settings changed on another device');
+  await expect(priority).toHaveValue('ending_soonest');
+  expect((await (await request.get('/api/settings')).json()).mining_priority_mode).toBe('manual');
+  await page.getByRole('button', { name: 'Try again', exact: true }).click();
+  await expect
+    .poll(async () => (await (await request.get('/api/settings')).json()).mining_priority_mode)
+    .toBe('ending_soonest');
+  expect((await (await request.get('/api/settings')).json()).games_to_watch).toEqual([
+    'Other',
+    'Rust',
+  ]);
+  await priority.selectOption('short_events');
+  await request.post('/__test/reconnect', { headers, data: {} });
+  await page.getByRole('link', { name: 'Overview', exact: true }).click();
+  await expect
+    .poll(async () => (await (await request.get('/api/settings')).json()).mining_priority_mode)
+    .toBe('short_events');
+  await page.goto('/settings#mining');
+  await expect(priority).toHaveValue('short_events');
+  await page.context().setOffline(true);
+  try {
+    await request.post('/__test/reconnect', { headers, data: {} });
+    await expect(priority).toBeDisabled();
+  } finally {
+    await page.context().setOffline(false);
+  }
+  await expect(priority).toBeEnabled();
+  await expect(priority).toHaveValue('short_events');
+  expect((await (await request.get('/api/settings')).json()).games_to_watch).toEqual([
+    'Other',
+    'Rust',
+  ]);
+});
 
 test('automatic reward types persist without changing games or display filters', async ({
   page,
@@ -2015,6 +2162,7 @@ test('native sort options stay legible with a light operating system theme', asy
   for (const [url, name] of [
     ['/campaigns', 'Sort campaigns'],
     ['/campaigns?tab=history', 'Sort history'],
+    ['/settings', 'Mining priority'],
   ]) {
     await page.goto(url!);
     const sort = page.getByRole('combobox', { name: name! });
@@ -2034,7 +2182,12 @@ test('native sort options stay legible with a light operating system theme', asy
     await sort.focus();
     await page.keyboard.press('ArrowDown');
     await page.keyboard.press('Enter');
-    await expect(sort).toHaveValue('newest');
+    await expect(sort).toHaveValue(name === 'Mining priority' ? 'short_events' : 'newest');
+    if (name === 'Mining priority') {
+      await expect(sort.locator('..')).toHaveCSS('background-color', 'rgb(51, 51, 51)');
+      await page.emulateMedia({ forcedColors: 'active' });
+      await expect(sort.locator('..')).toHaveCSS('outline-style', 'solid');
+    }
   }
 });
 

@@ -8,6 +8,7 @@ import {
   mdiCheck,
   mdiReload,
   mdiUpdate,
+  mdiPriorityHigh,
 } from '@mdi/js';
 import type { AuthStatus, ReleaseInfo, Result, Settings as SettingsData } from '../lib/types';
 import { request, safeUrl } from '../lib/api';
@@ -426,6 +427,30 @@ function SettingsContent({ settings, auth }: { settings: SettingsData; auth: Aut
                 onClick={resolveGame}
                 disabled={!search.trim()}
               />
+              <div
+                className="icon-button has-[:disabled]:opacity-50"
+                title={`${t('mining_priority')}: ${t(`priority_${draft.mining_priority_mode}`)}`}
+              >
+                <Icon className="mdi-icon pointer-events-none" path={mdiPriorityHigh} />
+                <select
+                  className="icon-select absolute inset-0 size-full cursor-pointer opacity-0 disabled:cursor-default"
+                  aria-label={t('mining_priority')}
+                  aria-describedby="mining-priority-help"
+                  value={draft.mining_priority_mode}
+                  onChange={(event) =>
+                    change(
+                      'mining_priority_mode',
+                      event.target.value as SettingsData['mining_priority_mode'],
+                    )
+                  }
+                >
+                  {(['manual', 'short_events', 'ending_soonest'] as const).map((mode) => (
+                    <option key={mode} value={mode}>
+                      {t(`priority_${mode}`)}
+                    </option>
+                  ))}
+                </select>
+              </div>
             </div>
             {gameError && <Notice error>{gameError}</Notice>}
             {search && available.length > 0 && (
@@ -442,7 +467,13 @@ function SettingsContent({ settings, auth }: { settings: SettingsData; auth: Aut
                 ))}
               </div>
             )}
-            <p className="muted">{t('selected_games_help')}</p>
+            <p id="mining-priority-help" className="muted">
+              {t(
+                draft.mining_priority_mode === 'manual'
+                  ? 'selected_games_help'
+                  : `priority_${draft.mining_priority_mode}_help`,
+              )}
+            </p>
             <GamePriorities
               games={draft.games_to_watch}
               campaigns={data?.campaigns ?? []}

@@ -59,6 +59,17 @@ embed it and run without a build tool/runtime companion. Production builds never
   filters remain separate. Empty with both options off means no automatic watch events. Mine selects a game across
   eligible campaigns. An explicitly chosen manual channel overrides automatic selection
   without changing saved games, filters or priorities.
+- `mining_priority_mode` defaults to `manual` and preserves the saved game order.
+  `short_events` promotes active selected-game reward windows of at most 24 hours total;
+  `ending_soonest` ranks active selected-game reward deadlines regardless of duration.
+  Use campaign/drop date intersections, earliest deadline then saved game order, and
+  preserve equal-priority watching. Required earnable prerequisites inherit target deadlines
+  (bounded by their own expiry); impossible, ignored or filtered target branches cannot
+  boost unrelated rewards. Confirmed completion ends a boost without inventing a claim;
+  estimates do not. These modes do not predict completion feasibility, reorder saved games,
+  preempt manual channels or promote optional other-game rewards above selected games.
+  Share ranking across discovery before channel truncation, selection, fallback display and
+  Up next; retain its grouping and upcoming visibility without preempting before opening.
 - Preserve campaign/drop timing, prerequisites, claim state, benefit filters and ignore rules.
   Literal ignore substrings cascade through dependents while retaining shared prerequisites.
   Zero-minute subscription rewards are omitted from Campaigns/Up next; expired drops leave
@@ -224,6 +235,10 @@ embed it and run without a build tool/runtime companion. Production builds never
   Inset search-clear circles within the field border; game-priority
   drag grips retain their plain six-dot pattern without pointer hover backgrounds. Retain native
   selects for icon-only sorting, with explicit legible dark select/option colors on light OS themes.
+  Settings > Mining uses the native icon-only Priority High selector beside Add Game for
+  Default (manual order), Short events first and Ending soonest. Its tooltip reports the
+  selected mode; accessible help explains that drag order is preserved for ties. Reuse
+  autosave/conflict handling and disable the selector until reconnect hydration.
   Render strings as React text, validate external links/artwork, expand Twitch image placeholders.
   No injected HTML or CDN scripts. Art provides safe missing/broken-image fallbacks.
 - Sidebar: enlarged GitHub glyph above Twitch account ID, overriding shared icon sizing.

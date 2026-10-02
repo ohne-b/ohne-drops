@@ -1,5 +1,7 @@
 use std::collections::{HashMap, HashSet, VecDeque};
 
+use chrono::{DateTime, Utc};
+
 use crate::{config::fold, domain::Drop};
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -34,6 +36,7 @@ pub struct DropPolicy {
     pub reasons: HashMap<String, IgnoreReason>,
     pub mineable: HashSet<String>,
     remaining: HashMap<String, u32>,
+    prerequisite_order: Vec<String>,
 }
 
 impl DropPolicy {
@@ -99,6 +102,7 @@ impl DropPolicy {
                 continue;
             }
             valid.insert(id);
+            result.prerequisite_order.push(id.to_owned());
             let remaining = if drop.claimed {
                 0
             } else {
@@ -135,6 +139,65 @@ impl DropPolicy {
             useful.extend(drop.prerequisites.iter().map(String::as_str));
         }
         result
+    }
+
+    pub fn watch_deadlines(
+        &self,
+        drops: &[Drop],
+        now: DateTime<Utc>,
+        target_deadline: impl Fn(&Drop) -> Option<DateTime<Utc>>,
+    ) -> HashMap<String, DateTime<Utc>> {
+        let by_id: HashMap<_, _> = drops.iter().map(|d| (d.id.as_str(), d)).collect();
+        let mut available = HashMap::new();
+        // Reuse the resolved graph. An expired unwatched prerequisite, or one
+        // starting after its dependent ends, must not boost an unrelated reward.
+        // This checks timing reachability, not whether enough watch time remains.
+        for id in &self.prerequisite_order {
+            let drop = by_id[id.as_str()];
+            let starts = if drop.claimed || drop.confirmed_minutes >= drop.required_minutes {
+                Some(now)
+            } else {
+                drop.prerequisites
+                    .iter()
+                    .try_fold(now.max(drop.starts_at), |start, id| {
+                        available.get(id.as_str()).map(|at| start.max(*at))
+                    })
+                    .filter(|start| *start < drop.ends_at)
+            };
+            if let Some(start) = starts {
+                available.insert(drop.id.as_str(), start);
+            }
+        }
+        let mut deadlines = HashMap::new();
+        for drop in drops {
+            if self.mineable.contains(&drop.id)
+                && drop.confirmed_minutes < drop.required_minutes
+                && let Some(end) = target_deadline(drop)
+                && available
+                    .get(drop.id.as_str())
+                    .is_some_and(|start| *start < end)
+            {
+                deadlines.insert(drop.id.clone(), end);
+            }
+        }
+        // Dependents come first here: propagate the earliest target deadline
+        // through shared prerequisites once, without recursion or per-target walks.
+        for id in self.prerequisite_order.iter().rev() {
+            if let Some(end) = deadlines.get(id).copied() {
+                for parent in &by_id[id.as_str()].prerequisites {
+                    let drop = by_id[parent.as_str()];
+                    if drop.claimed || drop.confirmed_minutes >= drop.required_minutes {
+                        continue;
+                    }
+                    let end = end.min(drop.ends_at);
+                    deadlines
+                        .entry(parent.clone())
+                        .and_modify(|at| *at = (*at).min(end))
+                        .or_insert(end);
+                }
+            }
+        }
+        deadlines
     }
 
     pub fn remaining_minutes(&self) -> u32 {

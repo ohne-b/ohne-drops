@@ -3,9 +3,21 @@ use std::collections::{HashMap, HashSet};
 use chrono::{DateTime, Duration, Utc};
 use serde_json::Value;
 
-use crate::{config::Settings, dto::*, policy::DropPolicy};
+use crate::{
+    config::{MiningPriorityMode, Settings},
+    dto::*,
+    policy::DropPolicy,
+};
 
 pub const MAX_ESTIMATED_MINUTES: u32 = 15;
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
+pub enum MiningPriority {
+    Deadline(DateTime<Utc>, usize),
+    Selected(usize),
+    Automatic(DateTime<Utc>),
+    Unavailable,
+}
 
 #[derive(Debug, thiserror::Error)]
 #[error("invalid Twitch campaign data")]
@@ -394,21 +406,65 @@ impl Campaign {
     }
 
     pub fn mining_policy(&self, settings: &Settings, now: DateTime<Utc>) -> DropPolicy {
-        let selected = settings.selected(&self.game.name);
         DropPolicy::for_targets(&self.drops, &settings.drop_name_blacklist, |drop| {
-            now < drop.ends_at
-                && drop.benefits.iter().any(|benefit| {
-                    benefit.wanted(settings)
-                        && (selected
-                            || benefit.view.kind == "BADGE" && settings.auto_mine_badges
-                            || benefit.view.kind == "EMOTE" && settings.auto_mine_emotes)
-                })
+            now < drop.ends_at && self.wanted_drop(drop, settings)
         })
     }
 
-    pub fn mining_priority(&self, settings: &Settings) -> (usize, Option<DateTime<Utc>>) {
+    fn wanted_drop(&self, drop: &Drop, settings: &Settings) -> bool {
+        drop.benefits.iter().any(|benefit| {
+            benefit.wanted(settings)
+                && (settings.selected(&self.game.name)
+                    || benefit.view.kind == "BADGE" && settings.auto_mine_badges
+                    || benefit.view.kind == "EMOTE" && settings.auto_mine_emotes)
+        })
+    }
+
+    fn priority_deadlines(
+        &self,
+        settings: &Settings,
+        now: DateTime<Utc>,
+        policy: &DropPolicy,
+    ) -> HashMap<String, DateTime<Utc>> {
+        if settings.mining_priority_mode == MiningPriorityMode::Manual
+            || !settings.selected(&self.game.name)
+            || !self.active(now)
+        {
+            return HashMap::new();
+        }
+        policy.watch_deadlines(&self.drops, now, |drop| {
+            let start = self.starts_at.max(drop.starts_at);
+            let end = self.ends_at.min(drop.ends_at);
+            (start <= now
+                && now < end
+                && self.wanted_drop(drop, settings)
+                && (settings.mining_priority_mode == MiningPriorityMode::EndingSoonest
+                    || end - start <= Duration::hours(24)))
+            .then_some(end)
+        })
+    }
+
+    pub fn mining_priority(&self, settings: &Settings, now: DateTime<Utc>) -> MiningPriority {
         let priority = settings.game_priority(Some(&self.game.name));
-        (priority, (priority == usize::MAX).then_some(self.ends_at))
+        if priority == usize::MAX {
+            return MiningPriority::Automatic(self.ends_at);
+        }
+        if settings.mining_priority_mode != MiningPriorityMode::Manual {
+            let policy = self.mining_policy(settings, now);
+            let deadlines = self.priority_deadlines(settings, now, &policy);
+            if let Some(deadline) = self
+                .drops
+                .iter()
+                .filter(|drop| {
+                    self.drop_eligible(drop, &policy, now, now + Duration::nanoseconds(1))
+                })
+                .filter_map(|drop| deadlines.get(&drop.id))
+                .min()
+            {
+                return MiningPriority::Deadline(*deadline, priority);
+            }
+        }
+        MiningPriority::Selected(priority)
     }
 
     pub fn prerequisites_met(&self, drop: &Drop) -> bool {
@@ -512,10 +568,19 @@ impl Campaign {
 
     pub fn first_drop(&self, settings: &Settings, now: DateTime<Utc>) -> Option<&Drop> {
         let policy = self.mining_policy(settings, now);
+        let deadlines = self.priority_deadlines(settings, now, &policy);
         self.drops
             .iter()
             .filter(|d| self.drop_eligible(d, &policy, now, now + Duration::nanoseconds(1)))
-            .min_by_key(|d| d.remaining_minutes())
+            .min_by_key(|d| {
+                (
+                    deadlines
+                        .get(&d.id)
+                        .copied()
+                        .unwrap_or(DateTime::<Utc>::MAX_UTC),
+                    d.remaining_minutes(),
+                )
+            })
     }
 
     pub fn bump_estimates(&mut self, settings: &Settings, now: DateTime<Utc>) -> bool {
@@ -632,13 +697,25 @@ pub fn wanted_items(
         .iter()
         .filter(|c| c.can_earn_within(settings, now, now + Duration::hours(1)))
         .collect();
-    campaigns.sort_by_key(|c| c.mining_priority(settings));
+    campaigns.sort_by_cached_key(|c| c.mining_priority(settings, now));
     for campaign in campaigns {
         let policy = campaign.mining_policy(settings, now);
-        let drops: Vec<_> = campaign
+        let deadlines = campaign.priority_deadlines(settings, now, &policy);
+        let mut ordered: Vec<_> = campaign
             .drops
             .iter()
             .filter(|d| d.watch_reward() && now < d.ends_at && policy.mineable.contains(&d.id))
+            .collect();
+        ordered.sort_by_key(|d| {
+            let deadline = deadlines.get(&d.id).copied();
+            (
+                deadline.unwrap_or(DateTime::<Utc>::MAX_UTC),
+                deadline.is_some()
+                    && !campaign.drop_eligible(d, &policy, now, now + Duration::nanoseconds(1)),
+            )
+        });
+        let drops: Vec<_> = ordered
+            .into_iter()
             .filter_map(|d| {
                 // The mining policy already selects targets and required prerequisites.
                 // A prerequisite must stay visible even when its own benefit type is off.
@@ -827,6 +904,193 @@ mod tests {
         assert_eq!(view.drops[0].confirmed_at, None);
         assert_eq!(view.drops[0].confirmed_minutes, 0);
         assert!(!view.finished);
+    }
+
+    #[test]
+    fn mining_priority_follows_the_event_prerequisite_not_unrelated_rewards() {
+        let mut c = campaign(vec![
+            raw_drop("ordinary", &[]),
+            raw_drop("parent", &[]),
+            raw_drop("event", &["parent"]),
+        ]);
+        c.drops[0].required_minutes = 5;
+        c.drops[2].starts_at = now();
+        c.drops[2].ends_at = now() + Duration::hours(3);
+        let settings = selected()
+            .patched(&json!({"mining_priority_mode":"short_events"}))
+            .unwrap();
+        assert_eq!(c.first_drop(&settings, now()).unwrap().id, "parent");
+        assert_eq!(c.first_drop(&selected(), now()).unwrap().id, "ordinary");
+        let mut hidden_parent = c.clone();
+        hidden_parent.drops[1].benefits.clear();
+        assert_eq!(
+            hidden_parent.first_drop(&settings, now()).unwrap().id,
+            "parent"
+        );
+        let queue = wanted_items(&[hidden_parent], &settings, now());
+        let names: Vec<_> = queue[0].campaigns[0]
+            .drops
+            .iter()
+            .map(|drop| drop.name.as_str())
+            .collect();
+        assert_eq!(names, ["event", "ordinary"]);
+        c.drops[1].confirm(60, now());
+        assert!(!c.drops[1].claimed);
+        assert_eq!(c.first_drop(&settings, now()).unwrap().id, "ordinary");
+        c.drops[1].mark_claimed(now());
+        assert_eq!(c.first_drop(&settings, now()).unwrap().id, "event");
+        c.drops[2].confirm(60, now());
+        assert!(!c.drops[2].claimed);
+        assert_eq!(c.first_drop(&settings, now()).unwrap().id, "ordinary");
+    }
+
+    #[test]
+    fn mining_priority_uses_effective_drop_windows_and_confirmed_completion() {
+        let mut c = campaign(vec![raw_drop("reward", &[])]);
+        let short = selected()
+            .patched(&json!({"mining_priority_mode":"short_events"}))
+            .unwrap();
+        let ending = selected()
+            .patched(&json!({"mining_priority_mode":"ending_soonest"}))
+            .unwrap();
+        c.drops[0].ends_at = now() + Duration::hours(1);
+        let end = c.drops[0].ends_at;
+        // A long-running reward ending tonight is not a short event.
+        assert_eq!(
+            c.mining_priority(&short, now()),
+            MiningPriority::Selected(0)
+        );
+        assert_eq!(
+            c.mining_priority(&ending, now()),
+            MiningPriority::Deadline(end, 0)
+        );
+        c.drops[0].starts_at = end - Duration::hours(24);
+        assert_eq!(
+            c.mining_priority(&short, now()),
+            MiningPriority::Deadline(end, 0)
+        );
+        c.drops[0].starts_at -= Duration::nanoseconds(1);
+        assert_eq!(
+            c.mining_priority(&short, now()),
+            MiningPriority::Selected(0)
+        );
+        c.starts_at = now();
+        c.ends_at = now() + Duration::minutes(30);
+        let deadline = MiningPriority::Deadline(c.ends_at, 0);
+        assert_eq!(c.mining_priority(&short, now()), deadline);
+        c.drops[0].confirm(59, now());
+        c.drops[0].estimated_minutes = 1;
+        assert_eq!(c.drops[0].remaining_minutes(), 0);
+        assert_eq!(c.mining_priority(&short, now()), deadline);
+        assert!(!c.drops[0].claimed);
+        for patch in [
+            json!({"drop_name_blacklist":["reward"]}),
+            json!({"mining_benefits":{"DIRECT_ENTITLEMENT":false}}),
+        ] {
+            assert_eq!(
+                c.mining_priority(&short.patched(&patch).unwrap(), now()),
+                MiningPriority::Selected(0)
+            );
+        }
+        assert_eq!(
+            c.mining_priority(&short, c.ends_at),
+            MiningPriority::Selected(0)
+        );
+        c.drops[0].confirm(60, now());
+        assert_eq!(
+            c.mining_priority(&short, now()),
+            MiningPriority::Selected(0)
+        );
+        assert!(!c.drops[0].claimed);
+    }
+
+    #[test]
+    fn mining_priority_does_not_boost_unreachable_or_filtered_event_branches() {
+        // Deliberately put dependents before their shared prerequisites.
+        let mut c = campaign(vec![
+            raw_drop("event", &["left", "right"]),
+            raw_drop("ordinary", &[]),
+            raw_drop("left", &[]),
+            raw_drop("right", &[]),
+        ]);
+        c.drops[0].starts_at = now();
+        c.drops[0].ends_at = now() + Duration::hours(3);
+        c.drops[0].benefits[0].view.kind = "EMOTE".into();
+        c.drops[1].benefits[0].view.kind = "EMOTE".into();
+        c.drops[1].required_minutes = 5;
+        let settings = selected().patched(&json!({"mining_priority_mode":"short_events", "mining_benefits":{"DIRECT_ENTITLEMENT":false}})).unwrap();
+        assert_eq!(c.first_drop(&settings, now()).unwrap().id, "left");
+        c.drops[3].ends_at = now();
+        assert_eq!(
+            c.mining_priority(&settings, now()),
+            MiningPriority::Selected(0)
+        );
+        assert_eq!(c.first_drop(&settings, now()).unwrap().id, "ordinary");
+        c.drops[3].ends_at = c.ends_at;
+        c.drops[3].starts_at = c.drops[0].ends_at;
+        assert_eq!(
+            c.mining_priority(&settings, now()),
+            MiningPriority::Selected(0)
+        );
+        c.drops[3].starts_at = c.starts_at;
+        c.drops[3].confirm(60, now());
+        assert_eq!(c.first_drop(&settings, now()).unwrap().id, "left");
+        assert!(!c.prerequisites_met(&c.drops[0]));
+        let ignored = settings
+            .patched(&json!({"drop_name_blacklist":["event"]}))
+            .unwrap();
+        assert_eq!(
+            c.mining_priority(&ignored, now()),
+            MiningPriority::Selected(0)
+        );
+        c.drops[0].prerequisites.push("missing".into());
+        assert_eq!(
+            c.mining_priority(&settings, now()),
+            MiningPriority::Selected(0)
+        );
+        c.drops[0].prerequisites.pop();
+        c.drops[2].prerequisites.push("event".into());
+        assert_eq!(
+            c.mining_priority(&settings, now()),
+            MiningPriority::Selected(0)
+        );
+    }
+
+    #[test]
+    fn mining_priority_shares_the_earliest_deadline_across_dependency_branches() {
+        let mut c = campaign(vec![
+            raw_drop("ordinary", &[]),
+            raw_drop("late", &["shared"]),
+            raw_drop("early", &["shared"]),
+            raw_drop("shared", &[]),
+        ]);
+        for index in [1, 2] {
+            c.drops[index].starts_at = now();
+            c.drops[index].ends_at = now() + Duration::hours(4 - index as i64);
+        }
+        let settings = selected()
+            .patched(&json!({"mining_priority_mode":"short_events"}))
+            .unwrap();
+        let early_end = c.drops[2].ends_at;
+        assert_eq!(
+            c.mining_priority(&settings, now()),
+            MiningPriority::Deadline(early_end, 0)
+        );
+        assert_eq!(c.first_drop(&settings, now()).unwrap().id, "shared");
+        assert_eq!(
+            wanted_items(&[c.clone()], &settings, now())[0].campaigns[0].drops[0].name,
+            "shared"
+        );
+        c.drops[2].mark_claimed(now());
+        assert_eq!(
+            c.mining_priority(&settings, now()),
+            MiningPriority::Deadline(c.drops[1].ends_at, 0)
+        );
+        c.drops[3].ends_at = now() + Duration::minutes(30);
+        assert_eq!(
+            c.mining_priority(&settings, now()),
+            MiningPriority::Deadline(c.drops[3].ends_at, 0)
+        );
     }
 
     #[test]

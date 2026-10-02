@@ -50,10 +50,20 @@ impl Default for Filters {
     }
 }
 
+#[derive(Clone, Copy, Debug, Default, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum MiningPriorityMode {
+    #[default]
+    Manual,
+    ShortEvents,
+    EndingSoonest,
+}
+
 #[derive(Clone, Serialize, Deserialize, PartialEq)]
 #[serde(default)]
 pub struct Settings {
     pub games_to_watch: Vec<String>,
+    pub mining_priority_mode: MiningPriorityMode,
     pub auto_mine_badges: bool,
     pub auto_mine_emotes: bool,
     pub drop_name_blacklist: Vec<String>,
@@ -70,6 +80,7 @@ impl Default for Settings {
     fn default() -> Self {
         Self {
             games_to_watch: vec![],
+            mining_priority_mode: MiningPriorityMode::Manual,
             auto_mine_badges: false,
             auto_mine_emotes: false,
             drop_name_blacklist: vec![],
@@ -201,6 +212,39 @@ pub fn validate_proxy(proxy: &str) -> Result<(), InvalidSettings> {
 mod tests {
     use super::*;
     use serde_json::json;
+
+    #[test]
+    fn mining_priority_defaults_round_trips_and_rejects_unknown_modes() {
+        let original = Settings::from_saved(json!({"games_to_watch":["Rust", "Other"]})).unwrap();
+        assert_eq!(
+            serde_json::to_value(&original).unwrap()["mining_priority_mode"],
+            "manual"
+        );
+        for mode in ["manual", "short_events", "ending_soonest"] {
+            let updated = original
+                .patched(&json!({"mining_priority_mode":mode}))
+                .unwrap();
+            let encoded = serde_json::to_value(&updated).unwrap();
+            assert_eq!(encoded["mining_priority_mode"], mode);
+            assert_eq!(updated.games_to_watch, original.games_to_watch);
+            assert!(Settings::from_saved(encoded).unwrap() == updated);
+            assert!(
+                updated
+                    .patched(&json!({"auto_mine_badges":true}))
+                    .unwrap()
+                    .games_to_watch
+                    == original.games_to_watch
+            );
+        }
+        for invalid in [json!("fastest"), json!(true), json!(1)] {
+            assert!(
+                original
+                    .patched(&json!({"mining_priority_mode":invalid}))
+                    .is_err()
+            );
+            assert!(Settings::from_saved(json!({"mining_priority_mode":invalid})).is_err());
+        }
+    }
 
     #[test]
     fn old_settings_default_automatic_types_off_and_patches_preserve_them() {

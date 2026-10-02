@@ -120,6 +120,221 @@ async fn notification_failures_preserve_retry_deadlines_and_due_manual_or_automa
 }
 
 #[tokio::test]
+async fn mining_priority_switches_preserve_reports_claim_reconciliation_and_manual_timers() {
+    for mode in ["short_events", "ending_soonest"] {
+        let server = MockServer::start().await;
+        let (dir, mut miner, intent, mut pool) = miner(&server).await;
+        let now = Utc::now();
+        miner.campaigns[0].starts_at = now - chrono::Duration::days(3);
+        miner.campaigns[0].ends_at = now + chrono::Duration::days(3);
+        miner.campaigns[0].drops[0].starts_at = miner.campaigns[0].starts_at;
+        miner.campaigns[0].drops[0].ends_at = miner.campaigns[0].ends_at;
+        let mut event = Campaign::parse(&campaign_json("event"), &HashMap::new(), now).unwrap();
+        event.game.id = 2;
+        event.game.name = "Event game".into();
+        event.starts_at = miner.campaigns[0].starts_at;
+        event.ends_at = miner.campaigns[0].ends_at;
+        let mut side = event.drops[0].clone();
+        side.id = "side".into();
+        side.starts_at = event.starts_at;
+        side.ends_at = event.ends_at;
+        event.drops[0].starts_at = now;
+        event.drops[0].ends_at = now + chrono::Duration::hours(3);
+        event.drops.push(side);
+        let mut stream = miner.channels[0].clone();
+        stream.identity.id = 20;
+        stream.game = Some(event.game.clone());
+        miner.campaigns.push(event);
+        miner.channels.push(stream);
+        let manual = Settings::default()
+            .patched(&json!({"games_to_watch":["Rust", "Event game"]}))
+            .unwrap();
+        miner.app.snapshot.write().await.settings.values = manual.clone();
+        miner.reselect(&manual).await;
+        let old_poll = Instant::now();
+        assert_eq!(miner.watching, Some(10));
+        miner.manual = Some(ManualSelection::new(10, Some(Duration::from_secs(120))));
+        let deadline = miner.manual.unwrap().expires_at;
+        let settings = manual
+            .patched(&json!({"mining_priority_mode":mode}))
+            .unwrap();
+        miner.app.snapshot.write().await.settings.values = settings.clone();
+        intent.send_modify(|intent| intent.settings += 1);
+        miner.apply_intent(&pool).await;
+        miner.reselect(&settings).await;
+        assert_eq!(miner.watching, Some(10));
+        assert_eq!(miner.manual.unwrap().expires_at, deadline);
+        assert!(miner.channels_dirty);
+        miner.manual = None;
+        miner.reselect(&settings).await;
+        assert_eq!(miner.watching, Some(20));
+        miner
+            .complete(
+                Job::Poll {
+                    channel: 10,
+                    requested_at: old_poll,
+                    result: Ok(Some(("drop-one".into(), 59))),
+                },
+                &pool,
+            )
+            .await
+            .unwrap();
+        miner.publish(&settings).await.unwrap();
+        assert_eq!(
+            miner
+                .app
+                .snapshot
+                .read()
+                .await
+                .current_drop
+                .as_ref()
+                .unwrap()
+                .drop_id,
+            "drop-event"
+        );
+        assert_eq!(miner.campaigns[0].drops[0].confirmed_minutes, 12);
+        // Twitch, rather than the priority preview, owns the displayed reward.
+        miner
+            .complete(
+                Job::Poll {
+                    channel: 20,
+                    requested_at: Instant::now(),
+                    result: Ok(Some(("side".into(), 15))),
+                },
+                &pool,
+            )
+            .await
+            .unwrap();
+        miner.publish(&settings).await.unwrap();
+        assert_eq!(
+            miner
+                .app
+                .snapshot
+                .read()
+                .await
+                .current_drop
+                .as_ref()
+                .unwrap()
+                .drop_id,
+            "side"
+        );
+        let due = miner.next_watch;
+        miner.reselect(&settings).await;
+        assert_eq!(miner.next_watch, due);
+        assert!(miner.confirm("drop-event", 60, &settings));
+        miner.campaigns[1].drops[0].claim_id = Some("account-event-instance".into());
+        miner.reselect(&settings).await;
+        assert_eq!(miner.watching, Some(10));
+        let old_event_poll = Instant::now() - Duration::from_secs(1);
+        miner
+            .complete(
+                Job::Poll {
+                    channel: 20,
+                    requested_at: old_event_poll,
+                    result: Ok(Some(("drop-event".into(), 59))),
+                },
+                &pool,
+            )
+            .await
+            .unwrap();
+        miner
+            .complete(
+                Job::Inventory {
+                    requested_at: now,
+                    refresh_sequence: 0,
+                    result: Err(TwitchError::Network),
+                },
+                &pool,
+            )
+            .await
+            .unwrap();
+        miner.publish(&settings).await.unwrap();
+        assert_eq!(
+            miner
+                .app
+                .snapshot
+                .read()
+                .await
+                .current_drop
+                .as_ref()
+                .unwrap()
+                .drop_id,
+            "drop-one"
+        );
+        assert!(!miner.campaigns[1].drops[0].claimed);
+        assert_eq!(History::load(dir.path()).total(), 0);
+        let mut lagging = miner.campaigns.clone();
+        lagging[1].drops[0].confirm(50, Utc::now());
+        lagging[1].drops[0].claim_id = None;
+        miner
+            .complete(
+                Job::Inventory {
+                    requested_at: Utc::now(),
+                    refresh_sequence: 0,
+                    result: Ok(Inventory {
+                        rejected_account_ids: HashSet::new(),
+                        campaigns: lagging,
+                        awards: HashMap::new(),
+                        status: InventoryStatus {
+                            available: true,
+                            ..InventoryStatus::default()
+                        },
+                    }),
+                },
+                &pool,
+            )
+            .await
+            .unwrap();
+        miner.reselect(&settings).await;
+        assert_eq!(miner.watching, Some(10));
+        assert_eq!(miner.campaigns[1].drops[0].confirmed_minutes, 60);
+        assert_eq!(
+            miner.campaigns[1].drops[0].claim_id.as_deref(),
+            Some("account-event-instance")
+        );
+        assert_eq!(History::load(dir.path()).total(), 0);
+        let mut claimed = miner.campaigns.clone();
+        claimed[1].drops[0].mark_claimed(Utc::now());
+        miner
+            .complete(
+                Job::Inventory {
+                    requested_at: Utc::now(),
+                    refresh_sequence: 0,
+                    result: Ok(Inventory {
+                        rejected_account_ids: HashSet::new(),
+                        campaigns: claimed,
+                        awards: HashMap::new(),
+                        status: InventoryStatus {
+                            available: true,
+                            ..InventoryStatus::default()
+                        },
+                    }),
+                },
+                &pool,
+            )
+            .await
+            .unwrap();
+        assert_eq!(History::load(dir.path()).total(), 1);
+        assert_eq!(
+            History::load(dir.path()).entries(&HistoryFilter::default())[0].id,
+            "drop-event"
+        );
+        assert_eq!(
+            miner
+                .app
+                .snapshot
+                .read()
+                .await
+                .settings
+                .values
+                .games_to_watch,
+            manual.games_to_watch
+        );
+        pool.close().await;
+    }
+}
+
+#[tokio::test]
 async fn empty_current_drop_preserves_watching_polling_and_account_evidence() {
     for manual in [false, true] {
         for claim_wait in [false, true] {
