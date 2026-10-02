@@ -170,6 +170,7 @@ confirmed claim receipts still recover after a restart.
 
 Interrupted inventory and progress responses use bounded retries. Successful device-login
 exchanges and acknowledged watch events are never replayed because of a response-body failure.
+An interrupted token-validation rejection still attempts renewal with the saved refresh token.
 Notification dismissal failures appear in Activity without postponing watch scheduling.
 
 > [!WARNING]

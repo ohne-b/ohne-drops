@@ -188,6 +188,8 @@ embed it and run without a build tool/runtime companion. Production builds never
   HTTP 401/403 from unauthenticated pages, settings scripts or device discovery are ordinary
   HTTP failures, never grounds to discard the saved session. Authenticated API/OAuth and
   PubSub authentication failures still propagate to the session owner.
+  An interrupted unauthorized token-validation response still attempts the saved refresh token
+  before rejecting the session; refresh failures and account mismatches retain existing handling.
 - New sessions use `twitch_session.json`; keep old credentials/backups untouched for rollback.
   Invalid new sessions are preserved separately before reauthorization. Never log OAuth tokens,
   device secrets, proxy credentials, cookie values or raw authenticated transport frames.

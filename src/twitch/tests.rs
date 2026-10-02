@@ -579,6 +579,40 @@ async fn interrupted_response_retries_exhaust_after_five_attempts() {
 }
 
 #[tokio::test]
+async fn interrupted_oauth_validation_rejections_still_refresh_the_saved_session() {
+    for status in [401, 403] {
+        let refreshed = serde_json::to_vec(
+            &json!({"access_token":"newtoken","refresh_token":"newrefresh","expires_in":3600}),
+        )
+        .unwrap();
+        let validated = serde_json::to_vec(&validation()).unwrap();
+        let (http, requests, server) = body_server(vec![
+            wire_response(status, b"{", 100),
+            wire_response(200, &refreshed, 0),
+            wire_response(200, &validated, 0),
+        ])
+        .await;
+        let restored = session().restore(&http).await;
+        let received = requests.lock().await.clone();
+        stop_body_server(server).await;
+        assert!(restored.is_ok(), "{status}: {:?}", restored.as_ref().err());
+        let restored = restored.unwrap();
+        assert_eq!(restored.access_token, "newtoken");
+        assert_eq!(restored.user_id, 42);
+        assert_eq!(
+            received.len(),
+            3,
+            "validate, refresh, validate refreshed token"
+        );
+        let refresh = String::from_utf8(received[1].clone()).unwrap();
+        assert!(
+            refresh.contains("grant_type=refresh_token")
+                && refresh.contains("refresh_token=testrefresh")
+        );
+    }
+}
+
+#[tokio::test]
 async fn interrupted_successful_oauth_and_mutations_are_not_replayed() {
     use super::operations::Operation;
     let read = Operation::Inventory.request(json!({}));
