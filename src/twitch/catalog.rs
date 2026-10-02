@@ -161,6 +161,11 @@ fn public_campaign(
         return None;
     }
     let restricted = record["allow"]["isEnabled"].as_bool()?;
+    // The public feed omits the unused channel list when restrictions are disabled.
+    // Normalize only that explicit case; account inventory still requires the field.
+    if !restricted && record["allow"].get("channels").is_none() {
+        record["allow"]["channels"] = Value::Array(vec![]);
+    }
     if restricted
         && record["allow"]["channels"]
             .as_array()

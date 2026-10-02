@@ -1034,6 +1034,17 @@ async fn refresh_finishes_after_publication_and_partial_or_failed_requests_keep_
         "Inventory" => json!({"data":{"currentUser":{"inventory":{"dropCampaignsInProgress":[campaign_json("one")],"gameEventDrops":[]}}}}),
         other => panic!("unexpected operation {other}"),
     }).await;
+    let mut public = campaign_json("public");
+    public["allow"] = json!({"isEnabled":false});
+    public["timeBasedDrops"][0]["preconditionDrops"] = serde_json::Value::Null;
+    Mock::given(method("GET"))
+        .and(path("/catalog"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "lastUpdatedAt":Utc::now().to_rfc3339(),
+            "data":[{"rewards":[public]}]
+        })))
+        .mount(&server)
+        .await;
     let (_dir, mut miner, intent, mut pool) = miner(&server).await;
     intent.send_modify(|v| v.refresh += 1);
     miner.apply_intent(&pool).await;
@@ -1052,7 +1063,10 @@ async fn refresh_finishes_after_publication_and_partial_or_failed_requests_keep_
     {
         let state = miner.app.snapshot.read().await;
         assert_eq!(state.inventory_refresh.state, RefreshState::Refreshed);
+        assert!(state.inventory_refresh.error.is_none());
+        assert!(state.inventory_status.available);
         assert!(state.campaigns.iter().any(|c| c.id == "one"));
+        assert!(state.campaigns.iter().any(|c| c.id == "public"));
     }
     let (sequence, _) = miner.app.begin_inventory_refresh().await;
     miner
@@ -1081,7 +1095,7 @@ async fn refresh_finishes_after_publication_and_partial_or_failed_requests_keep_
     );
     assert_eq!(
         miner.campaigns.len(),
-        1,
+        2,
         "partial responses must not erase still-active metadata"
     );
     let (sequence, _) = miner.app.begin_inventory_refresh().await;
@@ -1100,7 +1114,7 @@ async fn refresh_finishes_after_publication_and_partial_or_failed_requests_keep_
         miner.app.snapshot.read().await.inventory_refresh.state,
         RefreshState::Failed
     );
-    assert_eq!(miner.campaigns.len(), 1);
+    assert_eq!(miner.campaigns.len(), 2);
     let (sequence, _) = miner.app.begin_inventory_refresh().await;
     miner
         .complete(
