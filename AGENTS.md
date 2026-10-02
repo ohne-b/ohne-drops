@@ -78,7 +78,9 @@ embed it and run without a build tool/runtime companion. Production builds never
   Reject mixed-null enabled ACLs. Shared domain parsing rejects campaign/drop dates without
   room for the scheduler's one-hour lead and the claim journal's 24-hour grace period.
   Missing restrictions/dependencies, malformed/null entries and duplicate IDs are partial,
-  not empty success. Keep known active/upcoming records on partial refresh; valid empty
+  not empty success. Shared account parsing preserves explicit null/empty ACL and dependency
+  lists and nullable/default ACL flags, while rejecting missing collections and wrong types.
+  Keep known active/upcoming records on partial refresh; valid empty
   feeds are authoritative. A feed 401/403 never logs out Twitch; Twitch auth/cancellation
   failures propagate. Coverage can vary, and restarts need the feed for non-inventory
   campaigns. Never claim relogin/cache clearing repairs feed coverage. Unknown

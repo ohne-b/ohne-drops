@@ -162,6 +162,9 @@ than 30 minutes or over 5 minutes in the future. Failed, stale or malformed resp
 known active/upcoming campaigns in memory while preserving fresh Twitch inventory. A
 restart still needs the feed to rediscover campaigns outside your Twitch inventory.
 
+Malformed Twitch inventory records are treated as a partial refresh, preserving known
+campaigns instead of interpreting missing channel restrictions or prerequisites as empty.
+
 > [!WARNING]
 > Avoid watching Twitch manually with the same account while mining. Simultaneous
 > viewing can interfere with drop progress.

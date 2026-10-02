@@ -299,10 +299,42 @@ mod tests {
 
     #[tokio::test]
     async fn malformed_account_records_are_partial_and_cannot_be_replaced_by_public_assumptions() {
-        for mode in ["damaged", "null_collection", "null_neighbor", "missing_id"] {
+        for mode in [
+            "damaged",
+            "null_collection",
+            "null_neighbor",
+            "missing_id",
+            "missing_acl",
+            "wrong_acl",
+            "missing_dependencies",
+            "wrong_dependencies",
+            "missing_benefits",
+        ] {
             let server = MockServer::start().await;
             let mut damaged = campaign_json("damaged");
             damaged["timeBasedDrops"] = Value::Null;
+            if !matches!(
+                mode,
+                "damaged" | "null_collection" | "null_neighbor" | "missing_id"
+            ) {
+                damaged = campaign_json("damaged");
+                match mode {
+                    "missing_acl" => {
+                        damaged["allow"].as_object_mut().unwrap().remove("channels");
+                    }
+                    "wrong_acl" => damaged["allow"]["isEnabled"] = json!("true"),
+                    "missing_dependencies" => {
+                        damaged["timeBasedDrops"][0]
+                            .as_object_mut()
+                            .unwrap()
+                            .remove("preconditionDrops");
+                    }
+                    "wrong_dependencies" => {
+                        damaged["timeBasedDrops"][0]["preconditionDrops"] = json!({})
+                    }
+                    _ => damaged["timeBasedDrops"][0]["benefitEdges"] = Value::Null,
+                }
+            }
             let records = match mode {
                 "null_collection" => Value::Null,
                 "null_neighbor" => json!([null, campaign_json("owned")]),
@@ -322,7 +354,7 @@ mod tests {
                 .unwrap();
             assert!(!inventory.status.available);
             assert!(inventory.campaigns.iter().any(|c| c.id == "new"));
-            if mode == "damaged" {
+            if !matches!(mode, "null_collection" | "null_neighbor" | "missing_id") {
                 assert!(!inventory.campaigns.iter().any(|c| c.id == "damaged"));
             }
             if mode != "null_collection" {
