@@ -161,6 +161,8 @@ embed it and run without a build tool/runtime companion. Production builds never
 - Requests use bounded concurrency/rate, retries and cancellation. Quality 1..6 controls connect
   timeout 5×quality and total 10×quality seconds; the saved refresh interval actually schedules
   inventory work. Slow discovery must not block watch cadence. Duplicate idle prompts collapse.
+  Nonfatal notification dismissal failures remain visible but never extend or clear the shared
+  scheduling retry deadline; authentication and cancellation still propagate.
   Interrupted response bodies retry within the existing five-attempt budget only for replayable
   GETs and known persisted read-only GraphQL operations/batches. Never replay successful OAuth
   exchanges, mutation responses or acknowledged 204 beacons. Preserve known failure statuses

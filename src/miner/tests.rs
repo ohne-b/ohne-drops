@@ -63,6 +63,63 @@ async fn finish_job(mining: &mut Mining, pool: &PubSub) {
 }
 
 #[tokio::test]
+async fn notification_failures_preserve_retry_deadlines_and_due_manual_or_automatic_watches() {
+    for manual in [false, true] {
+        for backing_off in [false, true] {
+            let server = MockServer::start().await;
+            Mock::given(method("POST"))
+                .and(path("/beacon"))
+                .respond_with(ResponseTemplate::new(204))
+                .mount(&server)
+                .await;
+            let (_dir, mut mining, _intent, mut pool) = miner(&server).await;
+            let settings = select(&mut mining).await;
+            if manual {
+                mining.manual = Some(ManualSelection::new(10, Some(Duration::from_secs(60))));
+            }
+            let selection = mining.manual;
+            mining.channels[0].beacon_url =
+                Some(format!("{}/beacon", server.uri()).parse().unwrap());
+            mining.next_watch = Instant::now();
+            let watch_due = mining.next_watch;
+            if backing_off {
+                mining.next_retry = Instant::now() + Duration::from_secs(30);
+            }
+            let retry_due = mining.next_retry;
+            let console_count = mining.app.snapshot.read().await.console.len();
+            mining
+                .complete(Job::Notification(Err(TwitchError::Status(500))), &pool)
+                .await
+                .unwrap();
+            assert_eq!(mining.next_retry, retry_due);
+            assert_eq!(mining.next_watch, watch_due);
+            assert_eq!(mining.manual, selection);
+            assert_eq!(mining.watching, Some(10));
+            assert_eq!(
+                mining.app.snapshot.read().await.console.len(),
+                console_count + 1
+            );
+            if !backing_off {
+                assert!(mining.next_retry <= Instant::now());
+                mining.schedule(&settings).await;
+                assert!(mining.busy.contains(&JobKind::Watch));
+                finish_job(&mut mining, &pool).await;
+            }
+            pool.close().await;
+        }
+    }
+    for error in [TwitchError::Unauthorized, TwitchError::Cancelled] {
+        let server = MockServer::start().await;
+        let (_dir, mut mining, _intent, mut pool) = miner(&server).await;
+        assert_eq!(
+            mining.complete(Job::Notification(Err(error)), &pool).await,
+            Err(error)
+        );
+        pool.close().await;
+    }
+}
+
+#[tokio::test]
 async fn empty_current_drop_preserves_watching_polling_and_account_evidence() {
     for manual in [false, true] {
         for claim_wait in [false, true] {

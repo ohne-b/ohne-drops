@@ -1176,6 +1176,7 @@ impl Mining {
         let settings = self.app.snapshot.read().await.settings.values.clone();
         let now = Instant::now();
         let inventory_failed = matches!(&job, Job::Inventory { result: Err(_), .. });
+        let notification = matches!(&job, Job::Notification(_));
         let error = match job {
             Job::Manual {
                 revision,
@@ -1542,7 +1543,7 @@ impl Mining {
             if matches!(error, TwitchError::Unauthorized | TwitchError::Cancelled) {
                 return Err(error);
             }
-            if !inventory_failed {
+            if !inventory_failed && !notification {
                 self.next_retry = now + Duration::from_secs(10);
             }
             self.app
