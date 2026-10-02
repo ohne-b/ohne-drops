@@ -164,6 +164,9 @@ restart still needs the feed to rediscover campaigns outside your Twitch invento
 
 Malformed Twitch inventory records are treated as a partial refresh, preserving known
 campaigns instead of interpreting missing channel restrictions or prerequisites as empty.
+Duplicate account campaign IDs are also excluded. Rejected account records cannot be
+replaced by public catalog assumptions or used to infer a pending claim from awards;
+confirmed claim receipts still recover after a restart.
 
 > [!WARNING]
 > Avoid watching Twitch manually with the same account while mining. Simultaneous

@@ -80,6 +80,8 @@ embed it and run without a build tool/runtime companion. Production builds never
   Missing restrictions/dependencies, malformed/null entries and duplicate IDs are partial,
   not empty success. Shared account parsing preserves explicit null/empty ACL and dependency
   lists and nullable/default ACL flags, while rejecting missing collections and wrong types.
+  Exclude every occurrence of duplicate account campaign IDs and reserve rejected IDs against
+  public replacement and award-only pending-claim recovery; confirmed durable receipts still recover.
   Keep known active/upcoming records on partial refresh; valid empty
   feeds are authoritative. A feed 401/403 never logs out Twitch; Twitch auth/cancellation
   failures propagate. Coverage can vary, and restarts need the feed for non-inventory

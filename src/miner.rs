@@ -490,6 +490,7 @@ struct Mining {
     next_progress_refresh: Instant,
     next_transition: Option<chrono::DateTime<Utc>>,
     pending_claims: Vec<PendingClaim>,
+    rejected_account_ids: HashSet<String>,
 }
 impl Mining {
     fn restore(&mut self, saved: &Resume) {
@@ -573,6 +574,7 @@ impl Mining {
             next_progress_refresh: now,
             next_transition: None,
             pending_claims: vec![],
+            rejected_account_ids: HashSet::new(),
         }
     }
     fn spawn(&mut self, kind: JobKind, future: impl Future<Output = Job> + Send + 'static) {
@@ -649,6 +651,7 @@ impl Mining {
             self.cancel_watch();
             self.epoch = self.epoch.wrapping_add(1);
             self.campaigns.clear();
+            self.rejected_account_ids.clear();
             self.channels.clear();
             self.channels_loaded = false;
             self.watching = None;
@@ -1275,6 +1278,7 @@ impl Mining {
                 }
                 self.campaigns = inventory.campaigns;
                 self.status = inventory.status;
+                self.rejected_account_ids = inventory.rejected_account_ids;
                 self.recover_claims(&inventory.awards).await?;
                 let observed_at = Utc::now();
                 let entries = self
@@ -1815,13 +1819,16 @@ impl Mining {
         let journal = self.journal.clone();
         let user_id = self.client.user_id;
         let awards = awards.clone();
+        let rejected_account_ids = self.rejected_account_ids.clone();
         let (pending, recovered) = tokio::task::spawn_blocking(move || {
             let mut journal = journal.blocking_lock();
             let mut recovered = HashSet::new();
             for pending in journal.pending(user_id).into_iter().filter(|p| {
                 p.confirmed
                     || confirmed.contains(&p.entry.id)
-                    || (!unclaimed.contains(&p.entry.id) && p.confirmed_by(&awards))
+                    || (!rejected_account_ids.contains(&p.entry.campaign_id)
+                        && !unclaimed.contains(&p.entry.id)
+                        && p.confirmed_by(&awards))
             }) {
                 record_claim(&app, &pending)?;
                 journal.finish(user_id, &pending.entry.id)?;
