@@ -71,6 +71,7 @@ export interface Filters {
 export interface Settings {
   revision?: string;
   games_to_watch: string[];
+  mining_priority_mode: 'manual' | 'short_events' | 'ending_soonest';
   auto_mine_badges: boolean;
   auto_mine_emotes: boolean;
   games_available: string[];

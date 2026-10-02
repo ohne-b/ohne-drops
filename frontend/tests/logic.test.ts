@@ -6,7 +6,10 @@ import { plainText, translator } from '../src/lib/i18n';
 import { upsert } from '../src/lib/state';
 import { groupHistory, matchesHistory, historyOrder } from '../src/pages/History';
 import type { HistoryEntry, Snapshot } from '../src/lib/types';
-const snapshot: Snapshot = fixture;
+const snapshot: Snapshot = {
+  ...fixture,
+  settings: { ...fixture.settings, mining_priority_mode: 'manual' },
+};
 it('orders active confirmed progress before other available campaigns', () => {
   const progress = snapshot.campaigns[0]!;
   const untouched = {

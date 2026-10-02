@@ -213,7 +213,28 @@ Icon-only actions have circular hover backgrounds. Search-clear actions stay ins
 inside the field, and game-priority drag grips remain plain six-dot handles.
 
 In **Game priorities**, drag games into order or focus a drag handle and use the arrow
-keys. The first game has the highest priority. Settings save silently; if a save
+keys. The Priority High icon beside **Add Game** opens **Mining priority**:
+
+- **Default (manual order)** follows your saved game order, with the first game highest.
+- **Short events first** prioritizes active rewards with a total earning window of at
+  most 24 hours, earliest deadline first, then returns to your saved order.
+- **Ending soonest** prioritizes active rewards with the nearest deadlines, including
+  longer campaigns approaching their end.
+
+Automatic modes preserve your saved drag order and use it to break ties. Dragging still
+edits that base order; **Up next** reflects the effective priority while retaining its
+game/campaign groups. Reward windows use the overlap of campaign and individual drop
+dates. A required prerequisite can inherit its target's deadline (or its own earlier
+deadline), but an unavailable or ignored event cannot boost unrelated rewards. These are
+priority rules, not predictions that enough watch time remains to finish a reward.
+They depend on catalog coverage and dates, and Twitch determines which reward earns progress.
+
+Selected games remain ahead of optional rewards from other games, and manual channels
+keep their override and timer. An unavailable event stream does not stop other mining.
+Confirmed watch completion releases the event's priority while claims continue to reconcile;
+estimates never confirm completion or unlock prerequisites. **Mining priority** is a saved
+mining preference, separate from the display sort in **Campaigns**. Existing installations
+default to manual order. Settings save silently; if a save
 fails or another browser changes the same settings, your edits stay available for **Retry**.
 
 Campaign status filters combine **Active**, **Upcoming**, and **Expired**; **Not linked**

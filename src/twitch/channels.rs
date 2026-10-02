@@ -15,7 +15,7 @@ use super::{
 };
 use crate::{
     config::Settings,
-    domain::{Campaign, Channel, ChannelIdentity, Game, number},
+    domain::{Campaign, Channel, ChannelIdentity, Game, MiningPriority, number},
 };
 
 pub const MAX_CHANNELS: usize = 199;
@@ -135,7 +135,7 @@ impl TwitchClient {
             .iter()
             .filter(|c| c.can_earn_within(settings, now, now + Duration::hours(1)))
             .collect();
-        campaigns.sort_by_key(|c| c.mining_priority(settings));
+        campaigns.sort_by_cached_key(|c| c.mining_priority(settings, now));
         let mut channels = BTreeMap::new();
         let mut directories = BTreeMap::new();
         for campaign in &campaigns {
@@ -192,11 +192,11 @@ impl TwitchClient {
         let mineable: Vec<_> = campaigns
             .iter()
             .filter(|c| c.can_mine(settings, now))
-            .copied()
+            .map(|c| (*c, c.mining_priority(settings, now)))
             .collect();
         channels.sort_by_key(|c| {
             (
-                channel_priority(c, &mineable, settings),
+                channel_priority(c, &mineable),
                 Reverse(c.acl_based),
                 Reverse(c.viewers),
                 c.identity.id,
@@ -471,15 +471,14 @@ fn directory_channel(raw: &Value, game: &Game) -> Option<Channel> {
 }
 fn channel_priority(
     channel: &Channel,
-    campaigns: &[&Campaign],
-    settings: &Settings,
-) -> (usize, Option<DateTime<Utc>>) {
+    campaigns: &[(&Campaign, MiningPriority)],
+) -> MiningPriority {
     campaigns
         .iter()
-        .filter(|c| c.matches_channel(channel))
-        .map(|c| c.mining_priority(settings))
+        .filter(|(c, _)| c.matches_channel(channel))
+        .map(|(_, priority)| *priority)
         .min()
-        .unwrap_or((usize::MAX, Some(DateTime::<Utc>::MAX_UTC)))
+        .unwrap_or(MiningPriority::Unavailable)
 }
 
 pub fn select_channel(
@@ -499,11 +498,12 @@ pub fn select_channel(
     let campaigns: Vec<_> = campaigns
         .iter()
         .filter(|c| c.can_mine(settings, now))
+        .map(|c| (c, c.mining_priority(settings, now)))
         .collect();
-    let eligible = |channel: &&Channel| campaigns.iter().any(|c| c.matches_channel(channel));
+    let eligible = |channel: &&Channel| campaigns.iter().any(|(c, _)| c.matches_channel(channel));
     let best = channels.iter().filter(eligible).min_by_key(|c| {
         (
-            channel_priority(c, &campaigns, settings),
+            channel_priority(c, &campaigns),
             Reverse(c.acl_based),
             Reverse(c.viewers),
             c.identity.id,
@@ -514,12 +514,9 @@ pub fn select_channel(
         .filter(eligible)
         .find(|c| Some(c.identity.id) == current)
         && (
-            channel_priority(current, &campaigns, settings),
+            channel_priority(current, &campaigns),
             Reverse(current.acl_based),
-        ) <= (
-            channel_priority(best, &campaigns, settings),
-            Reverse(best.acl_based),
-        )
+        ) <= (channel_priority(best, &campaigns), Reverse(best.acl_based))
     {
         return Some(current.identity.id);
     }
@@ -798,6 +795,190 @@ mod tests {
             acl_based: false,
             beacon_url: None,
         }
+    }
+
+    #[test]
+    fn mining_priority_switches_to_the_twentieth_game_and_returns_to_manual_order() {
+        let now = Utc::now();
+        let mut first = Campaign::parse(&campaign_json("first"), &HashMap::new(), now).unwrap();
+        first.allowed_channels.clear();
+        first.starts_at = now - Duration::days(3);
+        first.ends_at = now + Duration::days(3);
+        first.drops[0].starts_at = first.starts_at;
+        first.drops[0].ends_at = first.ends_at;
+        let mut event = first.clone();
+        event.id = "event".into();
+        event.game.id = 20;
+        event.game.name = "Game 20".into();
+        event.drops[0].starts_at = now;
+        event.drops[0].ends_at = now + Duration::hours(3);
+        let mut streams = vec![channel(10), channel(20), channel(21)];
+        streams[1].game = Some(event.game.clone());
+        streams[2].game = Some(event.game.clone());
+        streams[2].viewers = Some(1000);
+        let mut games = vec!["Rust".to_owned()];
+        games.extend((2..=20).map(|i| format!("Game {i}")));
+        let manual = Settings {
+            games_to_watch: games,
+            ..Settings::default()
+        };
+        let mut campaigns = vec![first, event];
+        assert_eq!(
+            select_channel(&streams, &campaigns, &manual, now, Some(10), None),
+            Some(10)
+        );
+        for mode in ["short_events", "ending_soonest"] {
+            let settings = manual
+                .patched(&json!({"mining_priority_mode":mode}))
+                .unwrap();
+            assert_eq!(
+                select_channel(&streams, &campaigns, &settings, now, Some(10), None),
+                Some(21)
+            );
+            assert_eq!(
+                select_channel(&streams, &campaigns, &settings, now, Some(20), None),
+                Some(20)
+            );
+            assert_eq!(
+                select_channel(&streams, &campaigns, &settings, now, Some(10), Some(10)),
+                Some(10)
+            );
+            assert_eq!(
+                select_channel(
+                    &streams,
+                    &campaigns,
+                    &settings,
+                    now - Duration::seconds(1),
+                    Some(10),
+                    None
+                ),
+                Some(10)
+            );
+            assert_eq!(
+                select_channel(
+                    &streams,
+                    &campaigns,
+                    &settings,
+                    now + Duration::hours(3),
+                    Some(20),
+                    None
+                ),
+                Some(10)
+            );
+            let queue = crate::domain::wanted_items(&campaigns, &settings, now);
+            assert_eq!(queue[0].game_name, "Game 20");
+            let mut unavailable = streams.clone();
+            unavailable[1].broadcast_id = None;
+            unavailable[2].drops_enabled = false;
+            assert_eq!(
+                select_channel(&unavailable, &campaigns, &settings, now, Some(20), None),
+                Some(10)
+            );
+            let mut restricted = campaigns.clone();
+            restricted[1].allowed_channels = vec![channel(999).identity];
+            assert_eq!(
+                select_channel(&streams, &restricted, &settings, now, Some(20), None),
+                Some(10)
+            );
+            let optional = settings
+                .patched(&json!({"games_to_watch":["Rust"], "auto_mine_badges":true}))
+                .unwrap();
+            restricted[1].allowed_channels.clear();
+            restricted[1].drops[0].benefits[0].view.kind = "BADGE".into();
+            assert_eq!(
+                select_channel(&streams, &restricted, &optional, now, Some(20), None),
+                Some(10)
+            );
+        }
+        assert_eq!(
+            select_channel(&streams, &campaigns, &manual, now, Some(20), None),
+            Some(10)
+        );
+        // Ending soonest also considers a long campaign nearing its deadline;
+        // Short events first intentionally preserves the short-window exception.
+        campaigns[0].drops[0].ends_at = now + Duration::hours(2);
+        let ending = manual
+            .patched(&json!({"mining_priority_mode":"ending_soonest"}))
+            .unwrap();
+        let short = manual
+            .patched(&json!({"mining_priority_mode":"short_events"}))
+            .unwrap();
+        assert_eq!(
+            select_channel(&streams, &campaigns, &ending, now, Some(20), None),
+            Some(10)
+        );
+        assert_eq!(
+            select_channel(&streams, &campaigns, &short, now, Some(10), None),
+            Some(21)
+        );
+        campaigns[0].drops[0].ends_at = campaigns[1].drops[0].ends_at;
+        assert_eq!(
+            select_channel(&streams, &campaigns, &ending, now, Some(20), None),
+            Some(10)
+        );
+        let required = campaigns[1].drops[0].required_minutes;
+        campaigns[1].drops[0].confirm(required, now);
+        let settings = manual
+            .patched(&json!({"mining_priority_mode":"short_events"}))
+            .unwrap();
+        assert_eq!(
+            select_channel(&streams, &campaigns, &settings, now, Some(20), None),
+            Some(10)
+        );
+        assert!(!campaigns[1].drops[0].claimed);
+        assert_eq!(settings.games_to_watch, manual.games_to_watch);
+    }
+
+    #[tokio::test]
+    async fn mining_priority_ranks_event_streams_before_the_channel_limit() {
+        let server = MockServer::start().await;
+        gql_mock(&server, |q| match q["operationName"].as_str().unwrap() {
+            "VideoPlayerStreamInfoOverlayChannel" => {
+                let event = q["variables"]["channel"] == "event";
+                json!({"data":{"user":{"stream":{"id":"live","viewersCount":if event {1} else {10000}},"broadcastSettings":{"game":{"id":if event {"2"} else {"1"},"name":if event {"Event game"} else {"Rust"}}}}}})
+            },
+            "DropsHighlightService_AvailableDrops" => json!({"data":{"channel":{"viewerDropCampaigns":[{"id":"ordinary"},{"id":"event"}]}}}),
+            other => panic!("unexpected operation {other}"),
+        }).await;
+        let now = Utc::now();
+        let mut ordinary =
+            Campaign::parse(&campaign_json("ordinary"), &HashMap::new(), now).unwrap();
+        ordinary.starts_at = now - Duration::days(3);
+        ordinary.ends_at = now + Duration::days(3);
+        ordinary.drops[0].starts_at = ordinary.starts_at;
+        ordinary.drops[0].ends_at = ordinary.ends_at;
+        ordinary.allowed_channels = (1..=MAX_CHANNELS as u64)
+            .map(|id| ChannelIdentity {
+                id,
+                login: format!("ordinary{id}"),
+                name: format!("Ordinary {id}"),
+            })
+            .collect();
+        let mut event = ordinary.clone();
+        event.id = "event".into();
+        event.game.id = 2;
+        event.game.name = "Event game".into();
+        event.drops[0].starts_at = now;
+        event.drops[0].ends_at = now + Duration::hours(3);
+        event.allowed_channels = vec![ChannelIdentity {
+            id: 999,
+            login: "event".into(),
+            name: "Event".into(),
+        }];
+        let campaigns = [ordinary, event];
+        let settings = Settings::default().patched(&json!({"games_to_watch":["Rust", "Event game"], "mining_priority_mode":"short_events"})).unwrap();
+        let client = TwitchClient::new(Arc::new(http(&server)), &session());
+        let channels = client
+            .channels(&campaigns, &settings, Some(&channel(10)))
+            .await
+            .unwrap();
+        assert_eq!(channels.len(), MAX_CHANNELS);
+        assert_eq!(channels[0].identity.id, 10);
+        assert_eq!(channels[1].identity.id, 999);
+        assert_eq!(
+            select_channel(&channels, &campaigns, &settings, now, Some(10), None),
+            Some(999)
+        );
     }
 
     #[tokio::test]

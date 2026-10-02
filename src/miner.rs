@@ -1718,7 +1718,9 @@ impl Mining {
                         .iter()
                         .filter(|c| c.can_watch(channel, settings, now))
                         .filter_map(|c| c.first_drop(settings, now).map(|d| (c, d)))
-                        .min_by_key(|(c, d)| (c.mining_priority(settings), d.remaining_minutes()))
+                        .min_by_key(|(c, d)| {
+                            (c.mining_priority(settings, now), d.remaining_minutes())
+                        })
                 })
             });
         let progress = active.map(|(c, d)| c.progress(d));
