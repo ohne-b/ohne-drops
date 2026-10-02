@@ -63,6 +63,63 @@ async fn finish_job(mining: &mut Mining, pool: &PubSub) {
 }
 
 #[tokio::test]
+async fn notification_failures_preserve_retry_deadlines_and_due_manual_or_automatic_watches() {
+    for manual in [false, true] {
+        for backing_off in [false, true] {
+            let server = MockServer::start().await;
+            Mock::given(method("POST"))
+                .and(path("/beacon"))
+                .respond_with(ResponseTemplate::new(204))
+                .mount(&server)
+                .await;
+            let (_dir, mut mining, _intent, mut pool) = miner(&server).await;
+            let settings = select(&mut mining).await;
+            if manual {
+                mining.manual = Some(ManualSelection::new(10, Some(Duration::from_secs(60))));
+            }
+            let selection = mining.manual;
+            mining.channels[0].beacon_url =
+                Some(format!("{}/beacon", server.uri()).parse().unwrap());
+            mining.next_watch = Instant::now();
+            let watch_due = mining.next_watch;
+            if backing_off {
+                mining.next_retry = Instant::now() + Duration::from_secs(30);
+            }
+            let retry_due = mining.next_retry;
+            let console_count = mining.app.snapshot.read().await.console.len();
+            mining
+                .complete(Job::Notification(Err(TwitchError::Status(500))), &pool)
+                .await
+                .unwrap();
+            assert_eq!(mining.next_retry, retry_due);
+            assert_eq!(mining.next_watch, watch_due);
+            assert_eq!(mining.manual, selection);
+            assert_eq!(mining.watching, Some(10));
+            assert_eq!(
+                mining.app.snapshot.read().await.console.len(),
+                console_count + 1
+            );
+            if !backing_off {
+                assert!(mining.next_retry <= Instant::now());
+                mining.schedule(&settings).await;
+                assert!(mining.busy.contains(&JobKind::Watch));
+                finish_job(&mut mining, &pool).await;
+            }
+            pool.close().await;
+        }
+    }
+    for error in [TwitchError::Unauthorized, TwitchError::Cancelled] {
+        let server = MockServer::start().await;
+        let (_dir, mut mining, _intent, mut pool) = miner(&server).await;
+        assert_eq!(
+            mining.complete(Job::Notification(Err(error)), &pool).await,
+            Err(error)
+        );
+        pool.close().await;
+    }
+}
+
+#[tokio::test]
 async fn empty_current_drop_preserves_watching_polling_and_account_evidence() {
     for manual in [false, true] {
         for claim_wait in [false, true] {
@@ -459,6 +516,7 @@ async fn completed_transition_retains_expired_claim_evidence_on_partial_inventor
         .complete(
             Job::Inventory {
                 result: Ok(Inventory {
+                    rejected_account_ids: HashSet::new(),
                     campaigns: vec![],
                     awards: HashMap::new(),
                     status: InventoryStatus::default(),
@@ -497,6 +555,7 @@ async fn completed_transition_preserves_new_claim_ids_alongside_newer_progress()
         .complete(
             Job::Inventory {
                 result: Ok(Inventory {
+                    rejected_account_ids: HashSet::new(),
                     campaigns: vec![Campaign::parse(&raw, &HashMap::new(), Utc::now()).unwrap()],
                     awards: HashMap::new(),
                     status: InventoryStatus {
@@ -785,6 +844,7 @@ async fn refresh_finishes_after_publication_and_partial_or_failed_requests_keep_
         .complete(
             Job::Inventory {
                 result: Ok(Inventory {
+                    rejected_account_ids: HashSet::new(),
                     campaigns: vec![],
                     status: InventoryStatus {
                         available: false,
@@ -831,6 +891,7 @@ async fn refresh_finishes_after_publication_and_partial_or_failed_requests_keep_
         .complete(
             Job::Inventory {
                 result: Ok(Inventory {
+                    rejected_account_ids: HashSet::new(),
                     campaigns: vec![],
                     status: InventoryStatus {
                         available: true,
@@ -1212,6 +1273,7 @@ async fn inventory_imports_confirmed_badges_without_claiming_or_resurrecting_cle
             .complete(
                 Job::Inventory {
                     result: Ok(Inventory {
+                        rejected_account_ids: HashSet::new(),
                         campaigns: campaigns.clone(),
                         awards: awards.clone(),
                         status: InventoryStatus {
@@ -1585,6 +1647,7 @@ async fn successful_inventory_refresh_recovers_stalled_public_and_retained_rewar
                 .complete(
                     Job::Inventory {
                         result: Ok(Inventory {
+                            rejected_account_ids: HashSet::new(),
                             campaigns: if retained { vec![] } else { vec![fresh] },
                             awards: HashMap::new(),
                             status: InventoryStatus {
@@ -1626,6 +1689,7 @@ async fn inventory_refresh_cannot_replace_progress_confirmed_after_the_request_s
     miner.confirm("drop-one", 31, &Settings::default());
     miner.campaigns[0].drops[0].estimated_minutes = MAX_ESTIMATED_MINUTES;
     let inventory = Inventory {
+        rejected_account_ids: HashSet::new(),
         awards: HashMap::new(),
         campaigns: vec![
             Campaign::parse(&campaign_json("one"), &HashMap::new(), Utc::now()).unwrap(),
@@ -2038,6 +2102,7 @@ async fn manual_channel_preserves_settings_and_survives_catalog_rebuilds() {
                 refresh_sequence: 0,
                 requested_at: Utc::now(),
                 result: Ok(Inventory {
+                    rejected_account_ids: HashSet::new(),
                     campaigns: inventory,
                     awards: HashMap::new(),
                     status: InventoryStatus::default(),
@@ -2539,6 +2604,7 @@ async fn claim_ready_event_survives_an_older_inventory_request() {
         .await
         .unwrap();
     let inventory = Inventory {
+        rejected_account_ids: HashSet::new(),
         awards: HashMap::new(),
         campaigns: vec![
             Campaign::parse(&campaign_json("one"), &HashMap::new(), Utc::now()).unwrap(),
@@ -3070,6 +3136,111 @@ async fn pending_award_inference_cannot_override_explicit_unclaimed_account_stat
         "award inference must not override the explicit account isClaimed:false edge"
     );
     assert_eq!(journal_count, 1);
+}
+
+#[tokio::test]
+async fn rejected_account_records_block_award_recovery_but_preserve_durable_receipts() {
+    for mode in ["malformed", "duplicate"] {
+        for retention in ["active", "upcoming", "expired", "cold_start"] {
+            for receipt in [false, true] {
+                let server = MockServer::start().await;
+                let (dir, mut mining, _intent, mut pool) = miner(&server).await;
+                mining.campaigns[0].drops[0].claim_id = Some("account-instance".into());
+                let pending = PendingClaim::new(
+                    42,
+                    &mining.campaigns[0],
+                    &mining.campaigns[0].drops[0],
+                    &Settings::default(),
+                );
+                mining
+                    .journal
+                    .lock()
+                    .await
+                    .prepare(pending.clone())
+                    .unwrap();
+                if receipt {
+                    mining
+                        .journal
+                        .lock()
+                        .await
+                        .confirm(42, &pending.entry.id)
+                        .unwrap();
+                }
+                // Reload the journal as on restart, including its confirmed receipt.
+                mining.journal = Arc::new(Mutex::new(ClaimJournal::load(dir.path()).unwrap()));
+                match retention {
+                    "cold_start" => mining.campaigns.clear(),
+                    "upcoming" => {
+                        mining.campaigns[0].starts_at = Utc::now() + chrono::Duration::hours(1)
+                    }
+                    "expired" => {
+                        mining.campaigns[0].ends_at = Utc::now() - chrono::Duration::seconds(1);
+                        mining.campaigns[0].drops[0].confirm(60, Utc::now());
+                    }
+                    _ => {}
+                }
+                let unclaimed = campaign_json("one");
+                let mut rejected = unclaimed.clone();
+                let records = if mode == "malformed" {
+                    rejected["allow"]
+                        .as_object_mut()
+                        .unwrap()
+                        .remove("channels");
+                    vec![rejected]
+                } else {
+                    rejected["timeBasedDrops"][0]["self"]["isClaimed"] = json!(true);
+                    vec![unclaimed, rejected]
+                };
+                let awarded_at = pending.starts_at + chrono::Duration::seconds(1);
+                let benefit = pending.benefits[0].clone();
+                gql_mock(&server, move |_| {
+                    json!({"data":{"currentUser":{"inventory":{
+                        "dropCampaignsInProgress":records,
+                        "gameEventDrops":[{"id":benefit,"lastAwardedAt":awarded_at.to_rfc3339()}]
+                    }}}})
+                })
+                .await;
+                // A matching public record must not substitute its award assumptions.
+                Mock::given(method("GET")).and(path("/catalog"))
+                    .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+                        "lastUpdatedAt":Utc::now().to_rfc3339(),"data":[{"gameId":"1","rewards":[campaign_json("one")]}]
+                    }))).mount(&server).await;
+                let requested_at = Utc::now();
+                let inventory = mining.client.inventory().await.unwrap();
+                mining
+                    .complete(
+                        Job::Inventory {
+                            result: Ok(inventory),
+                            requested_at,
+                            refresh_sequence: 0,
+                        },
+                        &pool,
+                    )
+                    .await
+                    .unwrap();
+                assert_eq!(
+                    History::load(dir.path()).total(),
+                    usize::from(receipt),
+                    "{mode}/{retention}/{receipt}"
+                );
+                assert_eq!(
+                    ClaimJournal::load(dir.path()).unwrap().pending(42).len(),
+                    usize::from(!receipt)
+                );
+                if retention != "cold_start" {
+                    assert_eq!(mining.campaigns.len(), 1);
+                    assert_eq!(mining.campaigns[0].drops[0].claimed, receipt);
+                } else {
+                    assert!(mining.campaigns.is_empty());
+                }
+                // Without a receipt, recovery must leave the exact issued instance pending.
+                if !receipt {
+                    assert_eq!(mining.pending_claims[0].instance, "account-instance");
+                }
+                pool.close().await;
+            }
+        }
+    }
 }
 
 #[tokio::test]

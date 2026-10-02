@@ -58,9 +58,55 @@ pub fn directory(slug: &str, limit: usize) -> Value {
             "sort":"RELEVANCE","systemFilters":["DROPS_ENABLED"],"tags":[],"requestID":"JIRA-VXP-2397"},"sortTypeIsRecency":false}))
 }
 
+pub(super) fn can_replay_response(request: &Value) -> bool {
+    if let Some(batch) = request.as_array() {
+        return !batch.is_empty() && batch.iter().all(can_replay_response);
+    }
+    request.get("query").is_none()
+        && [
+            Operation::Inventory,
+            Operation::GameDirectory,
+            Operation::StreamInfo,
+            Operation::CurrentDrop,
+            Operation::AvailableDrops,
+        ]
+        .into_iter()
+        .any(|operation| {
+            let known = operation.request(json!({}));
+            request["operationName"] == known["operationName"]
+                && request["extensions"]["persistedQuery"] == known["extensions"]["persistedQuery"]
+        })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn response_replay_requires_known_read_operations_and_safe_batches() {
+        for (operation, replay) in [
+            (Operation::Inventory, true),
+            (Operation::GameDirectory, true),
+            (Operation::StreamInfo, true),
+            (Operation::CurrentDrop, true),
+            (Operation::AvailableDrops, true),
+            (Operation::ClaimDrop, false),
+            (Operation::DeleteNotification, false),
+        ] {
+            assert_eq!(can_replay_response(&operation.request(json!({}))), replay);
+        }
+        let read = Operation::Inventory.request(json!({}));
+        assert!(can_replay_response(&json!([read.clone(), read.clone()])));
+        assert!(!can_replay_response(&json!([
+            read.clone(),
+            Operation::ClaimDrop.request(json!({}))
+        ])));
+        assert!(!can_replay_response(&json!([])));
+        let mut forged = read;
+        forged["extensions"]["persistedQuery"]["sha256Hash"] = json!("unknown");
+        assert!(!can_replay_response(&forged));
+    }
+
     #[test]
     fn persisted_operation_contracts_include_all_required_variables() {
         for (operation, input, name, expected) in [

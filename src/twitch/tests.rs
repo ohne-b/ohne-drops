@@ -9,8 +9,8 @@ use wiremock::{
 };
 
 use super::{
-    CLIENT_ID, CLIENT_ORIGIN, Endpoints, TwitchClient, TwitchError, TwitchHttp, gql_errors,
-    oauth::Session,
+    CLIENT_ID, CLIENT_ORIGIN, Endpoints, RetryPolicy, TwitchClient, TwitchError, TwitchHttp,
+    gql_errors, oauth::Session,
 };
 
 mod protocol_regressions {
@@ -413,10 +413,13 @@ async fn idle_http_connections_expire_before_the_next_watch_minute() {
     )
     .unwrap();
     let fetch = || async {
-        http.execute(http.request(Method::GET, http.endpoints.web.clone()), false)
-            .await
-            .unwrap()
-            .into_body()
+        http.execute(
+            http.request(Method::GET, http.endpoints.web.clone()),
+            RetryPolicy::Never,
+        )
+        .await
+        .unwrap()
+        .into_body()
     };
     let first = fetch().await;
     let immediate = fetch().await;
@@ -444,8 +447,11 @@ async fn cancellation_interrupts_inflight_http_without_retrying() {
     let http = Arc::new(http(&server));
     let next = http.clone();
     let task = tokio::spawn(async move {
-        next.execute(next.request(Method::GET, next.endpoints.tv.clone()), true)
-            .await
+        next.execute(
+            next.request(Method::GET, next.endpoints.tv.clone()),
+            RetryPolicy::Replay,
+        )
+        .await
     });
     tokio::time::timeout(Duration::from_secs(2), async {
         while server.received_requests().await.unwrap().is_empty() {
@@ -457,6 +463,310 @@ async fn cancellation_interrupts_inflight_http_without_retrying() {
     http.cancel.cancel();
     assert!(matches!(task.await.unwrap(), Err(TwitchError::Cancelled)));
     assert_eq!(server.received_requests().await.unwrap().len(), 1);
+}
+
+fn wire_response(status: u16, body: &[u8], missing: usize) -> Vec<u8> {
+    let mut response = format!("HTTP/1.1 {status} Test\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n", body.len() + missing).into_bytes();
+    response.extend_from_slice(body);
+    response
+}
+
+async fn body_server(
+    responses: Vec<Vec<u8>>,
+) -> (
+    TwitchHttp,
+    Arc<tokio::sync::Mutex<Vec<Vec<u8>>>>,
+    tokio::task::JoinHandle<()>,
+) {
+    use tokio::io::{AsyncBufReadExt, AsyncReadExt, AsyncWriteExt};
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let address = listener.local_addr().unwrap();
+    let requests = Arc::new(tokio::sync::Mutex::new(Vec::new()));
+    let received = requests.clone();
+    let server = tokio::spawn(async move {
+        loop {
+            let (stream, _) = listener.accept().await.unwrap();
+            let mut reader = tokio::io::BufReader::new(stream);
+            let mut length = 0;
+            loop {
+                let mut line = String::new();
+                if reader.read_line(&mut line).await.unwrap() == 0 {
+                    break;
+                }
+                if line == "\r\n" {
+                    break;
+                }
+                if let Some(value) = line.to_ascii_lowercase().strip_prefix("content-length:") {
+                    length = value.trim().parse::<usize>().unwrap();
+                }
+            }
+            let mut body = vec![0; length];
+            reader.read_exact(&mut body).await.unwrap();
+            let mut requests = received.lock().await;
+            let response = &responses[requests.len().min(responses.len() - 1)];
+            requests.push(body);
+            drop(requests);
+            let mut stream = reader.into_inner();
+            let _ = stream.write_all(response).await;
+            // Used only by the cancellation-during-read test.
+            if response
+                .windows(b"Connection: keep-alive".len())
+                .any(|v| v == b"Connection: keep-alive")
+            {
+                std::future::pending::<()>().await;
+            }
+            let _ = stream.shutdown().await;
+        }
+    });
+    let http = TwitchHttp::build(
+        &Settings::default(),
+        Some("testdevice"),
+        CancellationToken::new(),
+        Endpoints::mock(&format!("http://{address}")),
+    )
+    .unwrap();
+    (http, requests, server)
+}
+
+async fn stop_body_server(server: tokio::task::JoinHandle<()>) {
+    server.abort();
+    let _ = server.await;
+}
+
+#[tokio::test]
+async fn interrupted_read_only_responses_retry_with_the_identical_request() {
+    for graphql in [false, true] {
+        let (http, requests, server) = body_server(vec![
+            wire_response(200, b"{", 100),
+            wire_response(200, br#"{"data":{}}"#, 0),
+        ])
+        .await;
+        let result = if graphql {
+            let client = TwitchClient::new(Arc::new(http), &session());
+            client
+                .gql(super::operations::Operation::Inventory.request(json!({})))
+                .await
+                .map(|_| ())
+        } else {
+            http.execute(
+                http.request(Method::GET, http.endpoints.web.clone()),
+                RetryPolicy::Replay,
+            )
+            .await
+            .map(|_| ())
+        };
+        let received = requests.lock().await.clone();
+        stop_body_server(server).await;
+        assert_eq!(result, Ok(()));
+        assert_eq!(received.len(), 2);
+        assert_eq!(received[0], received[1]);
+    }
+}
+
+#[tokio::test]
+async fn interrupted_response_retries_exhaust_after_five_attempts() {
+    let (http, requests, server) = body_server(vec![wire_response(200, b"{", 100)]).await;
+    let result = http
+        .execute(
+            http.request(Method::GET, http.endpoints.web.clone()),
+            RetryPolicy::Replay,
+        )
+        .await;
+    let count = requests.lock().await.len();
+    stop_body_server(server).await;
+    assert_eq!(result.unwrap_err(), TwitchError::Network);
+    assert_eq!(count, 5);
+}
+
+#[tokio::test]
+async fn interrupted_oauth_validation_rejections_still_refresh_the_saved_session() {
+    for status in [401, 403] {
+        let refreshed = serde_json::to_vec(
+            &json!({"access_token":"newtoken","refresh_token":"newrefresh","expires_in":3600}),
+        )
+        .unwrap();
+        let validated = serde_json::to_vec(&validation()).unwrap();
+        let (http, requests, server) = body_server(vec![
+            wire_response(status, b"{", 100),
+            wire_response(200, &refreshed, 0),
+            wire_response(200, &validated, 0),
+        ])
+        .await;
+        let restored = session().restore(&http).await;
+        let received = requests.lock().await.clone();
+        stop_body_server(server).await;
+        assert!(restored.is_ok(), "{status}: {:?}", restored.as_ref().err());
+        let restored = restored.unwrap();
+        assert_eq!(restored.access_token, "newtoken");
+        assert_eq!(restored.user_id, 42);
+        assert_eq!(
+            received.len(),
+            3,
+            "validate, refresh, validate refreshed token"
+        );
+        let refresh = String::from_utf8(received[1].clone()).unwrap();
+        assert!(
+            refresh.contains("grant_type=refresh_token")
+                && refresh.contains("refresh_token=testrefresh")
+        );
+    }
+}
+
+#[tokio::test]
+async fn interrupted_successful_oauth_and_mutations_are_not_replayed() {
+    use super::operations::Operation;
+    let read = Operation::Inventory.request(json!({}));
+    let mut raw_query = read.clone();
+    raw_query["query"] = json!("mutation { something }");
+    for operation in [
+        Operation::ClaimDrop.request(json!({"input":{"dropInstanceID":"issued-instance"}})),
+        Operation::DeleteNotification.request(json!({"input":{"id":"notification"}})),
+        json!([read, Operation::DeleteNotification.request(json!({}))]),
+        raw_query,
+        json!({"operationName":"UnknownMutation"}),
+    ] {
+        let (http, requests, server) = body_server(vec![wire_response(200, b"{", 100)]).await;
+        let client = TwitchClient::new(Arc::new(http), &session());
+        let result = client.gql(operation).await;
+        let count = requests.lock().await.len();
+        stop_body_server(server).await;
+        assert_eq!(result.unwrap_err(), TwitchError::Network);
+        assert_eq!(count, 1);
+    }
+    let (http, requests, server) = body_server(vec![
+        wire_response(200, br#"{"access_token":"synthetic"}"#, 100),
+        wire_response(400, br#"{"message":"device code already consumed"}"#, 0),
+    ])
+    .await;
+    let result = http.oauth_request(http::Request::builder().method(Method::POST)
+        .uri("https://id.twitch.tv/oauth2/token").body(b"device_code=synthetic&grant_type=urn:ietf:params:oauth:grant-type:device_code".to_vec()).unwrap()).await;
+    let count = requests.lock().await.len();
+    stop_body_server(server).await;
+    assert_eq!(result.unwrap_err(), TwitchError::Network);
+    assert_eq!(
+        count, 1,
+        "a successful single-use exchange must not be replayed"
+    );
+}
+
+#[tokio::test]
+async fn response_replay_does_not_retry_disabled_invalid_or_acknowledged_responses() {
+    let (http, requests, server) = body_server(vec![wire_response(200, b"{", 100)]).await;
+    let result = http
+        .execute(
+            http.request(Method::GET, http.endpoints.web.clone()),
+            RetryPolicy::Never,
+        )
+        .await;
+    let count = requests.lock().await.len();
+    stop_body_server(server).await;
+    assert_eq!(result.unwrap_err(), TwitchError::Network);
+    assert_eq!(count, 1);
+    for body in [vec![b'{'], vec![b' '; super::MAX_BODY + 1]] {
+        let (http, requests, server) = body_server(vec![wire_response(200, &body, 0)]).await;
+        let client = TwitchClient::new(Arc::new(http), &session());
+        let result = client
+            .gql(super::operations::Operation::Inventory.request(json!({})))
+            .await;
+        let count = requests.lock().await.len();
+        stop_body_server(server).await;
+        assert_eq!(result, Err(TwitchError::InvalidResponse));
+        assert_eq!(count, 1);
+    }
+    let (http, requests, server) = body_server(vec![wire_response(204, b"", 0)]).await;
+    let mut channel = crate::domain::Channel::offline(
+        crate::domain::ChannelIdentity {
+            id: 10,
+            login: "streamer".into(),
+            name: "Streamer".into(),
+        },
+        false,
+    );
+    channel.broadcast_id = Some("broadcast".into());
+    channel.beacon_url = Some(http.endpoints.web.clone());
+    let client = TwitchClient::new(Arc::new(http), &session());
+    let result = client.send_watch(&mut channel, chrono::Utc::now()).await;
+    let count = requests.lock().await.len();
+    stop_body_server(server).await;
+    assert_eq!(result, Ok(true));
+    assert_eq!(count, 1);
+}
+
+#[tokio::test]
+async fn interrupted_error_bodies_preserve_authenticated_and_public_statuses() {
+    for status in [400, 401, 403] {
+        for endpoint in ["page", "gql", "oauth", "catalog"] {
+            let (http, requests, server) =
+                body_server(vec![wire_response(status, b"{", 100)]).await;
+            let result = if endpoint == "gql" {
+                TwitchClient::new(Arc::new(http), &session())
+                    .gql(super::operations::Operation::Inventory.request(json!({})))
+                    .await
+                    .map(|_| ())
+            } else if endpoint == "oauth" {
+                http.oauth_request(
+                    http::Request::builder()
+                        .uri("https://id.twitch.tv/oauth2/validate")
+                        .body(Vec::new())
+                        .unwrap(),
+                )
+                .await
+                .map(|_| ())
+            } else if endpoint == "catalog" {
+                http.catalog().await.map(|_| ())
+            } else {
+                http.execute(
+                    http.request(Method::GET, http.endpoints.web.clone()),
+                    RetryPolicy::Replay,
+                )
+                .await
+                .map(|_| ())
+            };
+            let count = requests.lock().await.len();
+            stop_body_server(server).await;
+            let expected = if matches!(endpoint, "gql" | "oauth") && matches!(status, 401 | 403) {
+                TwitchError::Unauthorized
+            } else {
+                TwitchError::Status(status)
+            };
+            assert_eq!(result, Err(expected));
+            assert_eq!(count, 1);
+        }
+    }
+}
+
+#[tokio::test]
+async fn cancellation_interrupts_response_read_and_retry_backoff() {
+    for reading in [false, true] {
+        let response = if reading {
+            b"HTTP/1.1 200 OK\r\nContent-Length: 100\r\nConnection: keep-alive\r\n\r\n{".to_vec()
+        } else {
+            wire_response(200, b"{", 100)
+        };
+        let (http, requests, server) = body_server(vec![response]).await;
+        let next = http.clone();
+        let task = tokio::spawn(async move {
+            next.execute(
+                next.request(Method::GET, next.endpoints.web.clone()),
+                RetryPolicy::Replay,
+            )
+            .await
+        });
+        tokio::time::timeout(Duration::from_secs(2), async {
+            while requests.lock().await.is_empty() {
+                tokio::task::yield_now().await;
+            }
+        })
+        .await
+        .unwrap();
+        tokio::time::sleep(Duration::from_millis(50)).await;
+        http.cancel.cancel();
+        let result = task.await.unwrap();
+        let count = requests.lock().await.len();
+        stop_body_server(server).await;
+        assert_eq!(result.unwrap_err(), TwitchError::Cancelled);
+        assert_eq!(count, 1);
+    }
 }
 
 #[tokio::test]

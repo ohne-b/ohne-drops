@@ -162,6 +162,17 @@ than 30 minutes or over 5 minutes in the future. Failed, stale or malformed resp
 known active/upcoming campaigns in memory while preserving fresh Twitch inventory. A
 restart still needs the feed to rediscover campaigns outside your Twitch inventory.
 
+Malformed Twitch inventory records are treated as a partial refresh, preserving known
+campaigns instead of interpreting missing channel restrictions or prerequisites as empty.
+Duplicate account campaign IDs are also excluded. Rejected account records cannot be
+replaced by public catalog assumptions or used to infer a pending claim from awards;
+confirmed claim receipts still recover after a restart.
+
+Interrupted inventory and progress responses use bounded retries. Successful device-login
+exchanges and acknowledged watch events are never replayed because of a response-body failure.
+An interrupted token-validation rejection still attempts renewal with the saved refresh token.
+Notification dismissal failures appear in Activity without postponing watch scheduling.
+
 > [!WARNING]
 > Avoid watching Twitch manually with the same account while mining. Simultaneous
 > viewing can interfere with drop progress.

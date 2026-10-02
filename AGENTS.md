@@ -78,7 +78,11 @@ embed it and run without a build tool/runtime companion. Production builds never
   Reject mixed-null enabled ACLs. Shared domain parsing rejects campaign/drop dates without
   room for the scheduler's one-hour lead and the claim journal's 24-hour grace period.
   Missing restrictions/dependencies, malformed/null entries and duplicate IDs are partial,
-  not empty success. Keep known active/upcoming records on partial refresh; valid empty
+  not empty success. Shared account parsing preserves explicit null/empty ACL and dependency
+  lists and nullable/default ACL flags, while rejecting missing collections and wrong types.
+  Exclude every occurrence of duplicate account campaign IDs and reserve rejected IDs against
+  public replacement and award-only pending-claim recovery; confirmed durable receipts still recover.
+  Keep known active/upcoming records on partial refresh; valid empty
   feeds are authoritative. A feed 401/403 never logs out Twitch; Twitch auth/cancellation
   failures propagate. Coverage can vary, and restarts need the feed for non-inventory
   campaigns. Never claim relogin/cache clearing repairs feed coverage. Unknown
@@ -157,6 +161,12 @@ embed it and run without a build tool/runtime companion. Production builds never
 - Requests use bounded concurrency/rate, retries and cancellation. Quality 1..6 controls connect
   timeout 5×quality and total 10×quality seconds; the saved refresh interval actually schedules
   inventory work. Slow discovery must not block watch cadence. Duplicate idle prompts collapse.
+  Nonfatal notification dismissal failures remain visible but never extend or clear the shared
+  scheduling retry deadline; authentication and cancellation still propagate.
+  Interrupted response bodies retry within the existing five-attempt budget only for replayable
+  GETs and known persisted read-only GraphQL operations/batches. Never replay successful OAuth
+  exchanges, mutation responses or acknowledged 204 beacons. Preserve known failure statuses
+  when error bodies fail, including authenticated 401/403 versus ordinary public HTTP failures.
 - Upstream diagnostics use server tracing only, never dashboard console/socket payloads.
   Record operation/status/attempt, JSON syntax positions, rejected field types, typed network
   causes and catalog rejection summaries. Basic logs allowlist known GraphQL messages and
@@ -178,6 +188,8 @@ embed it and run without a build tool/runtime companion. Production builds never
   HTTP 401/403 from unauthenticated pages, settings scripts or device discovery are ordinary
   HTTP failures, never grounds to discard the saved session. Authenticated API/OAuth and
   PubSub authentication failures still propagate to the session owner.
+  An interrupted unauthorized token-validation response still attempts the saved refresh token
+  before rejecting the session; refresh failures and account mismatches retain existing handling.
 - New sessions use `twitch_session.json`; keep old credentials/backups untouched for rollback.
   Invalid new sessions are preserved separately before reauthorization. Never log OAuth tokens,
   device secrets, proxy credentials, cookie values or raw authenticated transport frames.
