@@ -503,7 +503,7 @@ pub(super) fn network(error: &reqwest::Error, stage: &'static str, attempt: usiz
 mod tests {
     use super::*;
     use crate::twitch::{
-        TwitchClient,
+        RetryPolicy, TwitchClient,
         operations::Operation,
         tests::{http, session},
     };
@@ -587,7 +587,7 @@ mod tests {
                     .header("Authorization", "OAuth testtoken")
                     .header("Cookie", "session=request-cookie")
                     .form(&[("device_code", "device-secret")]),
-                true,
+                RetryPolicy::Transport,
             )
             .with_subscriber(output.advanced_subscriber())
             .await
@@ -652,7 +652,7 @@ mod tests {
                         "http://{address}/private-path?token=private-secret"
                     ))
                     .header("Authorization", "OAuth testtoken"),
-                false,
+                RetryPolicy::Never,
             )
             .with_subscriber(output.advanced_subscriber())
             .await
@@ -705,7 +705,10 @@ mod tests {
             let http = http(&server);
             let output = Writer::default();
             let work = http
-                .execute(http.client.post(format!("http://{address}/")), true)
+                .execute(
+                    http.client.post(format!("http://{address}/")),
+                    RetryPolicy::Transport,
+                )
                 .with_subscriber(output.advanced_subscriber());
             let cancellation = async {
                 received.await.unwrap();
@@ -1072,7 +1075,7 @@ mod tests {
         let http = http(&server);
         let output = Writer::default();
         let url = format!("{}/private-path?token=private-secret", server.uri());
-        http.execute(http.client.get(&url), false)
+        http.execute(http.client.get(&url), RetryPolicy::Never)
             .with_subscriber(output.subscriber())
             .await
             .unwrap();

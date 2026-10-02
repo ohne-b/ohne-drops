@@ -104,7 +104,11 @@ impl Session {
                     None,
                 )
             })?,
-            Err(ValidationError::NotAuthorized) => {
+            // Interrupted validation error bodies preserve 401/403 as a request error.
+            Err(
+                ValidationError::NotAuthorized
+                | ValidationError::Request(TwitchError::Unauthorized),
+            ) => {
                 let refresh = self
                     .refresh_token
                     .clone()

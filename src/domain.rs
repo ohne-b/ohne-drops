@@ -35,6 +35,14 @@ pub fn number(value: &Value) -> Option<u64> {
     value.as_u64().or_else(|| value.as_str()?.parse().ok())
 }
 
+fn nullable_array<'a>(value: &'a Value, key: &str) -> Result<&'a [Value], InvalidData> {
+    match value.get(key) {
+        Some(Value::Null) => Ok(&[]),
+        Some(Value::Array(values)) => Ok(values),
+        _ => Err(InvalidData),
+    }
+}
+
 fn timestamp(value: &Value, key: &str) -> Result<DateTime<Utc>, InvalidData> {
     let at: DateTime<Utc> = value[key]
         .as_str()
@@ -146,8 +154,8 @@ impl Drop {
         let ends_at = timestamp(value, "endAt")?;
         let benefits = value["benefitEdges"]
             .as_array()
-            .into_iter()
-            .flatten()
+            .ok_or(InvalidData)?
+            .iter()
             .map(|edge| Benefit::parse(&edge["benefit"]))
             .collect::<Result<Vec<_>, _>>()?;
         let account = value.get("self").filter(|v| !v.is_null());
@@ -196,10 +204,8 @@ impl Drop {
                 .and_then(|v| v["dropInstanceID"].as_str())
                 .filter(|s| !s.is_empty())
                 .map(str::to_owned),
-            prerequisites: value["preconditionDrops"]
-                .as_array()
-                .into_iter()
-                .flatten()
+            prerequisites: nullable_array(value, "preconditionDrops")?
+                .iter()
                 .map(|v| text(v, "id"))
                 .collect::<Result<_, _>>()?,
             benefits,
@@ -336,13 +342,19 @@ impl Campaign {
         awards: &HashMap<String, DateTime<Utc>>,
         now: DateTime<Utc>,
     ) -> Result<Self, InvalidData> {
-        let channel_list = |v: &Value| {
-            v.as_array()
-                .into_iter()
-                .flatten()
-                .filter(|v| !v.is_null())
+        let channels = nullable_array(&value["allow"], "channels")?;
+        let enabled = match value["allow"].get("isEnabled") {
+            None | Some(Value::Bool(true)) => true,
+            Some(Value::Null | Value::Bool(false)) => false,
+            _ => return Err(InvalidData),
+        };
+        let allowed_channels = if enabled {
+            channels
+                .iter()
                 .map(ChannelIdentity::parse)
-                .collect::<Result<Vec<_>, _>>()
+                .collect::<Result<_, _>>()?
+        } else {
+            vec![]
         };
         let raw_drops = value["timeBasedDrops"].as_array().ok_or(InvalidData)?;
         if raw_drops.len() > 5000 {
@@ -368,14 +380,7 @@ impl Campaign {
             starts_at: timestamp(value, "startAt")?,
             ends_at: timestamp(value, "endAt")?,
             valid: value["status"].as_str() != Some("EXPIRED"),
-            allowed_channels: if value["allow"]
-                .get("isEnabled")
-                .is_some_and(|enabled| enabled != true)
-            {
-                vec![]
-            } else {
-                channel_list(&value["allow"]["channels"])?
-            },
+            allowed_channels,
             drops,
         })
     }
@@ -772,6 +777,95 @@ mod tests {
     }
     fn campaign(drops: Vec<Value>) -> Campaign {
         Campaign::parse(&raw_campaign(drops), &HashMap::new(), now()).unwrap()
+    }
+
+    #[test]
+    fn malformed_eligibility_fields_cannot_become_unrestricted() {
+        for mode in [
+            "missing_allow",
+            "null_allow",
+            "missing_channels",
+            "wrong_channels",
+            "wrong_enabled",
+            "null_channel",
+            "missing_dependencies",
+            "wrong_dependencies",
+            "null_dependency",
+            "missing_benefits",
+            "wrong_benefits",
+        ] {
+            let mut raw = raw_campaign(vec![raw_drop("successor", &["parent"])]);
+            match mode {
+                "missing_allow" => {
+                    raw.as_object_mut().unwrap().remove("allow");
+                }
+                "null_allow" => raw["allow"] = Value::Null,
+                "missing_channels" => {
+                    raw["allow"].as_object_mut().unwrap().remove("channels");
+                }
+                "wrong_channels" => raw["allow"]["channels"] = json!({}),
+                "wrong_enabled" => raw["allow"]["isEnabled"] = json!("true"),
+                "null_channel" => {
+                    raw["allow"]["channels"] = json!([null, {"id":"10","login":"streamer"}])
+                }
+                "missing_dependencies" => {
+                    raw["timeBasedDrops"][0]
+                        .as_object_mut()
+                        .unwrap()
+                        .remove("preconditionDrops");
+                }
+                "wrong_dependencies" => {
+                    raw["timeBasedDrops"][0]["preconditionDrops"] = json!({"id":"parent"})
+                }
+                "null_dependency" => raw["timeBasedDrops"][0]["preconditionDrops"] = json!([null]),
+                "missing_benefits" => {
+                    raw["timeBasedDrops"][0]
+                        .as_object_mut()
+                        .unwrap()
+                        .remove("benefitEdges");
+                }
+                _ => raw["timeBasedDrops"][0]["benefitEdges"] = Value::Null,
+            }
+            assert!(
+                Campaign::parse(&raw, &HashMap::new(), now()).is_err(),
+                "{mode}"
+            );
+        }
+    }
+
+    #[test]
+    fn explicit_empty_eligibility_and_nullable_acl_flags_remain_compatible() {
+        for empty in [Value::Null, json!([])] {
+            let mut raw = raw_campaign(vec![raw_drop("reward", &[])]);
+            raw["allow"]["channels"] = empty.clone();
+            raw["timeBasedDrops"][0]["preconditionDrops"] = empty;
+            let parsed = Campaign::parse(&raw, &HashMap::new(), now()).unwrap();
+            assert!(parsed.can_watch(&channel(), &selected(), now()));
+        }
+        for enabled in [
+            None,
+            Some(json!(true)),
+            Some(json!(false)),
+            Some(Value::Null),
+        ] {
+            let mut raw = raw_campaign(vec![raw_drop("reward", &[])]);
+            raw["allow"]["channels"] = json!([{"id":"11","login":"restricted"}]);
+            if let Some(enabled) = &enabled {
+                raw["allow"]["isEnabled"] = enabled.clone();
+            } else {
+                raw["allow"].as_object_mut().unwrap().remove("isEnabled");
+            }
+            let parsed = Campaign::parse(&raw, &HashMap::new(), now()).unwrap();
+            assert_eq!(
+                parsed.can_watch(&channel(), &selected(), now()),
+                matches!(enabled, Some(Value::Bool(false) | Value::Null))
+            );
+        }
+        let parsed = campaign(vec![
+            raw_drop("parent", &[]),
+            raw_drop("successor", &["parent"]),
+        ]);
+        assert!(!parsed.prerequisites_met(&parsed.drops[1]));
     }
     fn selected() -> Settings {
         Settings::default()

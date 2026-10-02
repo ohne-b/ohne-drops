@@ -10,6 +10,7 @@ pub struct Inventory {
     pub campaigns: Vec<Campaign>,
     pub status: InventoryStatus,
     pub awards: HashMap<String, DateTime<Utc>>,
+    pub rejected_account_ids: HashSet<String>,
 }
 
 impl TwitchClient {
@@ -42,6 +43,7 @@ impl TwitchClient {
         let now = Utc::now();
         let mut campaigns = BTreeMap::new();
         let mut account_ids = HashSet::new();
+        let mut rejected_account_ids = HashSet::new();
         let mut account_complete = inventory["dropCampaignsInProgress"].is_array();
         let mut malformed_records = 0usize;
         let mut duplicates = 0usize;
@@ -52,6 +54,9 @@ impl TwitchClient {
             {
                 duplicates += 1;
                 account_complete = false;
+                campaigns.remove(id);
+                rejected_account_ids.insert(id.to_owned());
+                continue;
             }
             match Campaign::parse(record, &awards, now) {
                 Ok(campaign) => {
@@ -60,6 +65,9 @@ impl TwitchClient {
                 Err(_) => {
                     malformed_records += 1;
                     account_complete = false;
+                    if let Some(id) = record["id"].as_str() {
+                        rejected_account_ids.insert(id.to_owned());
+                    }
                 }
             }
         }
@@ -85,6 +93,7 @@ impl TwitchClient {
         Ok(Inventory {
             campaigns: campaigns.into_values().collect(),
             awards,
+            rejected_account_ids,
             status: InventoryStatus {
                 available,
                 checked_at: Some(now),
@@ -152,6 +161,46 @@ mod tests {
             assert_eq!(q["operationName"], "Inventory", "only account inventory goes to Twitch");
             json!({"data":{"currentUser":{"inventory":{"dropCampaignsInProgress":records,"gameEventDrops":[]}}}})
         }).await;
+    }
+
+    #[tokio::test]
+    async fn duplicate_account_campaigns_are_excluded_in_every_order() {
+        let unclaimed = campaign_json("ambiguous");
+        let mut claimed = unclaimed.clone();
+        claimed["timeBasedDrops"][0]["self"]["isClaimed"] = json!(true);
+        let mut malformed = unclaimed.clone();
+        malformed["timeBasedDrops"] = Value::Null;
+        for records in [
+            vec![unclaimed.clone(), claimed.clone()],
+            vec![claimed.clone(), unclaimed.clone()],
+            vec![claimed.clone(), unclaimed.clone(), claimed.clone()],
+            vec![unclaimed.clone(), malformed.clone()],
+            vec![malformed, unclaimed],
+        ] {
+            let server = MockServer::start().await;
+            let mut records = records;
+            records.push(campaign_json("healthy"));
+            account(&server, json!(records)).await;
+            catalog(
+                &server,
+                ResponseTemplate::new(200)
+                    .set_body_json(feed(vec![claimed.clone(), campaign_json("public")])),
+            )
+            .await;
+            let inventory = TwitchClient::new(Arc::new(http(&server)), &session())
+                .inventory()
+                .await
+                .unwrap();
+            assert!(!inventory.status.available);
+            assert_eq!(
+                inventory
+                    .campaigns
+                    .iter()
+                    .map(|c| c.id.as_str())
+                    .collect::<Vec<_>>(),
+                ["healthy", "public"]
+            );
+        }
     }
 
     #[tokio::test]
@@ -299,10 +348,42 @@ mod tests {
 
     #[tokio::test]
     async fn malformed_account_records_are_partial_and_cannot_be_replaced_by_public_assumptions() {
-        for mode in ["damaged", "null_collection", "null_neighbor", "missing_id"] {
+        for mode in [
+            "damaged",
+            "null_collection",
+            "null_neighbor",
+            "missing_id",
+            "missing_acl",
+            "wrong_acl",
+            "missing_dependencies",
+            "wrong_dependencies",
+            "missing_benefits",
+        ] {
             let server = MockServer::start().await;
             let mut damaged = campaign_json("damaged");
             damaged["timeBasedDrops"] = Value::Null;
+            if !matches!(
+                mode,
+                "damaged" | "null_collection" | "null_neighbor" | "missing_id"
+            ) {
+                damaged = campaign_json("damaged");
+                match mode {
+                    "missing_acl" => {
+                        damaged["allow"].as_object_mut().unwrap().remove("channels");
+                    }
+                    "wrong_acl" => damaged["allow"]["isEnabled"] = json!("true"),
+                    "missing_dependencies" => {
+                        damaged["timeBasedDrops"][0]
+                            .as_object_mut()
+                            .unwrap()
+                            .remove("preconditionDrops");
+                    }
+                    "wrong_dependencies" => {
+                        damaged["timeBasedDrops"][0]["preconditionDrops"] = json!({})
+                    }
+                    _ => damaged["timeBasedDrops"][0]["benefitEdges"] = Value::Null,
+                }
+            }
             let records = match mode {
                 "null_collection" => Value::Null,
                 "null_neighbor" => json!([null, campaign_json("owned")]),
@@ -322,7 +403,7 @@ mod tests {
                 .unwrap();
             assert!(!inventory.status.available);
             assert!(inventory.campaigns.iter().any(|c| c.id == "new"));
-            if mode == "damaged" {
+            if !matches!(mode, "null_collection" | "null_neighbor" | "missing_id") {
                 assert!(!inventory.campaigns.iter().any(|c| c.id == "damaged"));
             }
             if mode != "null_collection" {

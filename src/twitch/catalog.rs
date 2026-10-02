@@ -6,7 +6,7 @@ use std::{
 use chrono::{DateTime, Utc};
 use serde_json::Value;
 
-use super::{TwitchError, TwitchHttp, diagnostics};
+use super::{RetryPolicy, TwitchError, TwitchHttp, diagnostics};
 use crate::domain::Campaign;
 
 const MAX_CAMPAIGNS: usize = 2000;
@@ -28,7 +28,7 @@ impl TwitchHttp {
                     self.catalog_client
                         .get(self.endpoints.catalog.clone())
                         .header("Accept", "application/json"),
-                    true,
+                    RetryPolicy::Replay,
                 )
                 .await?;
             // A public-feed 401/403 is not a Twitch logout.
