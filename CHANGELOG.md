@@ -1,5 +1,20 @@
 # Changelog
 
+## [v1.3.0](https://github.com/ohne-b/twitch-drops-miner/releases/tag/v1.3.0) — 2026-10-02
+
+- add the Mining priority selector with Default (manual order), Short events first and Ending soonest; preserve saved game order, manual-channel timers and selected-game priority ([#45](https://github.com/ohne-b/twitch-drops-miner/pull/45))
+- make dashboard actions more compact, keep native sort menus legible, and show a temporary copy-success tick without shifting the Twitch authorization row ([#36](https://github.com/ohne-b/twitch-drops-miner/pull/36), [#37](https://github.com/ohne-b/twitch-drops-miner/pull/37), [#38](https://github.com/ohne-b/twitch-drops-miner/pull/38), [#39](https://github.com/ohne-b/twitch-drops-miner/pull/39))
+- use fixed-size icons for update checks, manual-channel mining and inventory refresh, retaining accessible progress, success and retry feedback ([#40](https://github.com/ohne-b/twitch-drops-miner/pull/40), [#41](https://github.com/ohne-b/twitch-drops-miner/pull/41))
+- accept empty CurrentDrop sessions as no result and strengthen inventory validation so malformed or duplicate account records cannot invent eligibility or claim history ([#43](https://github.com/ohne-b/twitch-drops-miner/pull/43), [#44](https://github.com/ohne-b/twitch-drops-miner/pull/44))
+- retry interrupted read responses only when safe to replay, preserve token refresh after interrupted validation rejections, and keep notification failures from delaying mining ([#44](https://github.com/ohne-b/twitch-drops-miner/pull/44))
+
+Existing settings, credentials, history, service names and container mounts remain compatible.
+Mining priority defaults to the existing manual order. Automatic priority uses known reward
+dates; it does not predict whether enough watch time remains. Completed watch time is never
+treated as a successful claim. Mock tests and image health checks do not prove live Twitch earning.
+
+[Compare v1.2.0...v1.3.0](https://github.com/ohne-b/twitch-drops-miner/compare/v1.2.0...v1.3.0)
+
 ## [v1.2.0](https://github.com/ohne-b/twitch-drops-miner/releases/tag/v1.2.0) — 2026-09-29
 
 - standardize dashboard icons with the MDI React package and borderless icon actions, including campaign/history sorting, filtering, mining controls and game priorities ([#35](https://github.com/ohne-b/twitch-drops-miner/pull/35))
