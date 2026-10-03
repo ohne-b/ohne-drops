@@ -35,9 +35,21 @@ watch events, and claims earned rewards. The Rust executable includes the React 
 
 ### Docker Compose
 
-Version 1.0.0 and later use `ghcr.io/ohne-b/twitch-drops-miner`.
+Install Docker with Compose support.
 
-Install Docker with Compose support. In a new directory, save this as `compose.yaml`:
+<details>
+<summary>New to Docker?</summary>
+
+| System | Guide |
+| --- | --- |
+| Windows | [Docker Desktop](https://docs.docker.com/desktop/setup/install/windows-install/) |
+| macOS | [Docker Desktop](https://docs.docker.com/desktop/setup/install/mac-install/) |
+| Linux desktop | [Docker Desktop](https://docs.docker.com/desktop/setup/install/linux/) |
+| Linux server | [Docker Engine](https://docs.docker.com/engine/install/) and [Compose](https://docs.docker.com/compose/install/linux/) |
+
+</details>
+
+In a new folder, save this as `compose.yaml`:
 
 ```yaml
 services:
@@ -53,16 +65,23 @@ services:
     restart: unless-stopped
 ```
 
+<details>
+<summary>Using Docker Desktop or Docker Engine</summary>
+
 Create the `data` and `logs` directories beside that file. On Linux, make them writable
-by UID/GID `1000:1000`, which runs the container. Then start it:
+by UID/GID `1000:1000`, which runs the container. Start Docker Desktop if you use it,
+then open PowerShell (Windows) or Terminal (macOS/Linux) in that folder and run:
 
 ```bash
 docker compose up -d
 ```
 
 Open <http://127.0.0.1:8080> and follow [First login](#first-login).
+Keep Docker running and the computer awake while mining.
 The port mapping limits access to the local machine. For LAN access, bind an explicit
 LAN address and enable [dashboard protection](#dashboard-password-and-remote-access).
+
+</details>
 
 Release images use GitHub Container Registry at `ghcr.io/ohne-b/twitch-drops-miner`.
 `latest` follows stable releases; use an explicit version tag to pin a release.
