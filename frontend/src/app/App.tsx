@@ -2,7 +2,8 @@ import { Icon } from '@mdi/react';
 import { useEffect, useState } from 'react';
 import { NavLink, Navigate, Route, Routes, useLocation, useNavigate } from 'react-router';
 import {
-  mdiViewDashboardOutline,
+  mdiPlayCircleOutline,
+  mdiReload,
   mdiGiftOutline,
   mdiTextBoxOutline,
   mdiCogOutline,
@@ -13,41 +14,43 @@ import type { AuthStatus } from '../shared/lib/types';
 import { request } from '../shared/lib/api';
 import { I18n, useT } from '../shared/lib/i18n';
 import { MinerProvider, useMiner } from './MinerProvider';
-import { Button, Empty, Notice } from '../shared/ui/index';
-import Overview from '../features/mining/Mining';
+import { Button, Empty, Notice, IconButton } from '../shared/ui/index';
+import Mining from '../features/mining/Mining';
 import Campaigns from '../features/campaigns/Campaigns';
 import Activity from '../features/activity/Activity';
 import Settings from '../features/settings/Settings';
 import Login from '../features/settings/Login';
 import logo from '../assets/twitch-drops-miner-logo.svg?no-inline';
 function Shell({ auth, onLogout }: { auth: AuthStatus; onLogout: () => Promise<void> }) {
-  const { data, connected } = useMiner();
+  const { data, connected, incompatible, autosave } = useMiner();
   const t = useT();
   const location = useLocation();
   const [logoutError, setLogoutError] = useState(false);
   const links = [
-    ['/', 'overview', mdiViewDashboardOutline],
+    ['/', 'mining', mdiPlayCircleOutline],
     ['/campaigns', 'campaigns', mdiGiftOutline],
     ['/activity', 'activity', mdiTextBoxOutline],
     ['/settings', 'gui.tabs.settings', mdiCogOutline],
   ] as const;
   useEffect(() => {
+    if (location.pathname === '/settings' && location.hash === '#mining') return;
+    if (location.search.includes('campaign=')) return;
     if (location.hash)
       requestAnimationFrame(() =>
         document.getElementById(location.hash.slice(1))?.scrollIntoView(),
       );
     else window.scrollTo(0, 0);
-  }, [location]);
+  }, [location.pathname, location.hash]);
   return (
-    <div className="min-h-dvh lg:grid lg:grid-cols-[192px_minmax(0,1fr)]">
+    <div className="app-shell min-h-dvh">
       <a href="#main" className="sr-only fixed z-50 bg-soft p-3 text-canvas focus:not-sr-only">
         {t('skip_content')}
       </a>
-      <aside className="border-b border-divider bg-surface lg:sticky lg:top-0 lg:flex lg:h-dvh lg:flex-col lg:overflow-y-auto lg:border-e lg:border-b-0">
-        <div className="flex h-16 shrink-0 items-center justify-between px-4">
+      <aside className="app-sidebar">
+        <div className="brand-row flex shrink-0 items-center px-4">
           <NavLink
             to="/"
-            className="flex items-center gap-2 whitespace-nowrap text-xl font-semibold tracking-tight"
+            className="flex items-center gap-2 whitespace-nowrap text-base font-semibold tracking-tight"
           >
             <img
               src={logo}
@@ -59,25 +62,20 @@ function Shell({ auth, onLogout }: { auth: AuthStatus; onLogout: () => Promise<v
             Drops Miner
           </NavLink>
         </div>
-        <nav
-          aria-label={t('navigation')}
-          className="flex gap-1 overflow-x-auto px-3 pb-3 lg:flex-col lg:py-2"
-        >
+        <nav aria-label={t('navigation')} className="primary-nav">
           {links.map(([to, label, icon]) => (
             <NavLink
               key={to}
               to={to}
               end={to === '/'}
-              className={({ isActive }) =>
-                `flex min-h-10 shrink-0 items-center gap-3 rounded px-3 text-[13px] transition-colors ${isActive ? 'bg-raised font-semibold text-text' : 'text-muted hover:bg-field hover:text-soft'}`
-              }
+              className={({ isActive }) => `nav-item ${isActive ? 'active' : ''}`}
             >
-              <Icon path={icon} className="mdi-icon hidden lg:block" />
+              <Icon path={icon} className="mdi-icon" />
               {t(label)}
             </NavLink>
           ))}
         </nav>
-        <div className="mt-auto hidden border-t border-divider p-4 lg:block">
+        <div className="mt-auto hidden p-4 lg:block">
           <a
             className="icon-button size-11"
             href="https://github.com/ohne-b/twitch-drops-miner"
@@ -102,13 +100,22 @@ function Shell({ auth, onLogout }: { auth: AuthStatus; onLogout: () => Promise<v
           )}
         </div>
       </aside>
-      <main id="main" tabIndex={-1} className="min-w-0 p-4 outline-none md:p-6 xl:p-8">
+      <main id="main" tabIndex={-1} className="workspace min-w-0">
         <div
-          className={`mx-auto max-w-[1440px] ${location.pathname === '/' ? 'xl:flex xl:h-[calc(100dvh-4rem)] xl:min-h-min xl:flex-col' : ''}`}
+          className={`mx-auto max-w-[1440px] ${location.pathname === '/' ? (new URLSearchParams(location.search).get('edit') === 'priorities' ? 'preferences-frame' : 'mining-frame') : location.pathname === '/campaigns' ? 'campaigns-frame' : ''}`}
         >
           {!connected && (
             <div className="mb-5">
-              <Notice>{t(data ? 'disconnected_help' : 'connecting')}</Notice>
+              <Notice>
+                {t(incompatible ? 'client_outdated' : data ? 'disconnected_help' : 'connecting')}
+                {incompatible && (
+                  <IconButton
+                    path={mdiReload}
+                    label={t('reload_dashboard')}
+                    onClick={autosave.reload}
+                  />
+                )}
+              </Notice>
             </div>
           )}
           {logoutError && <Notice error>{t('gui.auth.request_failed')}</Notice>}
@@ -119,12 +126,32 @@ function Shell({ auth, onLogout }: { auth: AuthStatus; onLogout: () => Promise<v
               </Button>
             </div>
           )}
+          {autosave.error && (
+            <Notice error>
+              {t(autosave.error)}{' '}
+              <IconButton
+                path={mdiReload}
+                label={t('retry')}
+                disabled={!connected || autosave.busy}
+                onClick={() => void autosave.retry()}
+              />
+            </Notice>
+          )}
           <Routes>
-            <Route path="/" element={<Overview />} />
+            <Route path="/" element={<Mining />} />
             <Route path="/campaigns" element={<Campaigns />} />
             <Route path="/history" element={<Navigate to="/campaigns?tab=history" replace />} />
             <Route path="/activity" element={<Activity />} />
-            <Route path="/settings" element={<Settings auth={auth} />} />
+            <Route
+              path="/settings"
+              element={
+                location.hash === '#mining' ? (
+                  <Navigate to="/?edit=priorities" replace />
+                ) : (
+                  <Settings auth={auth} />
+                )
+              }
+            />
             <Route path="/login" element={<Navigate to="/" replace />} />
             <Route path="*" element={<Empty title={t('not_found')} />} />
           </Routes>
