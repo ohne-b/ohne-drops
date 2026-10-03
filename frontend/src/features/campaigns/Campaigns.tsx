@@ -404,7 +404,9 @@ export default function Campaigns() {
           )}
           <div
             className={
-              list ? 'campaign-list panel overflow-hidden' : 'grid items-start gap-4 md:grid-cols-2'
+              list
+                ? 'campaign-list panel overflow-hidden'
+                : 'campaign-grid grid gap-4 md:grid-cols-2'
             }
           >
             {historyTab ? (

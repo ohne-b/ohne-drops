@@ -324,7 +324,9 @@ embed it and run without a build tool/runtime companion. Production builds never
   Mine icon hover stays separate, without a selected background strip behind it. Apply the
   same shared summary component and collection layout for Available and History: 48px artwork,
   matching text spacing/count typography and card borders, with inset separators between list rows.
-  On phones, place counts and actions below the identity so artwork and text retain the same width.
+  Stretch grid cards to equal row heights without clipping names. Use each summary's width
+  to place counts and actions below the identity in narrow cards/rows, keeping artwork/text
+  aligned at the top and footer actions aligned at the bottom. Preserve phone hit targets.
   Keep History's recorded claims/date and Available's live status/mining action distinct.
   Preserve search, filters, layout, sorting, page, scroll and trigger
   focus when closing. Keep the selected campaign visible when opening narrows the results or
