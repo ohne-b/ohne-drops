@@ -1,12 +1,11 @@
 import { useEffect, useRef, useState } from 'react';
-import { Icon } from '@mdi/react';
-import { mdiDockRight } from '@mdi/js';
 import { useMiner } from '../../app/MinerProvider';
 import { useT } from '../../shared/lib/i18n';
 import { request } from '../../shared/lib/api';
 import type { Campaign, HistoryEntry } from '../../shared/lib/types';
 import type { CampaignSort } from './Campaigns';
-import { Art, dateTime } from '../../shared/ui/index';
+import { dateTime } from '../../shared/ui/index';
+import { CampaignSummary } from './Campaign';
 
 export function useHistory(active: boolean) {
   const { connected, data, historyRevision } = useMiner();
@@ -139,54 +138,29 @@ export function historyOrder(a: HistoryCampaign, b: HistoryCampaign, sort: Campa
 
 export default function History({
   groups,
-  list,
   onOpen,
   selected,
 }: {
   groups: HistoryCampaign[];
-  list: boolean;
   onOpen: (id: string) => void;
   selected: string | null;
 }) {
   const t = useT();
   return (
-    <div
-      className={
-        list
-          ? 'panel overflow-hidden divide-y divide-divider'
-          : 'grid items-start gap-4 md:grid-cols-2'
-      }
-    >
+    <>
       {groups.map((group) => (
-        <article
+        <CampaignSummary
           key={group.id}
-          className={`campaign-summary ${list ? '' : 'panel'} ${selected === group.id ? 'selected' : ''}`}
-        >
-          <button
-            type="button"
-            id={`campaign-open-${group.id}`}
-            className="campaign-open"
-            onClick={() => onOpen(group.id)}
-            aria-label={t('inspect_campaign', { campaign: group.name })}
-            title={t('campaign_details')}
-            aria-current={selected === group.id ? 'true' : undefined}
-            aria-controls={selected === group.id ? 'campaign-details' : undefined}
-          >
-            <Art url={group.metadata?.game_box_art_url || group.entries[0]?.image_url} />
-            <span className="min-w-0 flex-1 text-start">
-              <span className="campaign-title block font-medium">{group.name}</span>
-              <span className="muted block">{group.game}</span>
-              <span className="muted block text-xs mt-1">
-                {dateTime(group.entries[0]?.claimed_at ?? '')}
-              </span>
-            </span>
-            <span className="muted">{t('recorded_claims', { count: group.entries.length })}</span>
-            <span className="campaign-detail-icon" aria-hidden="true">
-              <Icon path={mdiDockRight} className="mdi-icon" />
-            </span>
-          </button>
-        </article>
+          id={group.id}
+          name={group.name}
+          game={group.game}
+          image={group.metadata?.game_box_art_url || group.entries[0]?.image_url}
+          time={dateTime(group.entries[0]?.claimed_at ?? '')}
+          count={t('recorded_claims', { count: group.entries.length })}
+          onOpen={() => onOpen(group.id)}
+          selected={selected === group.id}
+        />
       ))}
-    </div>
+    </>
   );
 }

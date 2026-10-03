@@ -1857,8 +1857,9 @@ test('empty selection asks for an explicit mining choice', async ({ page, reques
   await expect(page.getByText('Choose the games you want to mine.')).toHaveCount(0);
 });
 
-test('phone campaign rows retain status and claimed counts', async ({ page }) => {
+test('phone campaign rows retain status and claimed counts', async ({ page, request }) => {
   await page.setViewportSize({ width: 360, height: 800 });
+  await request.post('/api/settings', { headers, data: { games_to_watch: [] } });
   await page.goto('/campaigns');
   await expect(
     page.getByRole('button', { name: 'Open Autumn expedition', exact: true }),
@@ -1866,6 +1867,11 @@ test('phone campaign rows retain status and claimed counts', async ({ page }) =>
   await expect(page.getByText('Active', { exact: true })).toBeVisible();
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
   await page.screenshot({ path: '../artifacts/campaigns-phone.png', fullPage: true });
+  await page.getByRole('button', { name: 'Mine Rust', exact: true }).click();
+  await expect
+    .poll(async () => (await (await request.get('/api/settings')).json()).games_to_watch)
+    .toEqual(['Rust']);
+  await expect(page.getByRole('complementary', { name: 'Campaign details' })).toHaveCount(0);
 });
 
 test('long international labels remain usable at phone, tablet and zoom-equivalent widths', async ({

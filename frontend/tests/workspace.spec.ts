@@ -573,6 +573,133 @@ test('History details stay claims-only while loading, retry errors and clear rec
   await expect(detail.locator('.reward-detail')).toHaveCount(0);
 });
 
+test('Available and History share card geometry and inset list dividers', async ({
+  page,
+  request,
+}) => {
+  const saved = await (await request.get('/api/history')).json();
+  const campaigns = Array.from({ length: 3 }, (_, index) => ({
+    ...fixture.campaigns[0]!,
+    id: `summary-${index}`,
+    name: `Summary ${index + 1}`,
+    claimed_drops: 1,
+  }));
+  await request.post('/__test/event', {
+    headers,
+    data: { event: 'inventory_batch_update', data: { campaigns } },
+  });
+  await page.route('**/api/history', async (route) =>
+    route.fulfill({
+      json: {
+        ...(await (await route.fetch()).json()),
+        entries: campaigns.map((campaign) => ({
+          ...saved.entries[0],
+          id: `claim-${campaign.id}`,
+          campaign_id: campaign.id,
+          campaign: campaign.name,
+          game: campaign.game_name,
+        })),
+      },
+    }),
+  );
+  for (const width of [1440, 390, 320]) {
+    await page.setViewportSize({ width, height: 900 });
+    for (const view of ['grid', 'list']) {
+      const measurements = [];
+      for (const history of [false, true]) {
+        await page.goto(
+          `/campaigns?view=${view}&sort=name&q=Summary${history ? '&tab=history' : ''}`,
+        );
+        const cards = page.locator('.campaign-summary');
+        await expect(cards).toHaveCount(3);
+        const open = page.getByRole('button', { name: 'Open Summary 1', exact: true });
+        await expect(open).toBeVisible();
+        measurements.push(
+          await open.evaluate((element) => {
+            const art = element.children[0]!;
+            const info = element.children[1]!;
+            const count = element.children[2]!;
+            return {
+              artWidth: art.getBoundingClientRect().width,
+              artHeight: art.getBoundingClientRect().height,
+              padding: getComputedStyle(element).padding,
+              gap: getComputedStyle(element).gap,
+              gameMargin: getComputedStyle(info.children[1]!).marginTop,
+              dateSize: getComputedStyle(info.children[2]!).fontSize,
+              countColor: getComputedStyle(count.children[0]!).color,
+              height: element.getBoundingClientRect().height,
+              infoWidth: info.getBoundingClientRect().width,
+            };
+          }),
+        );
+        if (width < 768) {
+          const info = (await open.locator('.campaign-info').boundingBox())!;
+          const count = (await open.locator('.campaign-count').boundingBox())!;
+          const detail = (await open.locator('.campaign-detail-icon').boundingBox())!;
+          expect(info.width).toBeGreaterThan(180);
+          expect((await open.locator('.campaign-title').boundingBox())!.height).toBeLessThan(30);
+          expect(count.y).toBeGreaterThan(info.y + info.height);
+          expect(detail.y).toBeGreaterThan(info.y + info.height);
+          if (!history) {
+            const action = (await cards.first().locator('.campaign-action').boundingBox())!;
+            expect(action.x).toBeGreaterThan(detail.x + detail.width);
+            expect(count.x + count.width).toBeLessThan(detail.x);
+            expect(action.y + action.height / 2).toBe(detail.y + detail.height / 2);
+          }
+        }
+        if (view === 'list') {
+          for (const card of await cards.all()) await expect(card).toHaveCSS('border-width', '0px');
+          expect(
+            await cards
+              .first()
+              .evaluate((element) => getComputedStyle(element, '::before').content),
+          ).toBe('none');
+          for (const card of [cards.nth(1), cards.nth(2)]) {
+            expect(
+              await card.evaluate((element) => {
+                const style = getComputedStyle(element, '::before');
+                return [
+                  style.content,
+                  style.height,
+                  style.left,
+                  style.right,
+                  style.backgroundColor,
+                ];
+              }),
+            ).toEqual(['""', '1px', '16px', '16px', 'rgb(54, 54, 54)']);
+          }
+        } else {
+          for (const card of await cards.all()) {
+            await expect(card).toHaveCSS('border-width', '1px');
+            await expect(card).toHaveCSS('border-radius', '6px');
+          }
+        }
+        expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBe(width);
+        if (history) {
+          await expect(cards.first()).toContainText('1 claimed');
+          await expect(cards.first()).not.toContainText('Active');
+          await expect(cards.first().getByRole('button', { name: /Mine|Stop mining/ })).toHaveCount(
+            0,
+          );
+        }
+        await page.screenshot({
+          path: `../artifacts/campaign-summary-${history ? 'history' : 'available'}-${view}-${width}.png`,
+          fullPage: true,
+        });
+      }
+      const [
+        { height: availableHeight, infoWidth: availableWidth, ...available },
+        { height: historyHeight, infoWidth: historyWidth, ...history },
+      ] = measurements as [(typeof measurements)[number], (typeof measurements)[number]];
+      expect(available.artWidth).toBe(48);
+      expect(available.artHeight).toBe(48);
+      expect(history).toEqual(available);
+      if (width === 1440) expect(historyHeight).toBe(availableHeight);
+      else expect(historyWidth).toBe(availableWidth);
+    }
+  }
+});
+
 test('campaign panes fill desktop height and keep row hovers compact', async ({
   page,
   request,

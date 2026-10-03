@@ -320,7 +320,11 @@ embed it and run without a build tool/runtime companion. Production builds never
   Use the Dock Right icon for opening details, with a tooltip, current-item state and panel
   control association rather than disclosure semantics.
   Mine icon hover stays separate, without a selected background strip behind it. Apply the
-  same summary styling to History. Preserve search, filters, layout, sorting, page, scroll and trigger
+  same shared summary component and collection layout for Available and History: 48px artwork,
+  matching text spacing/count typography and card borders, with inset separators between list rows.
+  On phones, place counts and actions below the identity so artwork and text retain the same width.
+  Keep History's recorded claims/date and Available's live status/mining action distinct.
+  Preserve search, filters, layout, sorting, page, scroll and trigger
   focus when closing. Keep the selected campaign visible when opening narrows the results or
   changes their layout. Restore offsets only for the matching results width and layout;
   otherwise reveal the selected item instead of depending on browser scroll anchoring. Switching

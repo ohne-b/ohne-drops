@@ -396,79 +396,78 @@ export default function Campaigns() {
           className="campaign-results relative space-y-5 focus-visible:bg-field focus-visible:[&_.panel]:border-control"
         >
           <ActionResult action={action} />
-          {historyTab ? (
-            <>
-              {history.error && (
-                <Notice error>
-                  {t('history_error')}
-                  <IconButton path={mdiReload} label={t('retry')} onClick={history.retry} />
-                </Notice>
-              )}
+          {historyTab && history.error && (
+            <Notice error>
+              {t('history_error')}
+              <IconButton path={mdiReload} label={t('retry')} onClick={history.retry} />
+            </Notice>
+          )}
+          <div
+            className={
+              list ? 'campaign-list panel overflow-hidden' : 'grid items-start gap-4 md:grid-cols-2'
+            }
+          >
+            {historyTab ? (
               <History
                 groups={historical.slice(page * 25, (page + 1) * 25)}
-                list={list}
                 onOpen={openCampaign}
                 selected={detailId}
               />
-              {!historical.length && !history.loading && !history.error && (
+            ) : (
+              campaigns.slice(page * 25, (page + 1) * 25).map((campaign) => (
+                <Campaign
+                  key={campaign.id}
+                  campaign={campaign}
+                  onOpen={() => openCampaign(campaign.id)}
+                  selected={detailId === campaign.id}
+                  action={
+                    !campaign.finished &&
+                    !campaign.expired && (
+                      <IconButton
+                        path={
+                          selectedGames.some(
+                            (game) => gameKey(game) === gameKey(campaign.game_name),
+                          )
+                            ? mdiStopCircleOutline
+                            : mdiPlayCircleOutline
+                        }
+                        disabled={!connected || action.busy}
+                        label={t(
+                          selectedGames.some(
+                            (game) => gameKey(game) === gameKey(campaign.game_name),
+                          )
+                            ? 'stop_mining_game'
+                            : 'mine_game',
+                          { game: campaign.game_name },
+                        )}
+                        onClick={() => {
+                          autosave.change('games_to_watch', (games) =>
+                            games.some((game) => gameKey(game) === gameKey(campaign.game_name))
+                              ? games.filter(
+                                  (game) => gameKey(game) !== gameKey(campaign.game_name),
+                                )
+                              : [...games, campaign.game_name],
+                          );
+                        }}
+                      />
+                    )
+                  }
+                />
+              ))
+            )}
+          </div>
+          {historyTab
+            ? !historical.length &&
+              !history.loading &&
+              !history.error && (
                 <Empty title={t(history.entries.length ? 'no_matches' : 'history_empty')} />
-              )}
-            </>
-          ) : (
-            <>
-              <div
-                className={list ? 'panel overflow-hidden' : 'grid items-start gap-4 md:grid-cols-2'}
-              >
-                {campaigns.slice(page * 25, (page + 1) * 25).map((campaign) => (
-                  <div key={campaign.id} className={list ? '' : 'panel overflow-hidden'}>
-                    <Campaign
-                      campaign={campaign}
-                      onOpen={() => openCampaign(campaign.id)}
-                      selected={detailId === campaign.id}
-                      action={
-                        !campaign.finished &&
-                        !campaign.expired && (
-                          <IconButton
-                            path={
-                              selectedGames.some(
-                                (game) => gameKey(game) === gameKey(campaign.game_name),
-                              )
-                                ? mdiStopCircleOutline
-                                : mdiPlayCircleOutline
-                            }
-                            disabled={!connected || action.busy}
-                            label={t(
-                              selectedGames.some(
-                                (game) => gameKey(game) === gameKey(campaign.game_name),
-                              )
-                                ? 'stop_mining_game'
-                                : 'mine_game',
-                              { game: campaign.game_name },
-                            )}
-                            onClick={() => {
-                              autosave.change('games_to_watch', (games) =>
-                                games.some((game) => gameKey(game) === gameKey(campaign.game_name))
-                                  ? games.filter(
-                                      (game) => gameKey(game) !== gameKey(campaign.game_name),
-                                    )
-                                  : [...games, campaign.game_name],
-                              );
-                            }}
-                          />
-                        )
-                      }
-                    />
-                  </div>
-                ))}
-              </div>
-              {!campaigns.length && (
+              )
+            : !campaigns.length && (
                 <Empty
                   title={t(data.campaigns.length ? 'no_matches' : 'gui.inventory.no_campaigns')}
                   detail={t('campaign_empty_help')}
                 />
               )}
-            </>
-          )}
         </div>
         {(historyTab ? historical : campaigns).length > 25 && (
           <nav

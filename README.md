@@ -287,6 +287,10 @@ with confirmed progress first), **Newest** (latest campaign start), **Ending Soo
 through searches, tab changes and reloads; it does not change mining priorities.
 Icon-only actions have circular hover backgrounds. Search-clear actions stay inset
 inside the field, and game-priority drag grips remain visible as plain six-dot handles.
+Available and History use matching cards and list rows, with consistent artwork, spacing
+and inset list dividers. History keeps recorded claim counts and dates; Available shows
+campaign progress, timing and mining actions. On phones, counts and actions sit below the
+campaign name, game and date.
 
 In **Game priorities**, drag games into order or focus a drag handle and use the arrow
 keys. The Priority High icon beside **Add Game** opens **Mining priority**:
