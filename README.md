@@ -85,6 +85,8 @@ LAN address and enable [dashboard protection](#dashboard-password-and-remote-acc
 
 Release images use GitHub Container Registry at `ghcr.io/ohne-b/twitch-drops-miner`.
 `latest` follows stable releases; use an explicit version tag to pin a release.
+Release and edge images are the production images already built and tested by main's
+validation run. Publishing transfers those images without rebuilding them.
 For reviewed fixes between releases, use `ghcr.io/ohne-b/twitch-drops-miner:edge`
 in the same Compose service, then run `docker compose pull twitch-drops-miner`
 and `docker compose up -d --no-deps twitch-drops-miner`. Edge is published manually

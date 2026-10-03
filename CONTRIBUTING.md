@@ -92,6 +92,9 @@ before rewriting shared history and use `--force-with-lease` only when authorize
 
 Run focused tests during development, then the baseline for code PRs:
 
+A successful CI run on the final revision supplies this baseline. Use focused local
+checks for the edited behavior; do not duplicate the complete CI run locally.
+
 ```bash
 npm --prefix frontend ci
 npm --prefix frontend run format:check
@@ -114,8 +117,10 @@ verifies readiness/reset, uses temporary data, and refuses server reuse. Vitest 
 Playwright/axe cover frontend logic, browser behavior and accessibility. No automated
 test needs credentials, sends real watch events, claims real rewards or contacts bots.
 
-CI also builds and smoke-tests production images for amd64 and arm64, including UID/GID,
-licenses and isolated health. Required checks must pass on the final PR revision. A health
+CI builds and smoke-tests production images for amd64 and arm64 alongside the test job,
+including UID/GID, licenses and isolated health. Main retains the tested OCI archives for
+seven days as workflow artifacts; PRs do not publish images or retain release artifacts.
+Required checks must pass on the final PR revision. A health
 check or mock test does not prove live Twitch earning. Disclose unrun/unavailable checks,
 skips and limitations; do not substitute a green workflow for unperformed validation.
 
@@ -174,7 +179,8 @@ Add a concise, reviewed `CHANGELOG.md` entry to that draft PR, matching the exis
 version/link/date heading and change-list style. Review and merge it under the same policy.
 **Publish release** then runs manually
 from main for that version, requires successful push or manually dispatched validation on the exact commit,
-and uses the `prod` environment. It builds both architectures, publishes
+and uses the `prod` environment. It downloads both tested image artifacts from that validation
+run, checks their platform, version and commit, preserves their digests, and publishes
 `ghcr.io/ohne-b/twitch-drops-miner:VERSION`, and creates a `Twitch Drops Miner vVERSION` draft release
 with the reviewed changelog notes, comparison link and issue link. It attaches and verifies
 `latest.json` before publication. The manifest uses `schemaVersion: 1`, a canonical SemVer
@@ -182,6 +188,9 @@ with the reviewed changelog notes, comparison link and issue link. It attaches a
 to stable releases and prereleases. Stable releases update `latest`; prereleases do not.
 The first GHCR package may
 need public visibility configured for anonymous pulls. Ordinary merges publish nothing.
+Publishing never recompiles the application or rebuilds an image. If the artifacts are
+missing or expired, rerun **validation** on current main before publishing. A failed or
+unfinished newer validation on the same commit cannot fall back to an older successful run.
 Commits made with a workflow token do not trigger push workflows; run **validation**
 manually on main before publishing when its latest commit has no matching push validation.
 SemVer build metadata uses `_` in place of `+` in the Docker tag.
@@ -207,13 +216,13 @@ installation rollback redeploys a previously validated image with its backed-up 
 
 For an explicitly requested image update without a release, manually run **Publish edge image**
 on main after exact-commit validation succeeds. It publishes only the GHCR `edge` tag with the
-same scoped workflow token, architecture builds and revision labels. It does not bump Cargo,
+same scoped workflow token and tested artifacts, retaining their revision labels. It does not bump Cargo,
 create a GitHub release/version tag or move `latest`. The normal PR/review requirements apply.
-Keep its Buildx/Build Push action pins identical to validation and release.
+Both publishers use the shared image-promotion script; only validation builds images.
 
 Keep upstream attribution and license links in README; contributor/PR tables are not
 maintained. README changes follow the same PR workflow as other documentation.
-Keep Buildx/Build Push action pins consistent between validation and release workflows.
+Keep Buildx action pins consistent between validation and publishing workflows.
 Do not alter trust boundaries in ordinary contributions.
 
 Agents must pass this policy to reviewers, preserve existing user changes, and distinguish
