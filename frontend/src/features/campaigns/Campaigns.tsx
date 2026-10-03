@@ -1,6 +1,8 @@
+import { CampaignDetail } from './CampaignDetail';
+import { displayFilters, writeFilters } from './query';
 import { Icon } from '@mdi/react';
-import { useEffect, useState } from 'react';
-import { Link, useSearchParams } from 'react-router';
+import { useState } from 'react';
+import { Link, useLocation, useNavigate, useSearchParams } from 'react-router';
 import {
   mdiFilterOutline,
   mdiViewList,
@@ -12,11 +14,13 @@ import {
   mdiChevronLeft,
   mdiChevronRight,
   mdiReload,
+  mdiGiftOutline,
+  mdiHistory,
 } from '@mdi/js';
 import { useMiner } from '../../app/MinerProvider';
+import { InventoryRefreshButton } from '../../shared/ui/InventoryRefreshButton';
 import { useT } from '../../shared/lib/i18n';
-import type { Campaign as CampaignData, Filters, Settings } from '../../shared/lib/types';
-import { request } from '../../shared/lib/api';
+import type { Campaign as CampaignData, Filters } from '../../shared/lib/types';
 import {
   Button,
   IconButton,
@@ -108,16 +112,25 @@ export default function Campaigns() {
   const { data, connected, autosave } = useMiner();
   const t = useT();
   const [params, setParams] = useSearchParams();
+  const location = useLocation();
+  const navigate = useNavigate();
+  const detailId = params.get('campaign');
   const [showFilters, setShowFilters] = useState(false);
+  const [filterDraft, setFilterDraft] = useState<{ key: string; filters: Filters } | null>(null);
   const historyTab = ['history', 'finished'].includes(params.get('tab') ?? '');
-  const history = useHistory(historyTab);
+  const history = useHistory(historyTab || !!detailId);
   const action = useAction();
-  const [pendingFilters, setPendingFilters] = useState<Filters | null>(null);
-  useEffect(() => setPendingFilters(null), [data?.settings.revision]);
   if (!data) return <Empty title={t('loading')} />;
-  const filters = pendingFilters ?? data.settings.inventory_filters;
+  const filters =
+    filterDraft?.key === location.key
+      ? filterDraft.filters
+      : displayFilters(params, (autosave.draft ?? data.settings).inventory_filters);
+  const list = params.has('view')
+    ? params.get('view') === 'list'
+    : (autosave.draft ?? data.settings).inventory_list_view;
   const selectedGames = (autosave.draft ?? data.settings).games_to_watch;
-  const settingsBusy = action.busy || autosave.busy || autosave.pending;
+  const gameKey = (game: string) => data.settings.game_keys?.[game] ?? game.toLowerCase();
+  const settingsBusy = action.busy;
   const search = params.get('q') ?? '';
 
   const sort = campaignSorts.find((value) => value === params.get('sort')) ?? 'default';
@@ -133,22 +146,46 @@ export default function Campaigns() {
     .sort((a, b) => historyOrder(a, b, sort));
   const page = Math.min(
     Math.max(0, Math.trunc(Number(params.get('page'))) || 0),
-    Math.max(0, Math.ceil(historical.length / 25) - 1),
+    Math.max(0, Math.ceil((historyTab ? historical : campaigns).length / 25) - 1),
   );
   function setQuery(key: string, value: string) {
     const next = new URLSearchParams(params);
-    if (key !== 'page') next.delete('page');
+    if (key !== 'page' && key !== 'campaign' && key !== 'drop') next.delete('page');
     value ? next.set(key, value) : next.delete(key);
     setParams(next, { replace: true });
   }
-  const update = (patch: Partial<Settings>) =>
-    action.run(() => request('/api/settings', { ...patch, revision: data.settings.revision }));
-  function changeFilters(next: Filters) {
-    setPendingFilters(next);
-    void update({ inventory_filters: next }).then((saved) => {
-      if (!saved) setPendingFilters(null);
-    });
+  function changeFilters(next: Filters, clearSearch = false) {
+    setFilterDraft({ key: location.key, filters: next });
+    const query = writeFilters(params, next);
+    if (clearSearch) query.delete('q');
+    setParams(query, { replace: true });
+    const touched = Object.fromEntries(
+      Object.entries(next).filter(
+        ([key, value]) => JSON.stringify(value) !== JSON.stringify(filters[key as keyof Filters]),
+      ),
+    );
+    autosave.change('inventory_filters', (previous) => ({ ...previous, ...touched }));
   }
+  function openCampaign(id: string) {
+    const next = new URLSearchParams(params);
+    next.set('campaign', id);
+    next.delete('drop');
+    navigate(
+      { pathname: location.pathname, search: next.toString() },
+      {
+        replace: !!detailId,
+        state: { campaignDetail: location.state?.campaignDetail || !detailId },
+      },
+    );
+  }
+  const tabQuery = (history: boolean) => {
+    const next = new URLSearchParams(params);
+    next.delete('page');
+    next.delete('campaign');
+    next.delete('drop');
+    history ? next.set('tab', 'history') : next.delete('tab');
+    return next.toString();
+  };
   const games = [
     ...new Set([
       ...data.campaigns.map((campaign) => campaign.game_name),
@@ -167,261 +204,277 @@ export default function Campaigns() {
     ['show_benefit_other', 'other'],
   ];
   return (
-    <div className="space-y-5">
-      <header className="flex flex-wrap items-center justify-between gap-3">
-        <h1 className="text-[22px] font-semibold">{t('campaigns')}</h1>
-        <p className="muted ms-auto text-right">
-          {t('campaign_count', { count: historyTab ? historical.length : campaigns.length, total })}
-        </p>
-      </header>
-      <nav aria-label={t('campaign_views')} className="flex gap-5 border-b border-divider">
-        {[false, true].map((value) => (
-          <Link
-            key={String(value)}
-            className={`border-b-2 px-1 pb-3 text-[13px] ${historyTab === value ? 'border-soft text-text' : 'border-transparent text-muted hover:text-text'}`}
-            aria-current={historyTab === value ? 'page' : undefined}
-            to={{
-              pathname: '/campaigns',
-              search: new URLSearchParams({
-                ...(search ? { q: search } : {}),
-                ...(sort !== 'default' ? { sort } : {}),
-                ...(value ? { tab: 'history' } : {}),
-              }).toString(),
-            }}
-          >
-            {t(value ? 'gui.tabs.history' : 'available_campaigns')}
-          </Link>
-        ))}
-      </nav>
-      {!historyTab &&
-        data.inventory_status?.available === false &&
-        data.inventory_status.checked_at && <Notice error>{t('campaigns_unavailable')}</Notice>}
-      <div className="flex items-center gap-2">
-        <div className="min-w-0 flex-1">
-          <Search
-            value={search}
-            onChange={(value) => setQuery('q', value)}
-            label={t('search_campaigns')}
-          />
-        </div>
-        <IconButton
-          path={mdiFilterOutline}
-          label={t('filters')}
-          aria-expanded={showFilters}
-          onClick={() => setShowFilters(!showFilters)}
-        />
-        <div
-          className="icon-button"
-          title={`${t(historyTab ? 'sort_history' : 'sort_campaigns')}: ${t(`sort_${sort}`)}`}
-        >
-          <Icon className="mdi-icon pointer-events-none" path={mdiSortAscending} />
-          <select
-            className="icon-select absolute inset-0 size-full cursor-pointer opacity-0"
-            aria-label={t(historyTab ? 'sort_history' : 'sort_campaigns')}
-            value={sort}
-            onChange={(event) =>
-              setQuery('sort', event.target.value === 'default' ? '' : event.target.value)
-            }
-          >
-            {campaignSorts.map((value) => (
-              <option key={value} value={value}>
-                {t(`sort_${value}`)}
-              </option>
-            ))}
-          </select>
-        </div>
-        <IconButton
-          path={data.settings.inventory_list_view ? mdiViewGridOutline : mdiViewList}
-          label={t('toggle_view')}
-          disabled={!connected || settingsBusy}
-          onClick={() => void update({ inventory_list_view: !data.settings.inventory_list_view })}
-        />
-      </div>
-      {showFilters && (
-        <div className="panel space-y-4 p-4">
-          {!historyTab && (
-            <div className="grid grid-cols-2 gap-x-6 gap-y-1 md:grid-cols-3">
-              {filterOptions.map(([key, name]) => (
-                <Check
-                  key={key}
-                  label={t(`gui.inventory.filters.${name}`)}
-                  checked={filters[key]}
-                  disabled={!connected || settingsBusy}
-                  onChange={(value) => changeFilters({ ...filters, [key]: value })}
-                />
-              ))}
-            </div>
-          )}
-          <div className={historyTab ? '' : 'border-t border-divider pt-3'}>
-            <p className="mb-2 text-[13px] font-medium">{t('game')}</p>
-            <div className="grid max-h-48 grid-cols-1 overflow-y-auto sm:grid-cols-2">
-              {games.map((game) => (
-                <Check
-                  key={game}
-                  label={game}
-                  checked={filters.game_name_search.includes(game)}
-                  disabled={!connected || settingsBusy}
-                  onChange={(checked) =>
-                    changeFilters({
-                      ...filters,
-                      game_name_search: checked
-                        ? [...filters.game_name_search, game]
-                        : filters.game_name_search.filter((name) => name !== game),
-                    })
-                  }
-                />
-              ))}
-            </div>
-            <div className="mt-3 flex flex-wrap gap-3">
-              <Button
-                disabled={!connected || settingsBusy || !filters.game_name_search.length}
-                onClick={() => changeFilters({ ...filters, game_name_search: [] })}
-              >
-                {t('all_games')}
-              </Button>
-              <IconButton
-                path={mdiFilterOffOutline}
-                label={t('clear_filters')}
-                disabled={!connected || settingsBusy}
-                onClick={() => {
-                  setQuery('q', '');
-                  changeFilters({
-                    ...filters,
-                    show_active: true,
-                    show_upcoming: true,
-                    show_expired: true,
-                    show_finished: true,
-                    show_only_not_linked: false,
-                    game_name_search: [],
-                    show_benefit_badge: true,
-                    show_benefit_emote: true,
-                    show_benefit_item: true,
-                    show_benefit_other: true,
-                  });
+    <div className={`campaign-workspace ${detailId ? 'with-detail' : ''}`}>
+      <div className="campaign-browser min-w-0">
+        <header className="flex flex-wrap items-center gap-x-4 gap-y-2">
+          <h1 className="sr-only">{t('campaigns')}</h1>
+          <nav aria-label={t('campaign_views')} className="flex gap-5 text-[13px] text-muted">
+            {[false, true].map((value) => (
+              <Link
+                key={String(value)}
+                className={`settings-tab ${historyTab === value ? 'active' : ''}`}
+                aria-current={historyTab === value ? 'page' : undefined}
+                to={{
+                  pathname: '/campaigns',
+                  search: tabQuery(value),
                 }}
-              />
-            </div>
-          </div>
-        </div>
-      )}
-      <ActionResult action={action} />
-      {autosave.error && (
-        <Notice error>
-          {t(autosave.error)}{' '}
-          <IconButton
-            path={mdiReload}
-            label={t('retry')}
-            disabled={!connected || autosave.busy}
-            onClick={() => void autosave.retry()}
-          />
-        </Notice>
-      )}
-      {(autosave.busy || autosave.pending) && !autosave.error && (
-        <p className="muted" role="status">
-          {t('saving')}
-        </p>
-      )}
-      {historyTab ? (
-        <>
-          {history.error && (
-            <Notice error>
-              {t('history_error')}
-              <IconButton path={mdiReload} label={t('retry')} onClick={history.retry} />
-            </Notice>
-          )}
-          {history.loading && (
-            <p role="status" className="muted">
-              {t('gui.history.loading')}
-            </p>
-          )}
-          <History
-            groups={historical.slice(page * 25, (page + 1) * 25)}
-            list={data.settings.inventory_list_view}
-          />
-          {!historical.length && !history.loading && !history.error && (
-            <Empty title={t(history.entries.length ? 'no_matches' : 'history_empty')} />
-          )}
-          {historical.length > 25 && (
-            <nav className="flex items-center justify-end gap-3" aria-label={t('history_pages')}>
-              <IconButton
-                path={mdiChevronLeft}
-                label={t('gui.history.previous')}
-                disabled={page === 0}
-                onClick={() => setQuery('page', String(page - 1))}
-              />
-              <span className="muted">
-                {page + 1} / {Math.ceil(historical.length / 25)}
-              </span>
-              <IconButton
-                path={mdiChevronRight}
-                label={t('gui.history.next')}
-                disabled={(page + 1) * 25 >= historical.length}
-                onClick={() => setQuery('page', String(page + 1))}
-              />
-            </nav>
-          )}
-        </>
-      ) : (
-        <>
-          <div
-            className={
-              data.settings.inventory_list_view
-                ? 'panel overflow-hidden'
-                : 'grid items-start gap-4 md:grid-cols-2'
-            }
-          >
-            {campaigns.map((campaign) => (
-              <div
-                key={campaign.id}
-                className={data.settings.inventory_list_view ? '' : 'panel overflow-hidden'}
               >
-                <Campaign
-                  campaign={campaign}
-                  action={
-                    !campaign.finished &&
-                    !campaign.expired && (
-                      <IconButton
-                        path={
-                          selectedGames.some(
-                            (game) => game.toLowerCase() === campaign.game_name.toLowerCase(),
-                          )
-                            ? mdiStopCircleOutline
-                            : mdiPlayCircleOutline
-                        }
-                        disabled={!connected || action.busy}
-                        label={t(
-                          selectedGames.some(
-                            (game) => game.toLowerCase() === campaign.game_name.toLowerCase(),
-                          )
-                            ? 'stop_mining_game'
-                            : 'mine_game',
-                          { game: campaign.game_name },
-                        )}
-                        onClick={() => {
-                          autosave.change('games_to_watch', (games) =>
-                            games.some(
-                              (game) => game.toLowerCase() === campaign.game_name.toLowerCase(),
-                            )
-                              ? games.filter(
-                                  (game) => game.toLowerCase() !== campaign.game_name.toLowerCase(),
-                                )
-                              : [...games, campaign.game_name],
-                          );
-                        }}
-                      />
-                    )
-                  }
+                <Icon path={value ? mdiHistory : mdiGiftOutline} className="mdi-icon" />
+                {t(value ? 'gui.tabs.history' : 'available_campaigns')}
+              </Link>
+            ))}
+          </nav>
+          <p className="muted text-right">
+            {t('campaign_count', {
+              count: historyTab ? historical.length : campaigns.length,
+              total,
+            })}
+          </p>
+          <div className="ms-auto">
+            <InventoryRefreshButton />
+          </div>
+        </header>
+        {!historyTab &&
+          data.inventory_status?.available === false &&
+          data.inventory_status.checked_at && <Notice error>{t('campaigns_unavailable')}</Notice>}
+        <div className="flex items-center gap-2">
+          <div className="min-w-0 flex-1">
+            <Search
+              value={search}
+              onChange={(value) => setQuery('q', value)}
+              label={t('search_campaigns')}
+            />
+          </div>
+          <IconButton
+            path={mdiFilterOutline}
+            label={t('filters')}
+            aria-expanded={showFilters}
+            onClick={() => setShowFilters(!showFilters)}
+          />
+          <div
+            className="icon-button"
+            title={`${t(historyTab ? 'sort_history' : 'sort_campaigns')}: ${t(`sort_${sort}`)}`}
+          >
+            <Icon className="mdi-icon pointer-events-none" path={mdiSortAscending} />
+            <select
+              className="icon-select absolute inset-0 size-full cursor-pointer opacity-0"
+              aria-label={t(historyTab ? 'sort_history' : 'sort_campaigns')}
+              value={sort}
+              onChange={(event) =>
+                setQuery('sort', event.target.value === 'default' ? '' : event.target.value)
+              }
+            >
+              {campaignSorts.map((value) => (
+                <option key={value} value={value}>
+                  {t(`sort_${value}`)}
+                </option>
+              ))}
+            </select>
+          </div>
+          <IconButton
+            path={list ? mdiViewGridOutline : mdiViewList}
+            label={t('toggle_view')}
+            disabled={!connected || settingsBusy}
+            onClick={() => {
+              const next = new URLSearchParams(params);
+              next.set('view', list ? 'grid' : 'list');
+              setParams(next, { replace: true });
+              autosave.change('inventory_list_view', !list);
+            }}
+          />
+        </div>
+        {showFilters && (
+          <div
+            role="group"
+            aria-label={t('filters')}
+            tabIndex={!connected ? 0 : undefined}
+            className="campaign-filters panel space-y-4 p-4 focus-visible:border-control"
+          >
+            {!historyTab && (
+              <div className="grid grid-cols-2 gap-x-6 gap-y-1 md:grid-cols-3">
+                {filterOptions.map(([key, name]) => (
+                  <Check
+                    key={key}
+                    label={t(`gui.inventory.filters.${name}`)}
+                    checked={filters[key]}
+                    disabled={!connected || settingsBusy}
+                    onChange={(value) => changeFilters({ ...filters, [key]: value })}
+                  />
+                ))}
+              </div>
+            )}
+            <div className={historyTab ? '' : 'border-t border-divider pt-3'}>
+              <p className="mb-2 text-[13px] font-medium">{t('game')}</p>
+              <div
+                role="group"
+                aria-label={t('game')}
+                tabIndex={!connected ? 0 : undefined}
+                className="grid max-h-48 grid-cols-1 overflow-y-auto focus-visible:bg-field sm:grid-cols-2"
+              >
+                {games.map((game) => (
+                  <Check
+                    key={game}
+                    label={game}
+                    checked={filters.game_name_search.includes(game)}
+                    disabled={!connected || settingsBusy}
+                    onChange={(checked) =>
+                      changeFilters({
+                        ...filters,
+                        game_name_search: checked
+                          ? [...filters.game_name_search, game]
+                          : filters.game_name_search.filter((name) => name !== game),
+                      })
+                    }
+                  />
+                ))}
+              </div>
+              <div className="mt-3 flex flex-wrap gap-3">
+                <Button
+                  disabled={!connected || settingsBusy || !filters.game_name_search.length}
+                  onClick={() => changeFilters({ ...filters, game_name_search: [] })}
+                >
+                  {t('all_games')}
+                </Button>
+                <IconButton
+                  path={mdiFilterOffOutline}
+                  label={t('clear_filters')}
+                  disabled={!connected || settingsBusy}
+                  onClick={() => {
+                    changeFilters(
+                      {
+                        ...filters,
+                        show_active: true,
+                        show_upcoming: true,
+                        show_expired: true,
+                        show_finished: true,
+                        show_only_not_linked: false,
+                        game_name_search: [],
+                        show_benefit_badge: true,
+                        show_benefit_emote: true,
+                        show_benefit_item: true,
+                        show_benefit_other: true,
+                      },
+                      true,
+                    );
+                  }}
                 />
               </div>
-            ))}
+            </div>
           </div>
-          {!campaigns.length && (
-            <Empty
-              title={t(data.campaigns.length ? 'no_matches' : 'gui.inventory.no_campaigns')}
-              detail={t('campaign_empty_help')}
-            />
+        )}
+        <div
+          role="region"
+          aria-label={t(historyTab ? 'gui.tabs.history' : 'campaigns')}
+          tabIndex={0}
+          className="campaign-results relative space-y-5 focus-visible:bg-field focus-visible:[&_.panel]:border-control"
+        >
+          <ActionResult action={action} />
+          {historyTab ? (
+            <>
+              {history.error && (
+                <Notice error>
+                  {t('history_error')}
+                  <IconButton path={mdiReload} label={t('retry')} onClick={history.retry} />
+                </Notice>
+              )}
+              <History
+                groups={historical.slice(page * 25, (page + 1) * 25)}
+                list={list}
+                onOpen={openCampaign}
+                selected={detailId}
+              />
+              {!historical.length && !history.loading && !history.error && (
+                <Empty title={t(history.entries.length ? 'no_matches' : 'history_empty')} />
+              )}
+            </>
+          ) : (
+            <>
+              <div
+                className={list ? 'panel overflow-hidden' : 'grid items-start gap-4 md:grid-cols-2'}
+              >
+                {campaigns.slice(page * 25, (page + 1) * 25).map((campaign) => (
+                  <div key={campaign.id} className={list ? '' : 'panel overflow-hidden'}>
+                    <Campaign
+                      campaign={campaign}
+                      onOpen={() => openCampaign(campaign.id)}
+                      selected={detailId === campaign.id}
+                      action={
+                        !campaign.finished &&
+                        !campaign.expired && (
+                          <IconButton
+                            path={
+                              selectedGames.some(
+                                (game) => gameKey(game) === gameKey(campaign.game_name),
+                              )
+                                ? mdiStopCircleOutline
+                                : mdiPlayCircleOutline
+                            }
+                            disabled={!connected || action.busy}
+                            label={t(
+                              selectedGames.some(
+                                (game) => gameKey(game) === gameKey(campaign.game_name),
+                              )
+                                ? 'stop_mining_game'
+                                : 'mine_game',
+                              { game: campaign.game_name },
+                            )}
+                            onClick={() => {
+                              autosave.change('games_to_watch', (games) =>
+                                games.some((game) => gameKey(game) === gameKey(campaign.game_name))
+                                  ? games.filter(
+                                      (game) => gameKey(game) !== gameKey(campaign.game_name),
+                                    )
+                                  : [...games, campaign.game_name],
+                              );
+                            }}
+                          />
+                        )
+                      }
+                    />
+                  </div>
+                ))}
+              </div>
+              {!campaigns.length && (
+                <Empty
+                  title={t(data.campaigns.length ? 'no_matches' : 'gui.inventory.no_campaigns')}
+                  detail={t('campaign_empty_help')}
+                />
+              )}
+            </>
           )}
-        </>
+        </div>
+        {(historyTab ? historical : campaigns).length > 25 && (
+          <nav
+            className="-mt-3 flex items-center justify-end gap-3"
+            aria-label={t('campaign_pages')}
+          >
+            <IconButton
+              path={mdiChevronLeft}
+              label={t('gui.history.previous')}
+              disabled={page === 0}
+              onClick={() => setQuery('page', String(page - 1))}
+            />
+            <span className="muted">
+              {page + 1} / {Math.ceil((historyTab ? historical : campaigns).length / 25)}
+            </span>
+            <IconButton
+              path={mdiChevronRight}
+              label={t('gui.history.next')}
+              disabled={(page + 1) * 25 >= (historyTab ? historical : campaigns).length}
+              onClick={() => setQuery('page', String(page + 1))}
+            />
+          </nav>
+        )}
+      </div>
+      {detailId && (
+        <CampaignDetail
+          campaign={data.campaigns.find((campaign) => campaign.id === detailId)}
+          history={groups.find((group) => group.id === detailId)}
+          historyOnly={historyTab}
+          loading={history.loading}
+          historyError={history.error}
+          retryHistory={history.retry}
+        />
       )}
     </div>
   );
