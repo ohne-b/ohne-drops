@@ -1,7 +1,7 @@
 import { CampaignDetail } from './CampaignDetail';
 import { displayFilters, writeFilters } from './query';
 import { Icon } from '@mdi/react';
-import { useState } from 'react';
+import { useLayoutEffect, useRef, useState } from 'react';
 import { Link, useLocation, useNavigate, useSearchParams } from 'react-router';
 import {
   mdiFilterOutline,
@@ -115,6 +115,21 @@ export default function Campaigns() {
   const location = useLocation();
   const navigate = useNavigate();
   const detailId = params.get('campaign');
+  const results = useRef<HTMLDivElement>(null);
+  const returnPosition = useRef<{ top: number | null; id: string } | null>(null);
+  const hydrated = !!data;
+  useLayoutEffect(() => {
+    const region = results.current;
+    if (!region || getComputedStyle(region).overflowY !== 'auto') return;
+    if (detailId) {
+      document.getElementById(`campaign-open-${detailId}`)?.scrollIntoView({ block: 'nearest' });
+    } else if (returnPosition.current) {
+      const { top, id } = returnPosition.current;
+      if (top !== null) region.scrollTop = top;
+      else document.getElementById(`campaign-open-${id}`)?.scrollIntoView({ block: 'nearest' });
+      returnPosition.current = null;
+    }
+  }, [detailId, hydrated]);
   const [showFilters, setShowFilters] = useState(false);
   const [filterDraft, setFilterDraft] = useState<{ key: string; filters: Filters } | null>(null);
   const historyTab = ['history', 'finished'].includes(params.get('tab') ?? '');
@@ -167,6 +182,11 @@ export default function Campaigns() {
     autosave.change('inventory_filters', (previous) => ({ ...previous, ...touched }));
   }
   function openCampaign(id: string) {
+    returnPosition.current = {
+      // A second grid selection uses the narrow layout, so restore that item after widening.
+      top: detailId && !list ? null : (results.current?.scrollTop ?? 0),
+      id,
+    };
     const next = new URLSearchParams(params);
     next.set('campaign', id);
     next.delete('drop');
@@ -363,6 +383,7 @@ export default function Campaigns() {
           </div>
         )}
         <div
+          ref={results}
           role="region"
           aria-label={t(historyTab ? 'gui.tabs.history' : 'campaigns')}
           tabIndex={0}

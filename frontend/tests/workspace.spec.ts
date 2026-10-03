@@ -686,6 +686,8 @@ test('campaign grid restores its position after details and offline filters rema
   });
   await page.setViewportSize({ width: 1440, height: 900 });
   await page.goto('/campaigns?view=grid&sort=name');
+  // Selection and return position must not depend on native scroll anchoring.
+  await page.addStyleTag({ content: '.campaign-results { overflow-anchor: none; }' });
   const list = page.getByRole('region', { name: 'Campaigns', exact: true });
   const target = page.getByRole('button', { name: `Open ${campaigns[14]!.name}`, exact: true });
   await target.scrollIntoViewIfNeeded();
@@ -695,6 +697,12 @@ test('campaign grid restores its position after details and offline filters rema
   await page.getByRole('button', { name: 'Close details' }).click();
   await expect(target).toBeFocused();
   expect(await list.evaluate((element) => element.scrollTop)).toBeCloseTo(before, 0);
+  await target.click();
+  const next = page.getByRole('button', { name: `Open ${campaigns[19]!.name}`, exact: true });
+  await next.click();
+  await page.getByRole('button', { name: 'Close details' }).click();
+  await expect(next).toBeFocused();
+  await expect(next).toBeInViewport({ ratio: 0.99 });
   await page.setViewportSize({ width: 1280, height: 360 });
   await page.getByRole('button', { name: 'Filters', exact: true }).click();
   await page.context().setOffline(true);
