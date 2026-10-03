@@ -35,8 +35,6 @@ watch events, and claims earned rewards. The Rust executable includes the React 
 
 ### Docker Compose
 
-Version 1.0.0 and later use `ghcr.io/ohne-b/twitch-drops-miner`.
-
 Install Docker with Compose support.
 
 <details>
