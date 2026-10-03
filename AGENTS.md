@@ -370,6 +370,10 @@ Never use live credentials, a live miner or real notifications for automated che
 
 CI requires Rust fmt/Clippy/tests, frontend format/type/build/unit/browser/axe, automation
 contracts, version/lock agreement, and amd64/arm64 production image builds plus isolated health.
+Only PRs limited to README.md, CONTRIBUTING.md and AGENTS.md may skip code/image jobs;
+scope/whitespace checks and the final Validation gate still run. All main pushes and manual
+runs require the full baseline. Cache Rust dependencies, never workspace binaries or test
+results; a cache hit never replaces running the checks. CI installs only Chromium's headless shell.
 Use focused local checks and the final revision's CI baseline without repeating the whole
 suite locally. Image builds run alongside tests. Main retains the exact tested OCI archives
 for seven days; publishing downloads them from the latest successful exact-main validation,

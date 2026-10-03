@@ -117,6 +117,8 @@ verifies readiness/reset, uses temporary data, and refuses server reuse. Vitest 
 Playwright/axe cover frontend logic, browser behavior and accessibility. No automated
 test needs credentials, sends real watch events, claims real rewards or contacts bots.
 
+CI caches Rust dependencies and their compiled artifacts by toolchain and Cargo inputs;
+workspace binaries are rebuilt. Browser checks install only Chromium's headless shell.
 CI builds and smoke-tests production images for amd64 and arm64 alongside the test job,
 including UID/GID, licenses and isolated health. Main retains the tested OCI archives for
 seven days as workflow artifacts; PRs do not publish images or retain release artifacts.
@@ -133,10 +135,18 @@ Select regression coverage according to the actual change:
 | Security | Authorization, CSRF/origins, cookies, expiry/revocation, rate limits and redaction |
 | Frontend | Build/types, unit/browser/axe, reconnect/autosave and responsive/focus states |
 | Tooling | Lock/version agreement, script contracts, workflow trust boundaries and image builds |
-| Docs only | Accurate commands/links/claims and readable Markdown; normal PR CI still runs |
+| Docs only | Accurate commands/links/claims and readable Markdown; the narrow PR exception below applies |
 
 For documentation-only changes, the final row replaces the local code baseline. After
 review fixes or main integration, rerun affected checks; do not cite superseded results.
+
+PRs changing only `README.md`, `CONTRIBUTING.md` and/or `AGENTS.md` run scope and whitespace
+checks without the code/image jobs. Any other path, including changelogs, licenses,
+workflows and tests, runs full validation. Renames check both paths; an empty diff or failed
+scope check cannot authorize skipping. Every main push and manual run still validates
+everything and retains its tested images. The final **Validation** check requires every
+selected job to succeed and also runs for documentation-only PRs; use it as the required
+status check when configuring branch protection.
 
 ## Independent adversarial review
 
