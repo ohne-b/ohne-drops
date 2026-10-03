@@ -43,12 +43,13 @@ must use mocked transports and temporary storage. Never reuse a live miner for t
 
 | Location | Purpose |
 | --- | --- |
-| `src/domain.rs`, `src/policy.rs`, `src/miner.rs` | Eligibility and owned mining lifecycle |
+| `src/domain.rs`, `src/policy.rs`, `src/miner/` | Eligibility and owned session, watch, inventory and claim lifecycle |
+| `src/app/` | Application commands, settings, structured activity and revisioned publications |
 | `src/twitch/` | OAuth, HTTP/GQL, inventory, channels and PubSub |
-| `src/store.rs`, `src/config.rs`, `src/auth.rs`, `src/origin.rs` | Persistence, settings and security |
+| `src/store.rs`, `src/store/records.rs`, `src/config.rs`, `src/auth.rs`, `src/origin.rs` | Compatible durable records, settings and security |
 | `src/web/`, `src/dto.rs` | Axum/Socket.IO dashboard boundary |
 | `src/fixture.rs`, `src/bin/dashboard-fixture.rs` | Offline browser fixture |
-| `frontend/`, `lang/English.json` | Dashboard and English messages |
+| `frontend/src/app/`, `frontend/src/features/`, `frontend/src/shared/`, `lang/English.json` | Dashboard shell/provider, product features, shared controls and English messages |
 | `.github/` | Validation and release automation |
 
 Use concrete Rust structs with methods/composition and shared policies; keep business
