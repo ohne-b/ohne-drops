@@ -312,7 +312,9 @@ embed it and run without a build tool/runtime companion. Production builds never
   Default retains progress-first ordering; ties use that same deterministic order. Sort is
   URL state preserved by searches, filter resets and tab changes, never a mining setting.
 - Campaign summaries open one detail panel, alongside the list on wide screens and as a full
-  page on smaller screens. At desktop widths the workspace leaves a compact 12px bottom margin;
+  page on smaller screens. Lock page scrolling while the full-page detail is open and contain
+  its body scrolling; release the lock on close, navigation or return to the desktop layout.
+  At desktop widths the workspace leaves a compact 12px bottom margin;
   details keep the same height for short and long campaigns, with a fixed header and separately
   scrollable body. Scroll campaign results independently with a small scrollbar gutter; allow
   the left column to scroll in short windows when filters/notices need more space. Omit selection stripes and confine row hover

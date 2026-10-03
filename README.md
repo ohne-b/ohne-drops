@@ -252,7 +252,9 @@ single reward. The campaign list has a small gap before its scrollbar. The list 
 scroll independently, with the detail heading always visible. In short windows, the left column
 can also scroll to keep filters reachable. Opening desktop details keeps the selected campaign
 in view as the list narrows, including after changing between grid and list layouts.
-Details fill the page on smaller screens. Campaign dates appear once above the rewards;
+Details fill the page on smaller screens, with background scrolling locked until they close.
+Only the detail content scrolls; closing restores the list position.
+Campaign dates appear once above the rewards;
 individual rewards show dates only when their effective window differs from the campaign.
 Campaign rows use a small side-panel icon hover without a selection stripe;
 the Mine icon keeps its own circular hover.
