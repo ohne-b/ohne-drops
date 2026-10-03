@@ -573,6 +573,78 @@ test('History details stay claims-only while loading, retry errors and clear rec
   await expect(detail.locator('.reward-detail')).toHaveCount(0);
 });
 
+test('campaign grid aligns wrapped cards and gives narrow cards a separate action row', async ({
+  page,
+  request,
+}) => {
+  const saved = await (await request.get('/api/history')).json();
+  const campaigns = [
+    ['Arena Streamer Showmatch', 'Escape from Tarkov: Arena'],
+    ['September 05', 'Ravendawn'],
+    ['Summer Drops Fall – Community Championships Weekend', 'Coryphaeus Championships'],
+    ['AOCP Flamescale 4 - #6/7', 'Albion Online'],
+  ].map(([name, game_name], index) => ({
+    ...fixture.campaigns[0]!,
+    id: `layout-${index}`,
+    name,
+    game_name,
+    claimed_drops: 1,
+  }));
+  await request.post('/__test/event', {
+    headers,
+    data: { event: 'inventory_batch_update', data: { campaigns } },
+  });
+  await page.route('**/api/history', async (route) =>
+    route.fulfill({
+      json: {
+        ...(await (await route.fetch()).json()),
+        entries: campaigns.map((campaign) => ({
+          ...saved.entries[0],
+          id: `claim-${campaign.id}`,
+          campaign_id: campaign.id,
+          campaign: campaign.name,
+          game: campaign.game_name,
+        })),
+      },
+    }),
+  );
+  for (const width of [1100, 800, 1440]) {
+    await page.setViewportSize({ width, height: 900 });
+    for (const history of [false, true]) {
+      await page.goto(`/campaigns?view=grid${history ? '&tab=history' : ''}`);
+      const cards = page.locator('.campaign-summary');
+      await expect(cards).toHaveCount(4);
+      await page.screenshot({
+        path: `../artifacts/campaign-wrapped-${history ? 'history' : 'available'}-${width}.png`,
+        fullPage: true,
+      });
+      for (const index of [0, 2]) {
+        const left = (await cards.nth(index).boundingBox())!;
+        const right = (await cards.nth(index + 1).boundingBox())!;
+        expect(right.x).toBeGreaterThan(left.x + left.width);
+        expect(right.y).toBe(left.y);
+        expect(right.height).toBe(left.height);
+      }
+      if (width < 1200) {
+        for (const card of await cards.all()) {
+          const info = (await card.locator('.campaign-info').boundingBox())!;
+          const count = (await card.locator('.campaign-count').boundingBox())!;
+          const detail = (await card.locator('.campaign-detail-icon').boundingBox())!;
+          expect(info.width).toBeGreaterThan(250);
+          expect(count.y).toBeGreaterThan(info.y + info.height);
+          expect(detail.y).toBeGreaterThan(info.y + info.height);
+          if (!history) {
+            const mine = (await card.getByRole('button', { name: /^Mine / }).boundingBox())!;
+            expect(mine.y + mine.height / 2).toBe(detail.y + detail.height / 2);
+            expect(mine.x).toBeGreaterThan(detail.x + detail.width);
+          }
+        }
+      }
+      expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBe(width);
+    }
+  }
+});
+
 test('Available and History share card geometry and inset list dividers', async ({
   page,
   request,
