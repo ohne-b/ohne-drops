@@ -18,36 +18,70 @@ export function Campaign({
 }) {
   const t = useT();
   return (
-    <article className={`campaign-summary ${selected ? 'selected' : ''}`}>
+    <CampaignSummary
+      id={campaign.id}
+      name={campaign.name}
+      game={campaign.game_name}
+      image={campaign.game_box_art_url}
+      time={t(campaign.upcoming ? 'gui.inventory.starts' : 'gui.inventory.ends', {
+        time: dateTime(campaign.upcoming ? campaign.starts_at : campaign.ends_at),
+      })}
+      count={`${campaign.claimed_drops} / ${campaign.total_drops}`}
+      status={t(
+        `gui.inventory.status.${campaign.expired ? 'expired' : campaign.upcoming ? 'upcoming' : 'active'}`,
+      )}
+      onOpen={onOpen}
+      selected={selected}
+      action={action}
+    />
+  );
+}
+
+export function CampaignSummary({
+  id,
+  name,
+  game,
+  image,
+  time,
+  count,
+  status,
+  action,
+  onOpen,
+  selected,
+}: {
+  id: string;
+  name: string;
+  game: string;
+  image?: string | null;
+  time: string;
+  count: string;
+  status?: string;
+  action?: ReactNode;
+  onOpen: () => void;
+  selected: boolean;
+}) {
+  const t = useT();
+  return (
+    <article className={`campaign-summary panel ${selected ? 'selected' : ''}`}>
       <button
         type="button"
-        id={`campaign-open-${campaign.id}`}
+        id={`campaign-open-${id}`}
         onClick={onOpen}
         className="campaign-open"
-        aria-label={t('inspect_campaign', { campaign: campaign.name })}
+        aria-label={t('inspect_campaign', { campaign: name })}
         title={t('campaign_details')}
         aria-current={selected ? 'true' : undefined}
         aria-controls={selected ? 'campaign-details' : undefined}
       >
-        <Art url={campaign.game_box_art_url} className="size-12" />
-        <span className="min-w-0 flex-1 text-start">
-          <span className="campaign-title block font-medium text-text">{campaign.name}</span>
-          <span className="muted mt-1 block">{campaign.game_name}</span>
-          <span className="muted mt-1 block text-xs">
-            {t(campaign.upcoming ? 'gui.inventory.starts' : 'gui.inventory.ends', {
-              time: dateTime(campaign.upcoming ? campaign.starts_at : campaign.ends_at),
-            })}
-          </span>
+        <Art url={image} className="size-12" />
+        <span className="campaign-info min-w-0 flex-1 text-start">
+          <span className="campaign-title block font-medium text-text">{name}</span>
+          <span className="muted mt-1 block">{game}</span>
+          <span className="muted mt-1 block text-xs">{time}</span>
         </span>
-        <span className="shrink-0 text-end text-[13px]">
-          <span className="block text-soft tabular-nums">
-            {campaign.claimed_drops} / {campaign.total_drops}
-          </span>
-          <span className="muted block">
-            {t(
-              `gui.inventory.status.${campaign.expired ? 'expired' : campaign.upcoming ? 'upcoming' : 'active'}`,
-            )}
-          </span>
+        <span className="campaign-count shrink-0 text-end text-[13px]">
+          <span className="block text-soft tabular-nums">{count}</span>
+          {status && <span className="muted block">{status}</span>}
         </span>
         <span className="campaign-detail-icon" aria-hidden="true">
           <Icon path={mdiDockRight} className="mdi-icon" />
