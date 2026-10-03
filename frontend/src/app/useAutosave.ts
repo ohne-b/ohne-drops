@@ -1,21 +1,76 @@
 import { useEffect, useRef, useState } from 'react';
 import { ApiError, request } from '../shared/lib/api';
-import type { Settings } from '../shared/lib/types';
+import type { Filters, Settings } from '../shared/lib/types';
 
-type Changes = Partial<Omit<Settings, 'revision' | 'games_available'>>;
+export type Changes = Partial<
+  Omit<Settings, 'revision' | 'games_available' | 'game_keys' | 'inventory_filters'>
+> & { inventory_filters?: Partial<Filters> };
+const nested = ['inventory_filters', 'mining_benefits'] as const;
+const reloadKey = 'tdm.settings-draft';
+export function mergeDraft(settings: Settings, changes: Changes): Settings {
+  return {
+    ...settings,
+    ...changes,
+    inventory_filters: { ...settings.inventory_filters, ...changes.inventory_filters },
+    mining_benefits: { ...settings.mining_benefits, ...changes.mining_benefits },
+  };
+}
+export function remainingChanges(queued: Changes, sent: Changes): Changes {
+  const next = { ...queued };
+  for (const key of Object.keys(next) as (keyof Changes)[]) {
+    if ((nested as readonly string[]).includes(key)) {
+      const rest = Object.fromEntries(
+        Object.entries(next[key] ?? {}).filter(
+          ([field, value]) =>
+            JSON.stringify(value) !==
+            JSON.stringify((sent[key] as Record<string, unknown> | undefined)?.[field]),
+        ),
+      );
+      if (Object.keys(rest).length) Object.assign(next, { [key]: rest });
+      else delete next[key];
+    } else if (JSON.stringify(next[key]) === JSON.stringify(sent[key])) delete next[key];
+  }
+  return next;
+}
+function readReloadDraft(): { changes: Changes; revision?: string } | null {
+  try {
+    const raw = sessionStorage.getItem(reloadKey);
+    if (!raw || raw.length > 100_000) return null;
+    const value = JSON.parse(raw);
+    if (
+      typeof value.expires !== 'number' ||
+      value.expires < Date.now() ||
+      !value.changes ||
+      typeof value.changes !== 'object' ||
+      Array.isArray(value.changes)
+    )
+      return null;
+    return value;
+  } catch {
+    return null;
+  }
+}
 export function useAutosave(
   settings: Settings | undefined,
   connected: boolean,
   saved: (settings: Settings, previousRevision: string | undefined) => void,
 ) {
+  const [restored] = useState(readReloadDraft);
+  useEffect(() => {
+    try {
+      sessionStorage.removeItem(reloadKey);
+    } catch {
+      /* Storage can be disabled. */
+    }
+  }, []);
   const latest = useRef(settings);
   latest.current = settings;
-  const queued = useRef<Changes>({});
-  const baseline = useRef(settings);
+  const queued = useRef<Changes>(restored?.changes ?? {});
+  const baseline = useRef<{ revision?: string } | undefined>(restored ?? settings);
   const sending = useRef(false);
-  const [changes, setChanges] = useState<Changes>({});
+  const [changes, setChanges] = useState<Changes>(restored?.changes ?? {});
   const [busy, setBusy] = useState(false);
-  const [error, setError] = useState('');
+  const [error, setError] = useState(restored ? 'settings_restored' : '');
   const pending = Object.keys(changes).length > 0;
 
   function change<K extends keyof Changes>(
@@ -23,10 +78,24 @@ export function useAutosave(
     value: Settings[K] | ((current: Settings[K]) => Settings[K]),
   ) {
     if (!Object.keys(queued.current).length) baseline.current = latest.current;
-    const current = { ...latest.current, ...queued.current } as Settings;
+    if (!latest.current) return;
+    const current = mergeDraft(latest.current, queued.current);
+    let next = typeof value === 'function' ? value(current[key]) : value;
+    if ((nested as readonly string[]).includes(key)) {
+      next = {
+        ...(queued.current[key] as object),
+        ...Object.fromEntries(
+          Object.entries(next as object).filter(
+            ([field, item]) =>
+              JSON.stringify(item) !==
+              JSON.stringify((current[key] as Record<string, unknown>)[field]),
+          ),
+        ),
+      } as Settings[K];
+    }
     queued.current = {
       ...queued.current,
-      [key]: typeof value === 'function' ? value(current[key]) : value,
+      [key]: next,
     };
     setChanges(queued.current);
     setError('');
@@ -60,11 +129,7 @@ export function useAutosave(
       saved(result.settings, base.revision);
       baseline.current = result.settings;
       // Edits made while this request was in flight belong to the next save.
-      queued.current = Object.fromEntries(
-        Object.entries(queued.current).filter(
-          ([key, value]) => JSON.stringify(value) !== JSON.stringify(sent[key as keyof Changes]),
-        ),
-      );
+      queued.current = remainingChanges(queued.current, sent);
       setChanges(queued.current);
     } catch (failure) {
       setError(
@@ -84,7 +149,7 @@ export function useAutosave(
     return () => window.clearTimeout(timer);
   }, [changes, pending, busy, connected, error]);
   useEffect(() => {
-    if (connected) setError('');
+    if (connected && !restored) setError('');
   }, [connected]);
   useEffect(() => {
     const warn = (event: BeforeUnloadEvent) => {
@@ -94,11 +159,27 @@ export function useAutosave(
     return () => window.removeEventListener('beforeunload', warn);
   }, [pending, busy]);
   return {
-    draft: settings ? { ...settings, ...changes } : undefined,
+    draft: settings ? mergeDraft(settings, changes) : undefined,
     change,
     busy,
     pending,
     error,
     retry: () => save(true),
+    reload: () => {
+      try {
+        if (Object.keys(queued.current).length)
+          sessionStorage.setItem(
+            reloadKey,
+            JSON.stringify({
+              changes: queued.current,
+              revision: baseline.current?.revision,
+              expires: Date.now() + 600_000,
+            }),
+          );
+        window.location.reload();
+      } catch {
+        setError('settings_reload_failed');
+      }
+    },
   };
 }
