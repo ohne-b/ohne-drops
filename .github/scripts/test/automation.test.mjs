@@ -100,15 +100,18 @@ test('edge publishing is manual, validated-main-only and cannot advance release 
   assert.match(edge, /if: github\.ref == 'refs\/heads\/main'/);
   assert.match(edge, /ref: \$\{\{ github\.sha \}\}/);
   assert.match(edge, /run: npm --prefix frontend ci/);
-  assert.match(edge, /test "\$\(cut -f1 <<< "\$remote_main"\)" = "\$GITHUB_SHA"/);
-  assert.match(edge, /--workflow validation\.yml --branch main --commit "\$GITHUB_SHA"/);
-  assert.match(edge, /test "\$conclusion" = success/);
   assert.match(edge, /GH_TOKEN: \$\{\{ github\.token \}\}/);
-  assert.match(edge, /tags: ghcr\.io\/ohne-b\/twitch-drops-miner:edge\n/);
+  assert.match(edge, /node \.github\/scripts\/publish-images\.mjs "\$VERSION" ghcr\.io\/ohne-b\/twitch-drops-miner:edge/);
   assert.doesNotMatch(edge, /contents: write|:latest|gh release|git push|secrets\./);
-  for (const action of ['setup-buildx-action', 'build-push-action']) {
-    const pattern = new RegExp(`docker/${action}@[a-f0-9]+`);
-    assert.equal(edge.match(pattern)?.[0], validation.match(pattern)?.[0]);
-    assert.equal(edge.match(pattern)?.[0], release.match(pattern)?.[0]);
-  }
+  const buildx = /docker\/setup-buildx-action@[a-f0-9]+/;
+  assert.equal(edge.match(buildx)?.[0], validation.match(buildx)?.[0]);
+  assert.equal(edge.match(buildx)?.[0], release.match(buildx)?.[0]);
+  assert.doesNotMatch(edge + release, /build-push-action|setup-qemu-action|cargo build/);
+  assert.match(release, /node \.github\/scripts\/publish-images\.mjs "\$RELEASE_VERSION" "\$IMAGE_TAGS"/);
+  assert.match(validation, /outputs: type=oci,dest=\$\{\{ runner.temp \}\}\/image.tar/);
+  assert.match(validation, /skopeo --override-arch "\$ARCH" copy "oci-archive:\$RUNNER_TEMP\/image.tar" docker-daemon:twitch-drops-miner:test/);
+  assert.ok(validation.indexOf('Check runtime, ownership and health') < validation.indexOf('Retain the tested image'));
+  assert.match(validation, /if: github.ref == 'refs\/heads\/main' && github.event_name != 'pull_request'/);
+  assert.match(validation, /retention-days: 7/);
+  assert.doesNotMatch(validation, /needs: test|packages: write|push: true/);
 });
