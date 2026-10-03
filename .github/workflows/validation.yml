@@ -62,16 +62,55 @@ jobs:
           node .github/scripts/release.mjs read
           node .github/scripts/release.mjs artifacts "$(node .github/scripts/release.mjs read)"
           git diff --exit-code
+      - name: Build the browser fixture once
+        run: |
+          cargo build --locked --features dashboard-fixture --bin dashboard-fixture
+          strip target/debug/dashboard-fixture
+          tar -czf "$RUNNER_TEMP/dashboard-fixture.tar.gz" -C target/debug dashboard-fixture -C "$GITHUB_WORKSPACE" web
+      - uses: actions/upload-artifact@v4
+        with:
+          name: dashboard-fixture
+          path: ${{ runner.temp }}/dashboard-fixture.tar.gz
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 1
+
+  browser:
+    name: Browser and Accessibility (${{ matrix.shard }}/2)
+    needs: [scope, test]
+    if: needs.scope.outputs.full == 'true'
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [1, 2]
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v6
+        with:
+          node-version: '24'
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - uses: actions/download-artifact@v4
+        with:
+          name: dashboard-fixture
+          path: ${{ runner.temp }}
+      - name: Prepare the browser fixture
+        run: |
+          tar -xzf "$RUNNER_TEMP/dashboard-fixture.tar.gz"
+          npm --prefix frontend ci
       - name: Browser and accessibility tests
         working-directory: frontend
+        env:
+          PLAYWRIGHT_PREBUILT_FIXTURE: '1'
         run: |
           npx playwright install --with-deps --only-shell chromium
-          npm run test:browser
+          npm run test:browser -- --fully-parallel --shard=${{ matrix.shard }}/2
       - name: Upload browser failure traces
         if: failure()
         uses: actions/upload-artifact@v4
         with:
-          name: browser-failures
+          name: browser-failures-${{ matrix.shard }}
           path: frontend/test-results/
           retention-days: 7
 
@@ -154,7 +193,7 @@ jobs:
   complete:
     name: Validation
     if: always()
-    needs: [scope, test, docker]
+    needs: [scope, test, browser, docker]
     runs-on: ubuntu-latest
     steps:
       - name: Require the selected checks
@@ -162,15 +201,18 @@ jobs:
           SCOPE_RESULT: ${{ needs.scope.result }}
           FULL: ${{ needs.scope.outputs.full }}
           TEST_RESULT: ${{ needs.test.result }}
+          BROWSER_RESULT: ${{ needs.browser.result }}
           DOCKER_RESULT: ${{ needs.docker.result }}
         run: |
           test "$SCOPE_RESULT" = success
           if [ "$FULL" = false ]; then
             test "$TEST_RESULT" = skipped
+            test "$BROWSER_RESULT" = skipped
             test "$DOCKER_RESULT" = skipped
             echo 'Documentation-only PR: code and image checks are not needed.' >> "$GITHUB_STEP_SUMMARY"
           elif [ "$FULL" = true ]; then
             test "$TEST_RESULT" = success
+            test "$BROWSER_RESULT" = success
             test "$DOCKER_RESULT" = success
           else
             exit 1

@@ -117,6 +117,13 @@ verifies readiness/reset, uses temporary data, and refuses server reuse. Vitest 
 Playwright/axe cover frontend logic, browser behavior and accessibility. No automated
 test needs credentials, sends real watch events, claims real rewards or contacts bots.
 
+CI builds the fixture once and passes it with the built dashboard to two browser shards.
+Each shard starts its own server on its own runner and still uses one worker; never
+increase workers against shared fixture state. Playwright's `--fully-parallel --shard=N/2`
+distributes individual tests between jobs without running them concurrently inside a job.
+`PLAYWRIGHT_PREBUILT_FIXTURE=1` selects the downloaded CI fixture; local runs continue to
+build and launch it through Cargo. Both browser shards are required for full validation.
+
 CI caches Rust dependencies and their compiled artifacts by toolchain and Cargo inputs;
 workspace binaries are rebuilt. Browser checks install only Chromium's headless shell.
 CI builds and smoke-tests production images for amd64 and arm64 alongside the test job,

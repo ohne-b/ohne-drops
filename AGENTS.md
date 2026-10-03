@@ -374,6 +374,9 @@ Only PRs limited to README.md, CONTRIBUTING.md and AGENTS.md may skip code/image
 scope/whitespace checks and the final Validation gate still run. All main pushes and manual
 runs require the full baseline. Cache Rust dependencies, never workspace binaries or test
 results; a cache hit never replaces running the checks. CI installs only Chromium's headless shell.
+Build one fixture binary/dashboard bundle for both CI browser shards; each shard owns a
+separate runner/server and one worker. Preserve readiness/reset checks and refused server
+reuse. The Validation gate requires both shards; local Playwright still starts Cargo itself.
 Use focused local checks and the final revision's CI baseline without repeating the whole
 suite locally. Image builds run alongside tests. Main retains the exact tested OCI archives
 for seven days; publishing downloads them from the latest successful exact-main validation,
