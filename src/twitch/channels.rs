@@ -605,7 +605,7 @@ mod tests {
         let now = Utc::now();
         let mut first = Campaign::parse(&campaign_json("one"), &HashMap::new(), now).unwrap();
         first.allowed_channels.clear();
-        first.drops[0].benefits[0].view.kind = "EMOTE".into();
+        first.drops[0].benefits[0].kind = "EMOTE".into();
         let mut second = first.clone();
         second.id = "two".into();
         second.game.id = 2;
@@ -630,7 +630,7 @@ mod tests {
         let now = Utc::now();
         let mut first = Campaign::parse(&campaign_json("one"), &HashMap::new(), now).unwrap();
         first.allowed_channels.clear();
-        first.drops[0].benefits[0].view.kind = "BADGE".into();
+        first.drops[0].benefits[0].kind = "BADGE".into();
         let mut second = first.clone();
         second.game.id = 2;
         second.game.name = "Other".into();
@@ -884,7 +884,7 @@ mod tests {
                 .patched(&json!({"games_to_watch":["Rust"], "auto_mine_badges":true}))
                 .unwrap();
             restricted[1].allowed_channels.clear();
-            restricted[1].drops[0].benefits[0].view.kind = "BADGE".into();
+            restricted[1].drops[0].benefits[0].kind = "BADGE".into();
             assert_eq!(
                 select_channel(&streams, &restricted, &optional, now, Some(20), None),
                 Some(10)

@@ -39,6 +39,11 @@ pub struct DropPolicy {
     prerequisite_order: Vec<String>,
 }
 
+pub struct WatchPriority {
+    pub deadline: DateTime<Utc>,
+    pub targets: Vec<String>,
+}
+
 impl DropPolicy {
     pub fn evaluate(drops: &[Drop], keywords: &[String]) -> Self {
         Self::for_targets(drops, keywords, |_| true)
@@ -146,7 +151,7 @@ impl DropPolicy {
         drops: &[Drop],
         now: DateTime<Utc>,
         target_deadline: impl Fn(&Drop) -> Option<DateTime<Utc>>,
-    ) -> HashMap<String, DateTime<Utc>> {
+    ) -> HashMap<String, WatchPriority> {
         let by_id: HashMap<_, _> = drops.iter().map(|d| (d.id.as_str(), d)).collect();
         let mut available = HashMap::new();
         // Reuse the resolved graph. An expired unwatched prerequisite, or one
@@ -177,13 +182,21 @@ impl DropPolicy {
                     .get(drop.id.as_str())
                     .is_some_and(|start| *start < end)
             {
-                deadlines.insert(drop.id.clone(), end);
+                deadlines.insert(
+                    drop.id.clone(),
+                    WatchPriority {
+                        deadline: end,
+                        targets: vec![drop.id.clone()],
+                    },
+                );
             }
         }
         // Dependents come first here: propagate the earliest target deadline
         // through shared prerequisites once, without recursion or per-target walks.
         for id in self.prerequisite_order.iter().rev() {
-            if let Some(end) = deadlines.get(id).copied() {
+            if let Some(priority) = deadlines.get(id) {
+                let end = priority.deadline;
+                let targets = priority.targets.clone();
                 for parent in &by_id[id.as_str()].prerequisites {
                     let drop = by_id[parent.as_str()];
                     if drop.claimed || drop.confirmed_minutes >= drop.required_minutes {
@@ -192,8 +205,22 @@ impl DropPolicy {
                     let end = end.min(drop.ends_at);
                     deadlines
                         .entry(parent.clone())
-                        .and_modify(|at| *at = (*at).min(end))
-                        .or_insert(end);
+                        .and_modify(|priority| {
+                            if end < priority.deadline {
+                                priority.deadline = end;
+                                priority.targets = targets.clone();
+                            } else if end == priority.deadline {
+                                for target in &targets {
+                                    if !priority.targets.contains(target) {
+                                        priority.targets.push(target.clone());
+                                    }
+                                }
+                            }
+                        })
+                        .or_insert_with(|| WatchPriority {
+                            deadline: end,
+                            targets: targets.clone(),
+                        });
                 }
             }
         }

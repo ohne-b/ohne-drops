@@ -1,3 +1,5 @@
+pub mod records;
+use records::StoredCampaign;
 use std::{
     collections::{BTreeMap, BTreeSet, HashSet},
     fs::{self, File, OpenOptions},
@@ -245,7 +247,7 @@ impl History {
 #[derive(Serialize, Deserialize)]
 struct ArchiveFile {
     version: u32,
-    campaigns: Vec<CampaignView>,
+    campaigns: Vec<StoredCampaign>,
 }
 
 #[derive(Clone, Serialize, Deserialize)]
@@ -257,7 +259,7 @@ pub struct PendingClaim {
     pub starts_at: DateTime<Utc>,
     pub ends_at: DateTime<Utc>,
     pub retry_until: DateTime<Utc>,
-    pub completed_campaign: Option<CampaignView>,
+    pub completed_campaign: Option<StoredCampaign>,
     pub confirmed: bool,
 }
 
@@ -280,7 +282,7 @@ impl PendingClaim {
             starts_at: drop.starts_at,
             ends_at: drop.ends_at,
             retry_until: campaign.ends_at + chrono::Duration::hours(24),
-            completed_campaign: completed.finished.then_some(completed),
+            completed_campaign: completed.finished.then(|| completed.into()),
             confirmed: false,
         }
     }
@@ -310,10 +312,9 @@ impl ClaimJournal {
                 || claim.entry.id.is_empty()
                 || claim.instance.is_empty()
                 || claim.starts_at >= claim.ends_at
-                || claim
-                    .completed_campaign
-                    .as_ref()
-                    .is_some_and(|c| c.id != claim.entry.campaign_id || !CampaignArchive::valid(c))
+                || claim.completed_campaign.as_ref().is_some_and(|c| {
+                    c.id != claim.entry.campaign_id || !CampaignArchive::valid(&c.clone().into())
+                })
                 || !ids.insert((claim.user_id, &claim.entry.id))
         }) {
             bail!("pending claims are unreadable; original file preserved");
@@ -386,6 +387,7 @@ impl CampaignArchive {
                 bail!("unknown campaign archive version");
             }
             for campaign in value.campaigns {
+                let campaign: CampaignView = campaign.into();
                 if !Self::valid(&campaign)
                     || campaigns.insert(campaign.id.clone(), campaign).is_some()
                 {
@@ -449,7 +451,7 @@ impl CampaignArchive {
                 &self.path,
                 &ArchiveFile {
                     version: 1,
-                    campaigns: next.values().cloned().collect(),
+                    campaigns: next.values().cloned().map(Into::into).collect(),
                 },
             )?;
             self.campaigns = next;

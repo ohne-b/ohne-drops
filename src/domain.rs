@@ -96,7 +96,9 @@ impl Game {
 #[derive(Clone, Debug)]
 pub struct Benefit {
     pub id: String,
-    pub view: BenefitView,
+    pub name: String,
+    pub kind: String,
+    pub image_url: String,
 }
 
 impl Benefit {
@@ -107,21 +109,19 @@ impl Benefit {
             .unwrap_or("UNKNOWN");
         Ok(Self {
             id: text(value, "id")?,
-            view: BenefitView {
-                name: text(value, "name")?,
-                kind: kind.to_owned(),
-                image_url: value["imageAssetURL"]
-                    .as_str()
-                    .unwrap_or_default()
-                    .to_owned(),
-            },
+            name: text(value, "name")?,
+            kind: kind.to_owned(),
+            image_url: value["imageAssetURL"]
+                .as_str()
+                .unwrap_or_default()
+                .to_owned(),
         })
     }
 
     pub fn wanted(&self, settings: &Settings) -> bool {
         settings
             .mining_benefits
-            .get(&self.view.kind)
+            .get(&self.kind)
             .copied()
             .unwrap_or(false)
     }
@@ -253,8 +253,8 @@ impl Drop {
     pub fn image_url(&self) -> String {
         self.benefits
             .iter()
-            .find(|b| !b.view.image_url.is_empty())
-            .map(|b| b.view.image_url.clone())
+            .find(|b| !b.image_url.is_empty())
+            .map(|b| b.image_url.clone())
             .unwrap_or_default()
     }
 }
@@ -415,8 +415,8 @@ impl Campaign {
         drop.benefits.iter().any(|benefit| {
             benefit.wanted(settings)
                 && (settings.selected(&self.game.name)
-                    || benefit.view.kind == "BADGE" && settings.auto_mine_badges
-                    || benefit.view.kind == "EMOTE" && settings.auto_mine_emotes)
+                    || benefit.kind == "BADGE" && settings.auto_mine_badges
+                    || benefit.kind == "EMOTE" && settings.auto_mine_emotes)
         })
     }
 
@@ -425,7 +425,7 @@ impl Campaign {
         settings: &Settings,
         now: DateTime<Utc>,
         policy: &DropPolicy,
-    ) -> HashMap<String, DateTime<Utc>> {
+    ) -> HashMap<String, crate::policy::WatchPriority> {
         if settings.mining_priority_mode == MiningPriorityMode::Manual
             || !settings.selected(&self.game.name)
             || !self.active(now)
@@ -458,10 +458,10 @@ impl Campaign {
                 .filter(|drop| {
                     self.drop_eligible(drop, &policy, now, now + Duration::nanoseconds(1))
                 })
-                .filter_map(|drop| deadlines.get(&drop.id))
+                .filter_map(|drop| deadlines.get(&drop.id).map(|priority| priority.deadline))
                 .min()
             {
-                return MiningPriority::Deadline(*deadline, priority);
+                return MiningPriority::Deadline(deadline, priority);
             }
         }
         MiningPriority::Selected(priority)
@@ -576,7 +576,7 @@ impl Campaign {
                 (
                     deadlines
                         .get(&d.id)
-                        .copied()
+                        .map(|priority| priority.deadline)
                         .unwrap_or(DateTime::<Utc>::MAX_UTC),
                     d.remaining_minutes(),
                 )
@@ -601,8 +601,91 @@ impl Campaign {
         stalled
     }
 
+    fn eligibility(
+        &self,
+        drop: &Drop,
+        settings: &Settings,
+        now: DateTime<Utc>,
+        policy: &DropPolicy,
+    ) -> Eligibility {
+        if drop.claimed {
+            Eligibility::Claimed
+        } else if self.expired(now) || drop.ends_at <= now {
+            Eligibility::Expired
+        } else if self.upcoming(now) || now < drop.starts_at {
+            Eligibility::Upcoming
+        } else if policy.reasons.contains_key(&drop.id) {
+            Eligibility::Ignored
+        } else if drop.watch_reward() && drop.confirmed_minutes >= drop.required_minutes {
+            Eligibility::AwaitingClaim
+        } else if !self.prerequisites_met(drop) {
+            Eligibility::Prerequisite
+        } else if !policy.mineable.contains(&drop.id) {
+            if !settings.selected(&self.game.name)
+                && !settings.auto_mine_badges
+                && !settings.auto_mine_emotes
+            {
+                Eligibility::Unselected
+            } else {
+                Eligibility::Filtered
+            }
+        } else if drop.estimated_minutes >= MAX_ESTIMATED_MINUTES {
+            Eligibility::AwaitingConfirmation
+        } else {
+            Eligibility::Ready
+        }
+    }
+
+    pub fn priority_context(&self, settings: &Settings, now: DateTime<Utc>) -> PriorityContext {
+        match self.mining_priority(settings, now) {
+            MiningPriority::Deadline(deadline, _) => {
+                let policy = self.mining_policy(settings, now);
+                let deadlines = self.priority_deadlines(settings, now, &policy);
+                PriorityContext {
+                    reason: if settings.mining_priority_mode == MiningPriorityMode::ShortEvents {
+                        PriorityReason::ShortEvent
+                    } else {
+                        PriorityReason::EndingSoonest
+                    },
+                    deadline: Some(deadline),
+                    target_ids: {
+                        let mut targets: Vec<_> = self
+                            .drops
+                            .iter()
+                            .filter(|drop| {
+                                self.drop_eligible(
+                                    drop,
+                                    &policy,
+                                    now,
+                                    now + Duration::nanoseconds(1),
+                                )
+                            })
+                            .filter_map(|drop| deadlines.get(&drop.id))
+                            .filter(|priority| priority.deadline == deadline)
+                            .flat_map(|priority| priority.targets.clone())
+                            .collect();
+                        targets.sort();
+                        targets.dedup();
+                        targets
+                    },
+                }
+            }
+            MiningPriority::Automatic(_) => PriorityContext {
+                reason: if self.mining_policy(settings, now).mineable.is_empty() {
+                    PriorityReason::NotSelected
+                } else {
+                    PriorityReason::AutomaticReward
+                },
+                ..Default::default()
+            },
+            _ => PriorityContext::default(),
+        }
+    }
+
     pub fn view(&self, settings: &Settings, now: DateTime<Utc>) -> CampaignView {
         let policy = self.policy(settings);
+        let mining_policy = self.mining_policy(settings, now);
+        let deadlines = self.priority_deadlines(settings, now, &mining_policy);
         let drops: Vec<_> = self
             .drops
             .iter()
@@ -611,6 +694,11 @@ impl Campaign {
                 let reason = policy.reasons.get(&drop.id);
                 let mineable = policy.mineable.contains(&drop.id);
                 DropView {
+                    eligibility: self.eligibility(drop, settings, now, &mining_policy),
+                    prerequisites: drop.prerequisites.clone(),
+                    effective_starts_at: Some(self.starts_at.max(drop.starts_at)),
+                    effective_ends_at: Some(self.ends_at.min(drop.ends_at)),
+                    priority_deadline: deadlines.get(&drop.id).map(|priority| priority.deadline),
                     id: drop.id.clone(),
                     name: drop.name.clone(),
                     current_minutes: drop.current_minutes(),
@@ -626,13 +714,37 @@ impl Campaign {
                     ignored_reason: reason.map(|r| r.kind().to_owned()),
                     ignored_keyword: reason.and_then(|r| r.keyword()).map(str::to_owned),
                     ignored_precondition: reason.and_then(|r| r.precondition()).map(str::to_owned),
-                    benefits: drop.benefits.iter().map(|b| b.view.clone()).collect(),
+                    benefits: drop
+                        .benefits
+                        .iter()
+                        .map(|b| BenefitView {
+                            name: b.name.clone(),
+                            kind: b.kind.clone(),
+                            image_url: b.image_url.clone(),
+                        })
+                        .collect(),
                     starts_at: drop.starts_at,
                     ends_at: drop.ends_at,
                 }
             })
             .collect();
         CampaignView {
+            game_key: crate::config::fold(&self.game.name),
+            selected: settings.selected(&self.game.name),
+            saved_rank: settings
+                .games_to_watch
+                .iter()
+                .position(|game| crate::config::fold(game) == crate::config::fold(&self.game.name))
+                .map(|rank| rank + 1),
+            priority: self.priority_context(settings, now),
+            allowed_channels: self
+                .allowed_channels
+                .iter()
+                .map(|channel| AllowedChannel {
+                    login: channel.login.clone(),
+                    name: channel.name.clone(),
+                })
+                .collect(),
             id: self.id.clone(),
             name: self.name.clone(),
             game_name: self.game.name.clone(),
@@ -679,7 +791,7 @@ impl Campaign {
             game: self.game.name.clone(),
             campaign: self.name.clone(),
             drop_name: drop.name.clone(),
-            benefits: drop.benefits.iter().map(|b| b.view.name.clone()).collect(),
+            benefits: drop.benefits.iter().map(|b| b.name.clone()).collect(),
             required_minutes: drop.required_minutes,
             campaign_id: self.id.clone(),
             image_url: drop.image_url(),
@@ -707,7 +819,7 @@ pub fn wanted_items(
             .filter(|d| d.watch_reward() && now < d.ends_at && policy.mineable.contains(&d.id))
             .collect();
         ordered.sort_by_key(|d| {
-            let deadline = deadlines.get(&d.id).copied();
+            let deadline = deadlines.get(&d.id).map(|priority| priority.deadline);
             (
                 deadline.unwrap_or(DateTime::<Utc>::MAX_UTC),
                 deadline.is_some()
@@ -721,12 +833,18 @@ pub fn wanted_items(
                 // A prerequisite must stay visible even when its own benefit type is off.
                 let benefits = &d.benefits;
                 (!benefits.is_empty()).then(|| WantedDrop {
+                    id: d.id.clone(),
+                    eligibility: campaign.eligibility(d, settings, now, &policy),
+                    starts_at: Some(campaign.starts_at.max(d.starts_at)),
+                    ends_at: Some(campaign.ends_at.min(d.ends_at)),
+                    prerequisites: d.prerequisites.clone(),
+                    priority_deadline: deadlines.get(&d.id).map(|priority| priority.deadline),
                     name: d.name.clone(),
-                    benefits: benefits.iter().map(|b| b.view.name.clone()).collect(),
+                    benefits: benefits.iter().map(|b| b.name.clone()).collect(),
                     image_url: benefits
                         .iter()
-                        .find(|b| !b.view.image_url.is_empty())
-                        .map(|b| b.view.image_url.clone())
+                        .find(|b| !b.image_url.is_empty())
+                        .map(|b| b.image_url.clone())
                         .unwrap_or_default(),
                 })
             })
@@ -735,6 +853,7 @@ pub fn wanted_items(
             continue;
         }
         let entry = WantedCampaign {
+            priority: campaign.priority_context(settings, now),
             id: campaign.id.clone(),
             name: campaign.name.clone(),
             url: campaign.url(),
@@ -747,6 +866,14 @@ pub fn wanted_items(
             game.campaigns.push(entry);
         } else {
             result.push(WantedGame {
+                game_key: crate::config::fold(&campaign.game.name),
+                saved_rank: settings
+                    .games_to_watch
+                    .iter()
+                    .position(|game| {
+                        crate::config::fold(game) == crate::config::fold(&campaign.game.name)
+                    })
+                    .map(|rank| rank + 1),
                 game_name: campaign.game.name.clone(),
                 game_icon: Some(campaign.game.image_url.clone()),
                 game_id: Some(campaign.game.id),
@@ -777,6 +904,35 @@ mod tests {
     }
     fn campaign(drops: Vec<Value>) -> Campaign {
         Campaign::parse(&raw_campaign(drops), &HashMap::new(), now()).unwrap()
+    }
+
+    #[test]
+    fn priority_explanations_match_opt_in_and_inherited_deadlines() {
+        let mut c = campaign(vec![
+            raw_drop("parent", &[]),
+            raw_drop("reward", &["parent"]),
+        ]);
+        assert_eq!(
+            c.priority_context(&Settings::default(), now()).reason,
+            PriorityReason::NotSelected
+        );
+        c.drops[1].benefits[0].kind = "BADGE".into();
+        let automatic = Settings {
+            auto_mine_badges: true,
+            ..Settings::default()
+        };
+        assert_eq!(
+            c.priority_context(&automatic, now()).reason,
+            PriorityReason::AutomaticReward
+        );
+        let settings = selected().patched(&json!({"mining_priority_mode":"ending_soonest", "mining_benefits":{"DIRECT_ENTITLEMENT":false}})).unwrap();
+        c.drops[0].ends_at = now() + Duration::hours(1);
+        let view = c.view(&settings, now());
+        assert_eq!(view.priority.deadline, Some(c.drops[0].ends_at));
+        assert_eq!(view.priority.target_ids, vec!["reward"]);
+        assert_eq!(view.drops[0].eligibility, Eligibility::Ready);
+        assert_eq!(view.drops[1].eligibility, Eligibility::Prerequisite);
+        assert!(view.drops[0].confirmed_at.is_none());
     }
 
     #[test]
@@ -1015,8 +1171,8 @@ mod tests {
         ]);
         c.drops[0].starts_at = now();
         c.drops[0].ends_at = now() + Duration::hours(3);
-        c.drops[0].benefits[0].view.kind = "EMOTE".into();
-        c.drops[1].benefits[0].view.kind = "EMOTE".into();
+        c.drops[0].benefits[0].kind = "EMOTE".into();
+        c.drops[1].benefits[0].kind = "EMOTE".into();
         c.drops[1].required_minutes = 5;
         let settings = selected().patched(&json!({"mining_priority_mode":"short_events", "mining_benefits":{"DIRECT_ENTITLEMENT":false}})).unwrap();
         assert_eq!(c.first_drop(&settings, now()).unwrap().id, "left");

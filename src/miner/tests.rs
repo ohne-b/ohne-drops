@@ -1,9 +1,11 @@
+use super::session::{authenticate, reset_session};
 use super::*;
 use crate::{
     domain::{ChannelIdentity, Game, MAX_ESTIMATED_MINUTES},
     store::{CampaignArchive, History, HistoryFilter},
     twitch::tests::{campaign_json, gql_mock, http, session, validation},
 };
+use serde_json::json;
 use wiremock::{
     Mock, MockServer, ResponseTemplate,
     matchers::{method, path},
@@ -11,7 +13,7 @@ use wiremock::{
 
 async fn miner(server: &MockServer) -> (tempfile::TempDir, Mining, watch::Sender<Intent>, PubSub) {
     let dir = tempfile::tempdir().unwrap();
-    let (app, _commands) = App::open(dir.path().to_owned(), "").unwrap();
+    let (app, _commands) = App::open(dir.path().to_owned()).unwrap();
     let client = TwitchClient::new(Arc::new(http(server)), &session());
     let (intent, receiver) = watch::channel(Intent::default());
     let (events, reader) = mpsc::channel(256);
@@ -48,7 +50,7 @@ async fn select(mining: &mut Mining) -> Settings {
         games_to_watch: vec!["Rust".into()],
         ..Settings::default()
     };
-    mining.app.snapshot.write().await.settings.values = settings.clone();
+    *mining.app.settings.write().await = settings.clone();
     mining.reselect(&settings).await;
     settings
 }
@@ -60,6 +62,90 @@ async fn finish_job(mining: &mut Mining, pool: &PubSub) {
         .unwrap();
     mining.busy.remove(&completed.kind);
     mining.complete(completed.job, pool).await.unwrap();
+}
+
+#[tokio::test]
+async fn authenticated_inventory_failure_keeps_login_and_recovers_only_after_success() {
+    let server = MockServer::start().await;
+    let (_dir, mut mining, _intent, mut pool) = miner(&server).await;
+    session::publish_login(
+        &mining.app,
+        Login {
+            user_id: Some(42),
+            ..Default::default()
+        },
+    )
+    .await;
+    assert_eq!(
+        mining.app.snapshot.read().await.mining.state,
+        crate::dto::MiningState::Discovering
+    );
+    mining
+        .complete(
+            Job::Inventory {
+                result: Err(TwitchError::Network),
+                requested_at: Utc::now(),
+                refresh_sequence: 0,
+            },
+            &pool,
+        )
+        .await
+        .unwrap();
+    {
+        let snapshot = mining.app.snapshot.read().await;
+        assert_eq!(snapshot.login.user_id, Some(42));
+        assert_ne!(
+            snapshot.mining.state,
+            crate::dto::MiningState::AccountRequired
+        );
+        assert!(!snapshot.activity.last().unwrap().recovered);
+    }
+    mining
+        .complete(Job::Notification(Ok(())), &pool)
+        .await
+        .unwrap();
+    assert!(
+        !mining
+            .app
+            .snapshot
+            .read()
+            .await
+            .activity
+            .last()
+            .unwrap()
+            .recovered
+    );
+    mining
+        .complete(
+            Job::Inventory {
+                result: Ok(Inventory {
+                    campaigns: vec![],
+                    awards: HashMap::new(),
+                    rejected_account_ids: HashSet::new(),
+                    status: InventoryStatus {
+                        available: true,
+                        ..Default::default()
+                    },
+                }),
+                requested_at: Utc::now(),
+                refresh_sequence: 0,
+            },
+            &pool,
+        )
+        .await
+        .unwrap();
+    assert!(
+        mining
+            .app
+            .snapshot
+            .read()
+            .await
+            .activity
+            .last()
+            .unwrap()
+            .recovered
+    );
+    pool.close().await;
 }
 
 #[tokio::test]
@@ -149,7 +235,7 @@ async fn mining_priority_switches_preserve_reports_claim_reconciliation_and_manu
         let manual = Settings::default()
             .patched(&json!({"games_to_watch":["Rust", "Event game"]}))
             .unwrap();
-        miner.app.snapshot.write().await.settings.values = manual.clone();
+        *miner.app.settings.write().await = manual.clone();
         miner.reselect(&manual).await;
         let old_poll = Instant::now();
         assert_eq!(miner.watching, Some(10));
@@ -158,7 +244,7 @@ async fn mining_priority_switches_preserve_reports_claim_reconciliation_and_manu
         let settings = manual
             .patched(&json!({"mining_priority_mode":mode}))
             .unwrap();
-        miner.app.snapshot.write().await.settings.values = settings.clone();
+        *miner.app.settings.write().await = settings.clone();
         intent.send_modify(|intent| intent.settings += 1);
         miner.apply_intent(&pool).await;
         miner.reselect(&settings).await;
@@ -320,14 +406,7 @@ async fn mining_priority_switches_preserve_reports_claim_reconciliation_and_manu
             "drop-event"
         );
         assert_eq!(
-            miner
-                .app
-                .snapshot
-                .read()
-                .await
-                .settings
-                .values
-                .games_to_watch,
+            miner.app.settings.read().await.games_to_watch,
             manual.games_to_watch
         );
         pool.close().await;
@@ -488,7 +567,7 @@ async fn completed_transition_preserves_selected_game_priority_over_automatic_ba
     let mut settings = select(&mut miner).await;
     settings.auto_mine_badges = true;
     settings.games_to_watch.push("Second".into());
-    miner.app.snapshot.write().await.settings.values = settings.clone();
+    *miner.app.settings.write().await = settings.clone();
     let mut second =
         Campaign::parse(&campaign_json("second"), &HashMap::new(), Utc::now()).unwrap();
     second.game.id = 2;
@@ -501,7 +580,7 @@ async fn completed_transition_preserves_selected_game_priority_over_automatic_ba
     badge.game.name = "Special Events".into();
     badge.allowed_channels = vec![miner.channels[0].identity.clone()];
     badge.drops[0].confirmed_minutes = 59;
-    badge.drops[0].benefits[0].view.kind = "BADGE".into();
+    badge.drops[0].benefits[0].kind = "BADGE".into();
     miner.channels.push(channel);
     miner.campaigns.extend([second, badge]);
     miner.publish(&settings).await.unwrap();
@@ -1213,7 +1292,7 @@ async fn only_selected_games_send_beacons_and_inventory_io_does_not_block_watch_
         requests.iter().filter(|r| r.url.path() == "/track").count(),
         1
     );
-    miner.app.snapshot.write().await.settings.values = Settings::default();
+    *miner.app.settings.write().await = Settings::default();
     miner.reselect(&Settings::default()).await;
     assert!(miner.watching.is_none());
     pool.close().await;
@@ -1411,8 +1490,8 @@ async fn already_claimed_automatic_badge_is_recorded_once_and_does_not_block_nex
         auto_mine_badges: true,
         ..Settings::default()
     };
-    miner.app.snapshot.write().await.settings.values = settings.clone();
-    miner.campaigns[0].drops[0].benefits[0].view.kind = "BADGE".into();
+    *miner.app.settings.write().await = settings.clone();
+    miner.campaigns[0].drops[0].benefits[0].kind = "BADGE".into();
     let mut next = miner.campaigns[0].drops[0].clone();
     next.id = "next-badge".into();
     next.prerequisites = vec!["drop-one".into()];
@@ -1782,8 +1861,8 @@ async fn public_page_rejection_keeps_the_validated_saved_session() {
         other => panic!("unexpected query {other}"),
     }).await;
     let dir = tempfile::tempdir().unwrap();
-    let (app, commands) = App::open(dir.path().to_owned(), "").unwrap();
-    app.snapshot.write().await.settings.values.games_to_watch = vec!["Rust".into()];
+    let (app, commands) = App::open(dir.path().to_owned()).unwrap();
+    app.settings.write().await.games_to_watch = vec!["Rust".into()];
     session().save(dir.path()).unwrap();
     let mut miner = Miner::new(app.clone(), commands);
     miner.endpoints = Endpoints::mock(&server.uri());
@@ -1979,11 +2058,9 @@ async fn manual_offline_waits_and_cache_clear_and_refresh_setting_preserve_user_
     assert!(miner.next_transition.unwrap() <= Utc::now() + chrono::Duration::seconds(10));
     miner
         .app
-        .snapshot
+        .settings
         .write()
         .await
-        .settings
-        .values
         .minimum_refresh_interval_minutes = 1;
     intent.send_modify(|v| v.settings += 1);
     miner.apply_intent(&pool).await;
@@ -2197,7 +2274,7 @@ async fn renewal_keeps_pending_requests_and_restores_confirmed_channel_after_fai
         other => panic!("unexpected operation {other}"),
     }).await;
     renewed.channels_dirty = true;
-    let settings = renewed.app.snapshot.read().await.settings.values.clone();
+    let settings = renewed.app.settings.read().await.clone();
     renewed.schedule(&settings).await;
     finish_job(&mut renewed, &other_pool).await;
     renewed.reselect(&settings).await;
@@ -2273,21 +2350,12 @@ async fn manual_mode_waits_for_fresh_stream_but_lookup_never_waits_for_inventory
 async fn manual_channel_preserves_settings_and_survives_catalog_rebuilds() {
     let server = MockServer::start().await;
     let (dir, mut miner, intent, mut pool) = miner(&server).await;
+    miner.app.settings.write().await.games_to_watch = vec!["Other game".into()];
     miner
         .app
-        .snapshot
+        .settings
         .write()
         .await
-        .settings
-        .values
-        .games_to_watch = vec!["Other game".into()];
-    miner
-        .app
-        .snapshot
-        .write()
-        .await
-        .settings
-        .values
         .minimum_refresh_interval_minutes = 17;
     let inventory = miner.campaigns.clone();
     let requested_at = Instant::now();
@@ -2308,7 +2376,7 @@ async fn manual_channel_preserves_settings_and_survives_catalog_rebuilds() {
         )
         .await
         .unwrap();
-    let settings = miner.app.snapshot.read().await.settings.values.clone();
+    let settings = miner.app.settings.read().await.clone();
     assert_eq!(settings.games_to_watch, ["Other game"]);
     assert_eq!(settings.minimum_refresh_interval_minutes, 17);
     assert!(!dir.path().join("settings.json").exists());
@@ -2555,7 +2623,7 @@ async fn cancelled_timed_lookup_is_either_pending_or_consumed_never_both() {
         miner.apply_intent(&pool).await;
         let resolved = external_channel(&miner);
         let app = miner.app.clone();
-        let held = app.snapshot.write().await;
+        let held = app.settings.write().await;
         let cancelled = miner.client.http.cancel.clone();
         {
             let complete = miner.complete(
@@ -2568,7 +2636,7 @@ async fn cancelled_timed_lookup_is_either_pending_or_consumed_never_both() {
             );
             tokio::pin!(complete);
             tokio::select! {
-                _ = &mut complete => panic!("snapshot read should be blocked"),
+                _ = &mut complete => panic!("settings read should be blocked"),
                 _ = tokio::time::sleep(Duration::from_millis(10)) => {}
             }
             if cancel_before {
@@ -2683,7 +2751,7 @@ async fn completed_archives_and_subscription_only_campaigns_never_become_live_mi
 #[tokio::test]
 async fn concurrent_logout_and_shutdown_drain_owned_work_before_removing_only_twitch_credentials() {
     let dir = tempfile::tempdir().unwrap();
-    let (app, commands) = App::open(dir.path().to_owned(), "").unwrap();
+    let (app, commands) = App::open(dir.path().to_owned()).unwrap();
     session().save(dir.path()).unwrap();
     std::fs::write(dir.path().join("cookies.jar"), b"rollback copy").unwrap();
     let settings = Settings::default()
@@ -2765,7 +2833,7 @@ async fn full_owner_authenticates_saved_session_and_logout_cancels_inventory_bef
         .mount(&server)
         .await;
     let dir = tempfile::tempdir().unwrap();
-    let (app, commands) = App::open(dir.path().to_owned(), "").unwrap();
+    let (app, commands) = App::open(dir.path().to_owned()).unwrap();
     session().save(dir.path()).unwrap();
     let mut miner = Miner::new(app.clone(), commands);
     miner.endpoints = Endpoints::mock(&server.uri());
@@ -2966,7 +3034,7 @@ async fn estimate_ceiling_schedules_recovery() {
 async fn shutdown_before_queued_logout_still_removes_credentials() {
     let server = MockServer::start().await;
     let dir = tempfile::tempdir().unwrap();
-    let (app, _unused) = App::open(dir.path().to_owned(), "").unwrap();
+    let (app, _unused) = App::open(dir.path().to_owned()).unwrap();
     session().save(dir.path()).unwrap();
     let (sender, commands) = mpsc::channel(4);
     let (shutdown, shutdown_result) = oneshot::channel();
@@ -3041,7 +3109,7 @@ async fn corrupt_twitch_session_can_reach_fresh_device_login() {
         .await;
     Mock::given(method("POST")).and(path("/oauth2/device")).respond_with(ResponseTemplate::new(200).set_body_json(json!({"device_code":"private","user_code":"NEWCODE","verification_uri":"https://www.twitch.tv/activate","interval":1,"expires_in":60}))).mount(&server).await;
     let dir = tempfile::tempdir().unwrap();
-    let (app, _commands) = App::open(dir.path().to_owned(), "").unwrap();
+    let (app, _commands) = App::open(dir.path().to_owned()).unwrap();
     std::fs::write(dir.path().join("twitch_session.json"), b"{broken").unwrap();
     let owned = app.clone();
     let cancel = CancellationToken::new();
@@ -3110,8 +3178,8 @@ async fn hourly_token_validation_preserves_manual_choice() {
         other=>panic!("unexpected operation {other}"),
     }).await;
     let dir = tempfile::tempdir().unwrap();
-    let (app, commands) = App::open(dir.path().to_owned(), "").unwrap();
-    app.snapshot.write().await.settings.values.games_to_watch = vec!["Rust".into()];
+    let (app, commands) = App::open(dir.path().to_owned()).unwrap();
+    app.settings.write().await.games_to_watch = vec!["Rust".into()];
     session().save(dir.path()).unwrap();
     let owner = Miner {
         app: app.clone(),
@@ -3489,12 +3557,19 @@ async fn preclaim_publication_and_shutdown_leave_a_durable_receipt_for_finished_
         &miner.campaigns[0].drops[0],
         &settings,
     );
+    let history_revision = miner.app.snapshot.read().await.history_revision;
+    // The durable RPC result must invalidate History even without a catalog record.
+    miner.campaigns.clear();
     assert!(
         claim(&miner.app, &miner.client, &miner.journal, pending)
             .await
             .unwrap()
     );
     assert!(ClaimJournal::load(dir.path()).unwrap().pending(42)[0].confirmed);
+    assert_eq!(
+        miner.app.snapshot.read().await.history_revision,
+        history_revision + 1
+    );
     miner
         .event(Event::Viewers { id: 10, count: 500 })
         .await
@@ -3503,6 +3578,10 @@ async fn preclaim_publication_and_shutdown_leave_a_durable_receipt_for_finished_
     miner.journal = Arc::new(Mutex::new(ClaimJournal::load(dir.path()).unwrap()));
     miner.campaigns.clear();
     miner.recover_claims(&HashMap::new()).await.unwrap();
+    assert_eq!(
+        miner.app.snapshot.read().await.history_revision,
+        history_revision + 1
+    );
     assert_eq!(History::load(dir.path()).total(), 1);
     assert_eq!(
         CampaignArchive::load(dir.path())
@@ -3562,8 +3641,8 @@ async fn channel_choice_during_hourly_reload_is_retained_until_channels_are_read
         if delayed { response.set_delay(Duration::from_millis(750)) } else { response }
     }).mount(&server).await;
     let dir = tempfile::tempdir().unwrap();
-    let (app, commands) = App::open(dir.path().to_owned(), "").unwrap();
-    app.snapshot.write().await.settings.values.games_to_watch = vec!["Rust".into()];
+    let (app, commands) = App::open(dir.path().to_owned()).unwrap();
+    app.settings.write().await.games_to_watch = vec!["Rust".into()];
     session().save(dir.path()).unwrap();
     let owner = Miner {
         app: app.clone(),

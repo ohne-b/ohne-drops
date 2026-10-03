@@ -806,7 +806,7 @@ async fn both_socket_transports_enforce_origin_and_revocation_before_private_eve
         StatusCode::OK
     );
     let mut socket = client
-        .get(format!("{url}websocket"))
+        .get(format!("{url}websocket&protocol=2"))
         .header("Cookie", format!("tdm_session={token}"))
         .header("Origin", "https://drops.example.com")
         .upgrade()
@@ -829,14 +829,50 @@ async fn both_socket_transports_enforce_origin_and_revocation_before_private_eve
     assert!(
         handshake
             .iter()
-            .any(|message| message.contains("initial_state")),
+            .any(|message| message.contains("state_snapshot")),
         "{handshake:?}"
     );
+    let initial: Value = serde_json::from_str(
+        &handshake
+            .iter()
+            .find(|message| message.starts_with("42"))
+            .unwrap()[2..],
+    )
+    .unwrap();
+    let mut revision = initial[1]["revision"].as_u64().unwrap();
+    for count in 1..=8 {
+        let mut state = test.app.snapshot.write().await;
+        state.channels = vec![crate::dto::ChannelView {
+            id: 7,
+            viewers: Some(count),
+            ..Default::default()
+        }];
+        state.status = format!("published-{count}");
+    }
+    let latest = test.app.snapshot.read().await.revision;
+    while revision < latest {
+        let packet = websocket_text(&mut socket).await;
+        let packet: Value = serde_json::from_str(&packet[2..]).unwrap();
+        assert_eq!(packet[0], "state_patch");
+        assert_eq!(packet[1]["base_revision"], revision);
+        assert_eq!(packet[1]["instance"], initial[1]["instance"]);
+        assert!(packet[1]["changes"].get("campaigns").is_none());
+        revision = packet[1]["revision"].as_u64().unwrap();
+        if revision == latest {
+            assert_eq!(packet[1]["changes"]["channels"][0]["viewers"], 8);
+            assert_eq!(packet[1]["changes"]["status"], "published-8");
+        }
+    }
+    socket
+        .send(Message::Text("42[\"state_resync\"]".into()))
+        .await
+        .unwrap();
+    let full = websocket_text(&mut socket).await;
+    let full: Value = serde_json::from_str(&full[2..]).unwrap();
+    assert_eq!(full[0], "state_snapshot");
+    assert_eq!(full[1]["revision"], latest);
     test.app.auth.logout(&token).await.unwrap();
-    test.app
-        .sockets
-        .emit("console_output", &json!({"message":"private-sentinel"}))
-        .await;
+    test.app.snapshot.write().await.status = "private-sentinel".into();
     assert_eq!(websocket_text(&mut socket).await, "41");
     test.app.sockets.close().await;
     server.abort();

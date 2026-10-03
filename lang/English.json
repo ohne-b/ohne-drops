@@ -5,7 +5,8 @@
         "no_channel": "No available channels to watch. Waiting for an ONLINE channel...",
         "no_campaign": "No active campaigns to mine drops for. Waiting for an active campaign...",
         "catalog_unavailable": "Campaign data is incomplete. Waiting for available rewards...",
-        "no_selection": "No games selected for mining. Choose Mine in Campaigns to start."
+        "no_selection": "No games selected for mining. Choose Mine in Campaigns to start.",
+        "message": "{message}"
     },
     "login": {
         "status": {
