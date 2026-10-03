@@ -3,10 +3,10 @@
 ## [v1.4.0](https://github.com/ohne-b/twitch-drops-miner/releases/tag/v1.4.0) — 2026-10-03
 
 - redesign the dashboard around Mining, Campaigns, Activity and Settings with compact icon actions and responsive layouts
-- add an inline mining-preferences editor with a scrollable game list, visible drag handles and a direct return to Mining
+- add a dedicated mining-preferences editor with a scrollable game list, visible drag handles and a direct return to Mining
 - open campaign and reward details in a dedicated pane, preserve list filters and position, and keep History limited to recorded claims
 - add typed Activity events with category and severity filters, repeat counts and explicit recovery
-- separate application state from web transports, publish revisioned snapshots and patches, and preserve unsaved settings through reconnects and dashboard reloads
+- separate application state from web transports, publish revisioned snapshots and patches, and preserve unsaved settings through reconnects and the offered compatibility reload
 - simplify Settings tabs, campaign navigation and refresh controls while retaining keyboard access and mobile layouts
 
 Existing settings, credentials, history, service names and container mounts remain compatible.
