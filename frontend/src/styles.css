@@ -121,9 +121,6 @@
 .campaign-workspace.with-detail {
   grid-template-columns: minmax(0, 1fr) minmax(360px, 42%);
 }
-.campaign-workspace.with-detail .grid.items-start {
-  grid-template-columns: 1fr;
-}
 .campaign-summary {
   position: relative;
   display: flex;
@@ -218,6 +215,9 @@
   min-height: 0;
 }
 @media (min-width: 1280px) {
+  .campaign-workspace.with-detail .grid.items-start {
+    grid-template-columns: 1fr;
+  }
   .workspace:has(> .campaigns-frame) {
     padding-bottom: 12px;
   }
@@ -280,6 +280,13 @@
   display: none !important;
 }
 @media (max-width: 1279px) {
+  html:has(.campaign-detail),
+  body:has(.campaign-detail) {
+    overflow: hidden;
+  }
+  .campaign-detail .detail-body {
+    overscroll-behavior-y: contain;
+  }
   .campaign-workspace.with-detail > .campaign-browser {
     visibility: hidden;
   }
