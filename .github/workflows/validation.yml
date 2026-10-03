@@ -74,6 +74,7 @@ jobs:
           if-no-files-found: error
           compression-level: 0
           retention-days: 1
+          overwrite: true
 
   browser:
     name: Browser and Accessibility (${{ matrix.shard }}/2)
