@@ -7,7 +7,7 @@ import { upsert } from '../src/app/MinerProvider';
 import { groupHistory, matchesHistory, historyOrder } from '../src/features/campaigns/History';
 import type { HistoryEntry, Snapshot } from '../src/shared/lib/types';
 const snapshot: Snapshot = {
-  ...fixture,
+  ...(fixture as Snapshot),
   settings: { ...fixture.settings, mining_priority_mode: 'manual' },
 };
 it('orders active confirmed progress before other available campaigns', () => {
