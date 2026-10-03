@@ -249,7 +249,7 @@ progress. On wide screens, details fill the available height beside the list, ev
 single reward. The campaign list has a small gap before its scrollbar. The list and detail body
 scroll independently, with the detail heading always visible. In short windows, the left column
 can also scroll to keep filters reachable. Opening desktop details keeps the selected campaign
-in view when the grid narrows to one column.
+in view as the list narrows, including after changing between grid and list layouts.
 Details fill the page on smaller screens. Campaign dates appear once above the rewards;
 individual rewards show dates only when their effective window differs from the campaign.
 Campaign rows use a small side-panel icon hover without a selection stripe;

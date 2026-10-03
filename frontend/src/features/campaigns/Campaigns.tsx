@@ -115,8 +115,16 @@ export default function Campaigns() {
   const location = useLocation();
   const navigate = useNavigate();
   const detailId = params.get('campaign');
+  const list = params.has('view')
+    ? params.get('view') === 'list'
+    : ((autosave.draft ?? data?.settings)?.inventory_list_view ?? false);
   const results = useRef<HTMLDivElement>(null);
-  const returnPosition = useRef<{ top: number | null; id: string } | null>(null);
+  const returnPosition = useRef<{
+    top: number;
+    width: number;
+    list: boolean;
+    id: string;
+  } | null>(null);
   const hydrated = !!data;
   useLayoutEffect(() => {
     const region = results.current;
@@ -124,12 +132,12 @@ export default function Campaigns() {
     if (detailId) {
       document.getElementById(`campaign-open-${detailId}`)?.scrollIntoView({ block: 'nearest' });
     } else if (returnPosition.current) {
-      const { top, id } = returnPosition.current;
-      if (top !== null) region.scrollTop = top;
+      const { top, width, list: previousList, id } = returnPosition.current;
+      if (width === region.clientWidth && previousList === list) region.scrollTop = top;
       else document.getElementById(`campaign-open-${id}`)?.scrollIntoView({ block: 'nearest' });
       returnPosition.current = null;
     }
-  }, [detailId, hydrated]);
+  }, [detailId, hydrated, list]);
   const [showFilters, setShowFilters] = useState(false);
   const [filterDraft, setFilterDraft] = useState<{ key: string; filters: Filters } | null>(null);
   const historyTab = ['history', 'finished'].includes(params.get('tab') ?? '');
@@ -140,9 +148,6 @@ export default function Campaigns() {
     filterDraft?.key === location.key
       ? filterDraft.filters
       : displayFilters(params, (autosave.draft ?? data.settings).inventory_filters);
-  const list = params.has('view')
-    ? params.get('view') === 'list'
-    : (autosave.draft ?? data.settings).inventory_list_view;
   const selectedGames = (autosave.draft ?? data.settings).games_to_watch;
   const gameKey = (game: string) => data.settings.game_keys?.[game] ?? game.toLowerCase();
   const settingsBusy = action.busy;
@@ -183,8 +188,9 @@ export default function Campaigns() {
   }
   function openCampaign(id: string) {
     returnPosition.current = {
-      // A second grid selection uses the narrow layout, so restore that item after widening.
-      top: detailId && !list ? null : (results.current?.scrollTop ?? 0),
+      top: results.current?.scrollTop ?? 0,
+      width: results.current?.clientWidth ?? 0,
+      list,
       id,
     };
     const next = new URLSearchParams(params);

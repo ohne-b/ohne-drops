@@ -321,8 +321,9 @@ embed it and run without a build tool/runtime companion. Production builds never
   control association rather than disclosure semantics.
   Mine icon hover stays separate, without a selected background strip behind it. Apply the
   same summary styling to History. Preserve search, filters, layout, sorting, page, scroll and trigger
-  focus when closing. Keep the selected campaign visible when opening narrows the grid; restore
-  its return position explicitly instead of depending on browser scroll anchoring. Switching
+  focus when closing. Keep the selected campaign visible when opening narrows the results or
+  changes their layout. Restore offsets only for the matching results width and layout;
+  otherwise reveal the selected item instead of depending on browser scroll anchoring. Switching
   details replaces the current detail history entry. Campaign/drop
   IDs form deep links; missing IDs and unknown account progress/linkage remain explicit.
   Show the campaign date range once; only show per-drop dates when the effective window differs

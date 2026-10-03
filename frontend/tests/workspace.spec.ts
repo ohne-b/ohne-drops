@@ -670,55 +670,64 @@ test('campaign panes fill desktop height and keep row hovers compact', async ({
   );
 });
 
-test('campaign grid restores its position after details and offline filters remain accessible', async ({
-  page,
-  request,
-}) => {
-  const campaigns = Array.from({ length: 30 }, (_, index) => ({
-    ...fixture.campaigns[0]!,
-    id: `long-${index}`,
-    name: `Campaign ${String(index + 1).padStart(2, '0')} with a long title that wraps across several lines when viewing the campaign details`,
-    game_name: `Game ${index + 1}`,
-  }));
-  await request.post('/__test/event', {
-    headers,
-    data: { event: 'inventory_batch_update', data: { campaigns } },
+for (const view of ['grid', 'list']) {
+  test(`campaign ${view} restores its position after details and offline filters remain accessible`, async ({
+    page,
+    request,
+  }) => {
+    const campaigns = Array.from({ length: 30 }, (_, index) => ({
+      ...fixture.campaigns[0]!,
+      id: `long-${index}`,
+      name: `Campaign ${String(index + 1).padStart(2, '0')} with a long title that wraps across several lines when viewing the campaign details`,
+      game_name: `Game ${index + 1}`,
+    }));
+    await request.post('/__test/event', {
+      headers,
+      data: { event: 'inventory_batch_update', data: { campaigns } },
+    });
+    await page.setViewportSize({ width: 1440, height: 900 });
+    await page.goto(`/campaigns?view=${view}&sort=name`);
+    // Selection and return position must not depend on native scroll anchoring.
+    await page.addStyleTag({ content: '.campaign-results { overflow-anchor: none; }' });
+    const list = page.getByRole('region', { name: 'Campaigns', exact: true });
+    const target = page.getByRole('button', { name: `Open ${campaigns[14]!.name}`, exact: true });
+    await target.scrollIntoViewIfNeeded();
+    const before = await list.evaluate((element) => element.scrollTop);
+    await target.click();
+    await expect(target).toBeInViewport({ ratio: 0.99 });
+    await page.getByRole('button', { name: 'Close details' }).click();
+    await expect(target).toBeFocused();
+    expect(await list.evaluate((element) => element.scrollTop)).toBeCloseTo(before, 0);
+    await target.click();
+    const next = page.getByRole('button', { name: `Open ${campaigns[11]!.name}`, exact: true });
+    await next.evaluate((element) => element.scrollIntoView({ block: 'start' }));
+    await next.click();
+    await page.getByRole('button', { name: 'Close details' }).click();
+    await expect(next).toBeFocused();
+    await expect(next).toBeInViewport({ ratio: 0.99 });
+    await next.click();
+    await page.getByRole('button', { name: 'Change campaign layout', exact: true }).click();
+    await expect(next).toBeInViewport({ ratio: 0.99 });
+    await page.getByRole('button', { name: 'Close details' }).click();
+    await expect(next).toBeFocused();
+    await expect(next).toBeInViewport({ ratio: 0.99 });
+    await page.setViewportSize({ width: 1280, height: 360 });
+    await page.getByRole('button', { name: 'Filters', exact: true }).click();
+    await page.context().setOffline(true);
+    try {
+      await request.post('/__test/reconnect', { headers, data: {} });
+      await expect(page.getByRole('checkbox').first()).toBeDisabled();
+      const games = page.getByRole('group', { name: 'Game', exact: true });
+      await games.focus();
+      await games.press('End');
+      await expect.poll(() => games.evaluate((element) => element.scrollTop)).toBeGreaterThan(0);
+      expect((await new AxeBuilder({ page }).analyze()).violations).toEqual([]);
+      expect(await page.evaluate(() => document.documentElement.scrollHeight)).toBe(360);
+    } finally {
+      await page.context().setOffline(false);
+    }
   });
-  await page.setViewportSize({ width: 1440, height: 900 });
-  await page.goto('/campaigns?view=grid&sort=name');
-  // Selection and return position must not depend on native scroll anchoring.
-  await page.addStyleTag({ content: '.campaign-results { overflow-anchor: none; }' });
-  const list = page.getByRole('region', { name: 'Campaigns', exact: true });
-  const target = page.getByRole('button', { name: `Open ${campaigns[14]!.name}`, exact: true });
-  await target.scrollIntoViewIfNeeded();
-  const before = await list.evaluate((element) => element.scrollTop);
-  await target.click();
-  await expect(target).toBeInViewport({ ratio: 0.99 });
-  await page.getByRole('button', { name: 'Close details' }).click();
-  await expect(target).toBeFocused();
-  expect(await list.evaluate((element) => element.scrollTop)).toBeCloseTo(before, 0);
-  await target.click();
-  const next = page.getByRole('button', { name: `Open ${campaigns[19]!.name}`, exact: true });
-  await next.click();
-  await page.getByRole('button', { name: 'Close details' }).click();
-  await expect(next).toBeFocused();
-  await expect(next).toBeInViewport({ ratio: 0.99 });
-  await page.setViewportSize({ width: 1280, height: 360 });
-  await page.getByRole('button', { name: 'Filters', exact: true }).click();
-  await page.context().setOffline(true);
-  try {
-    await request.post('/__test/reconnect', { headers, data: {} });
-    await expect(page.getByRole('checkbox').first()).toBeDisabled();
-    const games = page.getByRole('group', { name: 'Game', exact: true });
-    await games.focus();
-    await games.press('End');
-    await expect.poll(() => games.evaluate((element) => element.scrollTop)).toBeGreaterThan(0);
-    expect((await new AxeBuilder({ page }).analyze()).violations).toEqual([]);
-    expect(await page.evaluate(() => document.documentElement.scrollHeight)).toBe(360);
-  } finally {
-    await page.context().setOffline(false);
-  }
-});
+}
 
 test('switching details closes back to the list and live updates preserve reward scroll', async ({
   page,
