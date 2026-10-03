@@ -856,6 +856,97 @@ for (const view of ['grid', 'list']) {
   });
 }
 
+test('mobile campaign details lock background scrolling and restore the list', async ({
+  page,
+  request,
+}) => {
+  const saved = await (await request.get('/api/history')).json();
+  const campaigns = Array.from({ length: 25 }, (_, index) => ({
+    ...fixture.campaigns[0]!,
+    id: `scroll-${index}`,
+    name: `Campaign ${String(index + 1).padStart(2, '0')}`,
+    drops: Array.from({ length: 12 }, (_, reward) => ({
+      ...fixture.campaigns[0]!.drops[0]!,
+      id: `scroll-${index}-${reward}`,
+      name: `Reward ${reward + 1}`,
+    })),
+  }));
+  await request.post('/__test/event', {
+    headers,
+    data: { event: 'inventory_batch_update', data: { campaigns } },
+  });
+  await page.route('**/api/history', async (route) =>
+    route.fulfill({
+      json: {
+        ...(await (await route.fetch()).json()),
+        entries: campaigns.flatMap((campaign) =>
+          campaign.drops.map((drop) => ({
+            ...saved.entries[0],
+            id: drop.id,
+            drop_name: drop.name,
+            campaign_id: campaign.id,
+            campaign: campaign.name,
+          })),
+        ),
+      },
+    }),
+  );
+  for (const width of [390, 1100]) {
+    await page.setViewportSize({ width, height: 800 });
+    for (const history of [false, true]) {
+      for (const view of ['grid', 'list']) {
+        await page.goto(`/campaigns?view=${view}&sort=name${history ? '&tab=history' : ''}`);
+        const target = page.getByRole('button', { name: 'Open Campaign 15', exact: true });
+        await target.scrollIntoViewIfNeeded();
+        const before = await page.evaluate(() => window.scrollY);
+        expect(before).toBeGreaterThan(0);
+        await target.click();
+        const detail = page.getByRole('complementary', { name: 'Campaign details' });
+        const body = detail.locator('.detail-body');
+        await expect(detail).toBeVisible();
+        await expect(page.locator('html')).toHaveCSS('overflow-y', 'hidden');
+        expect(await page.evaluate(() => window.scrollY)).toBe(before);
+        await detail.locator('header').hover();
+        await page.mouse.wheel(0, 400);
+        await body.focus();
+        await body.press('PageDown');
+        await expect.poll(() => body.evaluate((element) => element.scrollTop)).toBeGreaterThan(0);
+        await body.evaluate((element) => {
+          element.scrollTop = element.scrollHeight;
+        });
+        await body.hover();
+        await page.mouse.wheel(0, 400);
+        await expect(body).toHaveCSS('overscroll-behavior-y', 'contain');
+        expect(await page.evaluate(() => window.scrollY)).toBe(before);
+        if (width === 390 && view === 'grid')
+          await page.screenshot({
+            path: `../artifacts/mobile-detail-scroll-${history ? 'history' : 'available'}.png`,
+          });
+        if (history) await page.goBack();
+        else await detail.getByRole('button', { name: 'Close details' }).click();
+        await expect(detail).toHaveCount(0);
+        await expect(page.locator('html')).toHaveCSS('overflow-y', 'visible');
+        await expect(target).toBeFocused();
+        expect(await page.evaluate(() => window.scrollY)).toBeCloseTo(before, 0);
+        await target.hover();
+        await page.mouse.wheel(0, -250);
+        await expect.poll(() => page.evaluate(() => window.scrollY)).toBeLessThan(before);
+      }
+    }
+  }
+  await page.goto('/campaigns?campaign=scroll-14');
+  await expect(page.locator('html')).toHaveCSS('overflow-y', 'hidden');
+  await page.setViewportSize({ width: 1440, height: 800 });
+  await expect(page.locator('html')).toHaveCSS('overflow-y', 'visible');
+  await page.setViewportSize({ width: 390, height: 800 });
+  await expect(page.locator('html')).toHaveCSS('overflow-y', 'hidden');
+  await page
+    .getByRole('navigation', { name: 'Main navigation' })
+    .getByRole('link', { name: 'Activity', exact: true })
+    .click();
+  await expect(page.locator('html')).toHaveCSS('overflow-y', 'visible');
+});
+
 test('switching details closes back to the list and live updates preserve reward scroll', async ({
   page,
   request,
