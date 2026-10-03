@@ -566,6 +566,10 @@ Read [CONTRIBUTING.md](CONTRIBUTING.md) for issue reporting, development, requir
 and independent review. [AGENTS.md](AGENTS.md) contains the repository's agent instructions.
 Backend tests use temporary storage and mock transports; browser tests start their own
 offline fixture. Never use a live miner or real credentials for automated checks.
+CI reuses compiled Rust dependencies while running the full code and image checks for
+code changes and every main revision. PRs limited to the three repository guides use
+the lighter documentation checks described in [CONTRIBUTING.md](CONTRIBUTING.md#required-validation).
+Browser checks run in two isolated groups using the same fixture build.
 
 Report reproducible problems through [GitHub issues](https://github.com/ohne-b/twitch-drops-miner/issues).
 Include the version, installation method, and redacted evidence; never upload credentials,

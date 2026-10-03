@@ -7,7 +7,9 @@ export default defineConfig({
   use: { baseURL: 'http://127.0.0.1:8765', browserName: 'chromium', trace: 'retain-on-failure' },
   webServer: {
     command:
-      'cargo run --manifest-path ../Cargo.toml --locked --features dashboard-fixture --bin dashboard-fixture',
+      process.env.PLAYWRIGHT_PREBUILT_FIXTURE === '1'
+        ? '../dashboard-fixture'
+        : 'cargo run --manifest-path ../Cargo.toml --locked --features dashboard-fixture --bin dashboard-fixture',
     url: 'http://127.0.0.1:8765/__test/health',
     reuseExistingServer: false,
     timeout: 120_000,
