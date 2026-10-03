@@ -16,8 +16,23 @@ use crate::{
 };
 
 fn snapshot() -> Snapshot {
-    serde_json::from_str(include_str!("../frontend/tests/fixture.json"))
-        .expect("valid browser fixture")
+    let mut state: Snapshot = serde_json::from_str(include_str!("../frontend/tests/fixture.json"))
+        .expect("valid browser fixture");
+    state.settings.refresh_game_keys();
+    state.activity = fixture_activity(&state.console);
+    state
+}
+
+fn fixture_activity(lines: &[String]) -> Vec<crate::app::activity::ActivityEvent> {
+    lines
+        .iter()
+        .enumerate()
+        .map(|(index, line)| {
+            let mut event = crate::app::activity::ActivityEvent::message(line.clone());
+            event.id = index as u64 + 1;
+            event
+        })
+        .collect()
 }
 
 pub async fn create(directory: PathBuf) -> anyhow::Result<(Arc<App>, JoinHandle<()>)> {
@@ -33,6 +48,7 @@ async fn reset_state(app: &App) -> anyhow::Result<()> {
     app.sockets.prune(true).await;
     let state = snapshot();
     app.data.save_settings(&state.settings.values)?;
+    *app.settings.write().await = state.settings.values.clone();
     *app.snapshot.write().await = state;
     let mut history = app.history.lock().await;
     history.reset_fixture()?;
@@ -72,17 +88,111 @@ async fn reset(State(app): State<Arc<App>>) -> Result<Json<Value>, crate::web::A
     Ok(Json(json!({"ok":true})))
 }
 async fn event(State(app): State<Arc<App>>, Json(body): Json<Event>) -> Json<Value> {
-    if body.event == "inventory_refresh"
-        && let Ok(refresh) =
-            serde_json::from_value::<crate::dto::InventoryRefresh>(body.data.clone())
-    {
-        let mut state = app.snapshot.write().await;
-        if refresh.sequence >= state.inventory_refresh.sequence {
-            state.inventory_refresh = refresh;
-        }
-    }
+    apply_event(&app, &body.event, &body.data).await;
     app.sockets.emit(&body.event, &body.data).await;
     Json(json!({"ok":true}))
+}
+
+async fn apply_event(app: &App, event: &str, data: &Value) {
+    if event == "console_output" {
+        if let Some(text) = data["message"].as_str() {
+            app.console(text.to_owned()).await;
+        }
+        return;
+    }
+    let mut state = app.snapshot.write().await;
+    let mut value = serde_json::to_value(&*state).unwrap();
+    match event {
+        "initial_state" => {
+            value = data.clone();
+            if value["activity"]
+                .as_array()
+                .is_none_or(|events| events.is_empty())
+            {
+                value["activity"] = serde_json::to_value(fixture_activity(
+                    &serde_json::from_value::<Vec<String>>(value["console"].clone())
+                        .unwrap_or_default(),
+                ))
+                .unwrap();
+            }
+        }
+        "inventory_batch_update" => value["campaigns"] = data["campaigns"].clone(),
+        "channels_batch_update" => value["channels"] = data["channels"].clone(),
+        "channels_clear" => value["channels"] = json!([]),
+        "inventory_clear" => value["campaigns"] = json!([]),
+        "drop_progress" => value["current_drop"] = data.clone(),
+        "drop_progress_stop" => value["current_drop"] = Value::Null,
+        "status_update" => value["status"] = data["status"].clone(),
+        "login_status" => value["login"] = data.clone(),
+        "login_required" => value["login"] = json!({"status":"", "user_id":null}),
+        "oauth_code_required" => value["login"]["oauth_pending"] = data.clone(),
+        "manual_mode_update" => value["manual_mode"] = data.clone(),
+        "wanted_items_update" => value["wanted_items"] = data.clone(),
+        "settings_updated" => value["settings"] = data.clone(),
+        "games_available" => value["settings"]["games_available"] = data["games"].clone(),
+        "inventory_status" => value["inventory_status"] = data.clone(),
+        "inventory_refresh"
+            if data["sequence"].as_u64().unwrap_or_default()
+                >= state.inventory_refresh.sequence =>
+        {
+            value["inventory_refresh"] = data.clone()
+        }
+        "history_cleared" => {
+            value["history_revision"] = (state.history_revision + 1).into();
+            value["history_clear_revision"] = (state.history_clear_revision + 1).into();
+        }
+        "channel_update" | "channel_add" | "campaign_add" => {
+            let list = if event == "campaign_add" {
+                "campaigns"
+            } else {
+                "channels"
+            };
+            let list = value[list].as_array_mut().unwrap();
+            if let Some(old) = list.iter_mut().find(|item| item["id"] == data["id"]) {
+                *old = data.clone();
+            } else {
+                list.push(data.clone());
+            }
+        }
+        "channel_remove" => value["channels"]
+            .as_array_mut()
+            .unwrap()
+            .retain(|item| item["id"] != data["id"]),
+        "channel_watching" | "channel_watching_clear" => {
+            for item in value["channels"].as_array_mut().unwrap() {
+                item["watching"] = (event == "channel_watching" && item["id"] == data["id"]).into();
+            }
+        }
+        "drop_update" => {
+            if let Some(campaign) = value["campaigns"]
+                .as_array_mut()
+                .unwrap()
+                .iter_mut()
+                .find(|item| item["id"] == data["campaign_id"])
+            {
+                if let Some(patch) = data["campaign"].as_object() {
+                    campaign.as_object_mut().unwrap().extend(patch.clone());
+                }
+                if data["drops"].is_array() {
+                    campaign["drops"] = data["drops"].clone();
+                } else if data["drop"].is_object() {
+                    let drops = campaign["drops"].as_array_mut().unwrap();
+                    if let Some(drop) = drops
+                        .iter_mut()
+                        .find(|drop| drop["id"] == data["drop"]["id"])
+                    {
+                        *drop = data["drop"].clone();
+                    } else {
+                        drops.push(data["drop"].clone());
+                    }
+                }
+            }
+        }
+        _ => return,
+    }
+    if let Ok(next) = serde_json::from_value(value) {
+        *state = next;
+    }
 }
 #[derive(Deserialize)]
 struct Event {

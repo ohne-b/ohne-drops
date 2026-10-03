@@ -40,7 +40,9 @@ Do not add forwarding hierarchies or speculative traits with one implementation.
 | `store.rs` | Exclusive data directory, atomic settings/history/archive/claim journal |
 | `auth.rs`, `origin.rs` | Dashboard passwords/sessions, origin and cookie policy |
 | `twitch/` | OAuth, bounded HTTP/GQL, inventory/catalog, beacon watch, PubSub shards |
-| `miner.rs` | Session supervisor and owned mining jobs, scheduling and reconciliation |
+| `app/` | Application commands/settings, typed Activity, revisioned snapshot publication and patches |
+| `miner/` | One session supervisor and owned jobs; session, watch, inventory and claim responsibilities |
+| `store/records.rs` | Frozen version-one archive/journal records, independent of runtime presentation fields |
 | `web/` | Axum HTTP, Socketioxide, protected snapshots and embedded frontend |
 | `fixture.rs`, `bin/dashboard-fixture.rs` | Feature-gated offline browser fixture |
 | `frontend/`, `lang/English.json` | React/TypeScript/Tailwind and one message catalog |
@@ -236,34 +238,53 @@ embed it and run without a build tool/runtime companion. Production builds never
   History pagination uses chevrons beside the page count; channel watch/entry, return-to-auto,
   Activity follow and error retries use play-circle/plus, refresh-auto, arrow-down and reload icons.
   Inset search-clear circles within the field border; game-priority
-  drag grips retain their plain six-dot pattern without pointer hover backgrounds. Retain native
+  drag grips stay visible at all times and retain their plain six-dot pattern without pointer
+  hover backgrounds. Retain native
   selects for icon-only sorting, with explicit legible dark select/option colors on light OS themes.
-  Settings > Mining uses the native icon-only Priority High selector beside Add Game for
+  Mining > Edit uses the native icon-only Priority High selector beside Add Game for
   Default (manual order), Short events first and Ending soonest. Its tooltip reports the
   selected mode; accessible help explains that drag order is preserved for ties. Reuse
   autosave/conflict handling and disable the selector until reconnect hydration.
   Render strings as React text, validate external links/artwork, expand Twitch image placeholders.
   No injected HTML or CDN scripts. Art provides safe missing/broken-image fallbacks.
-- Sidebar: enlarged GitHub glyph above Twitch account ID, overriding shared icon sizing.
+- Sidebar: enlarged GitHub glyph above Twitch account ID, overriding shared icon sizing,
+  with no divider above the footer.
   Connection status lives in Settings > Connection and is labeled Dashboard connected, separate
   from Twitch. Account status and Twitch ID occupy separate rows, with the Twitch logout icon
-  immediately beside the status heading. Device authorization keeps the
+  immediately beside the status text. Device authorization keeps the
   copyable code, Twitch Activate and Done on one unboxed wrapping row with equal-height controls
   (36px desktop, 44px phone). Activate and Done use the same outlined button style. Successful
   copying shows a tick, tooltip and accessible status for three seconds; another successful copy
   restarts the timer. Restore the copy icon on expiry or failure, and clear timers and stale
   clipboard results when the code changes or the component unmounts. Success feedback never shifts the
   row or following sections; visible failure feedback retains its spacing below the row.
-- Overview: watching information only in Mining, no status subtitle or Recent activity. Channels
+- Navigation is Mining (`/`), Campaigns, Activity and Settings. Keep the compact charcoal
+  sidebar and the four-item phone bottom navigation, safe-area spacing and short-window access.
+  Mining preferences replace the overview from Up next > Edit (`/?edit=priorities`), with a
+  Back to Mining icon action. Only the game list scrolls on desktop; search/priority controls
+  and the settings beside it stay fixed. In short windows the settings column scrolls independently
+  to keep every field reachable, without scrolling the whole preferences panel or page.
+  When error/reconnect notices leave too little height, allow the games column to scroll as
+  well; search results, explanation and selected games must never overlap or become unreachable.
+  Game search results appear below the search controls and above the priority explanation;
+  bound their height so long result lists remain reachable in short windows.
+  `/settings#mining` redirects there. Settings has account, dashboard access, connection and
+  maintenance sections without trailing separator lines.
+  Settings sections start at the same offset below their tabs, without repeated section headings.
+  Keep the page title and tab labels, plus the account status/logout row. Hide inactive form
+  wrappers and retain drafts when switching tabs.
+- Mining: watching information only in Now mining, no status subtitle or Recent activity. Channels
   and Up next have equal desktop dimensions and internal scrolling; stack on narrow screens and
-  preserve access on short windows. Show confirmed values/timestamps without redundant labels.
+  preserve access on short windows. Show confirmed values/timestamps without redundant labels
+  or the Watching for this reward caption.
   Keep expanded channel-entry controls and feedback inside the scrollable list body.
   Manual lookup has no preparing message; use a play-circle icon submit button with the Mine
   accessible name/tooltip, preserving its busy/disabled state, inline
   errors and return-to-auto control while a lookup is pending.
   Channel name/URL and optional timer use accessible input placeholders. Settings autosave
   has no saving/saved notices; preserve errors, edits and Retry.
-- Overview and Maintenance share inventory refresh feedback inside the button. Track queued
+- Mining and Campaigns share inventory refresh feedback inside the button; Maintenance has no
+  inventory refresh action. Track queued
   and running work through publication, coalesce requests, preserve state on reconnect and
   ignore stale completion events. An acknowledgement is not completion. Keep request errors
   and partial-catalog failures retryable without clearing previous results or adding notices.
@@ -273,16 +294,51 @@ embed it and run without a build tool/runtime companion. Production builds never
 - History lives in Campaigns in place of Finished; the old /history route redirects. Display
   recorded claims grouped by campaign (25 per page), independent of completion/catalog coverage.
   Share search, game filters, sorting and list/grid controls. History defaults to newest recorded
-  claim, Most Drops counts recorded claims, campaign date sorts place unknown dates last. No
+  claim; loading stays quiet without a Loading history caption, while errors retain Retry.
+  History detail panels render recorded claims only: saved campaign/game identity, rewards,
+  additional benefit names, optional artwork and claim/first-observed timestamps. Live metadata
+  may supply artwork but must never add account linkage, eligibility, channels, progress,
+  prerequisites, earning dates or unclaimed rewards. Deep links resolve against recorded claims;
+  missing records and request failures stay explicit, with Retry available inside the panel.
+  Most Drops counts recorded claims, campaign date sorts place unknown dates last. No
   CSV/JSON export, Since filter or separate history clear action. Clear all cache clears history
   and publishes the durable change to open dashboards; archives never recreate cleared rows.
 - History artwork is optional; retain old rows and use matching live benefits as display fallback.
   No Telegram controls/API/credentials in responses and no dashboard updater.
-- Campaigns keeps the filtered count beside its heading and Clear filters beside All games
+- Campaigns starts with Settings-style Available/History icon tabs, the filtered count and
+  refresh control; keep the page heading screen-reader-only. Clear filters stays beside All games
   inside Filters. Native icon-styled sorting offers Default, Newest (campaign start descending),
   Ending Soonest (end ascending), Most Drops (total descending), and A-Z (campaign name).
   Default retains progress-first ordering; ties use that same deterministic order. Sort is
   URL state preserved by searches, filter resets and tab changes, never a mining setting.
+- Campaign summaries open one detail panel, alongside the list on wide screens and as a full
+  page on smaller screens. At desktop widths the workspace leaves a compact 12px bottom margin;
+  details keep the same height for short and long campaigns, with a fixed header and separately
+  scrollable body. Scroll campaign results independently with a small scrollbar gutter; allow
+  the left column to scroll in short windows when filters/notices need more space. Omit selection stripes and confine row hover
+  to the side-panel icon circle; preserve a visible title/icon keyboard focus cue.
+  Use the Dock Right icon for opening details, with a tooltip, current-item state and panel
+  control association rather than disclosure semantics.
+  Mine icon hover stays separate, without a selected background strip behind it. Apply the
+  same summary styling to History. Preserve search, filters, layout, sorting, page, scroll and trigger
+  focus when closing. Keep the selected campaign visible when opening narrows the results or
+  changes their layout. Restore offsets only for the matching results width and layout;
+  otherwise reveal the selected item instead of depending on browser scroll anchoring. Switching
+  details replaces the current detail history entry. Campaign/drop
+  IDs form deep links; missing IDs and unknown account progress/linkage remain explicit.
+  Show the campaign date range once; only show per-drop dates when the effective window differs
+  from the campaign, comparing instants rather than timestamp strings. Keep claim timestamps.
+  List filters/layout are shareable URL state; loading a shared URL does not autosave it.
+  Available and History paginate 25 campaign groups, with a compact gap between results and
+  pagination. Preserve full-size pagination hit targets. Mine remains a game-wide action.
+  Eligibility, normalized game identity, saved ranks and priority reasons come from shared
+  backend policy; prerequisite boosts identify their actual target rewards.
+- Activity is a bounded session buffer of typed events with category, severity, safe message
+  arguments, entity references, first/last time, repeats and explicit recovery. A matching
+  successful operation recovers its failures; unrelated messages never imply recovery.
+  Keep category filtering, but omit the This session heading suffix and per-event category tags.
+  Inset row separators to align with the content instead of touching the panel edges.
+  Count adjacent repeats in Activity while suppressing duplicate server log lines.
 - Maintenance checks the latest stable release's `latest.json`, compares SemVer precedence
   without build metadata, and distinguishes failure from up-to-date status. Keep requests
   bounded/coalesced and release links within this repository. No install/download execution.
@@ -291,9 +347,20 @@ embed it and run without a build tool/runtime companion. Production builds never
 - Shared Field content starts at the top; helper text cannot stretch neighboring label rows.
   No focus rings, but visible keyboard background/border changes must outrank utility layers;
   keep system focus in forced colors. Verify computed field/button/checkbox focus and axe checks.
+- The application owns mining state independently of HTTP/socket transport. Publish related
+  fields atomically; clone snapshots before emitting and never await network/disk under a view lock.
+  Protocol 2 snapshots/patches carry process identity and monotonic revisions; per-subscriber
+  patches use the last delivered revision and coalesce slow consumers. Retain the legacy event
+  adapter for old tabs and recheck authorization for every emission. A gap requests a full resync;
+  disconnects/process changes disable commands until hydration. Viewer-only patches retain
+  frontend campaign identity. Incompatible clients can reload with a temporary unsaved draft.
+- Every durable History insertion and clear publishes a history revision under the history
+  lock. HTTP responses include process/revision/clear identity; stale responses cannot restore
+  rows after a clear. Runtime DTO additions must not change version-one archive/journal JSON.
 - One typed provider hydrates complete snapshots and incremental events. Commands stay disabled
   until reconnect hydration. Editable settings drafts are separate from live data; serialize
-  autosaves with original revisions. HTTP409 preserves edits for Retry and only changes touched fields.
+  autosaves with original revisions. HTTP409 preserves edits for Retry and only changes touched fields,
+  including individual nested filter/benefit fields. Draft errors remain reachable across pages.
 
 ## Validation and release
 

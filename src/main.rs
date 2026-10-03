@@ -141,7 +141,7 @@ async fn run(args: Args) -> Result<()> {
         .with_graceful_shutdown(shutdown.cancelled_owned())
         .await
     });
-    let mut miner = tokio::spawn(Miner::new(app.clone(), commands).run());
+    let mut miner = tokio::spawn(Miner::new(app.application.clone(), commands).run());
     let mut miner_finished = false;
     let mut server_finished = false;
     let mut failure = None;

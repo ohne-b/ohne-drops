@@ -1,31 +1,59 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Icon } from '@mdi/react';
-import { mdiChevronDown } from '@mdi/js';
-import { useMiner } from '../lib/state';
-import { useT } from '../lib/i18n';
-import { request } from '../lib/api';
-import type { Campaign, HistoryEntry } from '../lib/types';
+import { mdiDockRight } from '@mdi/js';
+import { useMiner } from '../../app/MinerProvider';
+import { useT } from '../../shared/lib/i18n';
+import { request } from '../../shared/lib/api';
+import type { Campaign, HistoryEntry } from '../../shared/lib/types';
 import type { CampaignSort } from './Campaigns';
-import { Art, dateTime } from '../components/ui';
+import { Art, dateTime } from '../../shared/ui/index';
 
 export function useHistory(active: boolean) {
   const { connected, data, historyRevision } = useMiner();
-  const [entries, setEntries] = useState<HistoryEntry[]>([]);
+  const [loaded, setLoaded] = useState<{
+    entries: HistoryEntry[];
+    instance: string;
+    clear_revision: number;
+  } | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(false);
   const [retry, setRetry] = useState(0);
   const claimed = data?.campaigns.reduce((sum, campaign) => sum + campaign.claimed_drops, 0);
   const checked = data?.inventory_status?.checked_at;
   const user = data?.login.user_id;
-  useEffect(() => setEntries([]), [historyRevision]);
+  const expected = useRef({
+    instance: data?.instance,
+    revision: data?.history_revision ?? 0,
+    clear: historyRevision,
+  });
+  expected.current = {
+    instance: data?.instance,
+    revision: data?.history_revision ?? 0,
+    clear: historyRevision,
+  };
+  const entries =
+    loaded?.instance === data?.instance && loaded?.clear_revision === historyRevision
+      ? loaded.entries
+      : [];
   useEffect(() => {
     if (!active || !connected) return;
     const controller = new AbortController();
     setLoading(true);
     setError(false);
-    request<{ entries: HistoryEntry[] }>('/api/history', undefined, 'GET', controller.signal)
+    request<{
+      entries: HistoryEntry[];
+      instance: string;
+      revision: number;
+      clear_revision: number;
+    }>('/api/history', undefined, 'GET', controller.signal)
       .then((result) => {
-        if (!controller.signal.aborted) setEntries(result.entries);
+        if (
+          !controller.signal.aborted &&
+          result.instance === expected.current.instance &&
+          result.revision >= expected.current.revision &&
+          result.clear_revision === expected.current.clear
+        )
+          setLoaded(result);
       })
       .catch(() => {
         if (!controller.signal.aborted) setError(true);
@@ -34,7 +62,17 @@ export function useHistory(active: boolean) {
         if (!controller.signal.aborted) setLoading(false);
       });
     return () => controller.abort();
-  }, [active, connected, claimed, checked, user, historyRevision, retry]);
+  }, [
+    active,
+    connected,
+    claimed,
+    checked,
+    user,
+    historyRevision,
+    data?.history_revision,
+    data?.instance,
+    retry,
+  ]);
   return { entries, loading, error, retry: () => setRetry((value) => value + 1) };
 }
 
@@ -99,7 +137,17 @@ export function historyOrder(a: HistoryCampaign, b: HistoryCampaign, sort: Campa
   );
 }
 
-export default function History({ groups, list }: { groups: HistoryCampaign[]; list: boolean }) {
+export default function History({
+  groups,
+  list,
+  onOpen,
+  selected,
+}: {
+  groups: HistoryCampaign[];
+  list: boolean;
+  onOpen: (id: string) => void;
+  selected: string | null;
+}) {
   const t = useT();
   return (
     <div
@@ -110,47 +158,34 @@ export default function History({ groups, list }: { groups: HistoryCampaign[]; l
       }
     >
       {groups.map((group) => (
-        <details key={group.id} className={`group ${list ? '' : 'panel overflow-hidden'}`}>
-          <summary className="flex list-none items-center gap-3 p-4 hover:bg-field">
+        <article
+          key={group.id}
+          className={`campaign-summary ${list ? '' : 'panel'} ${selected === group.id ? 'selected' : ''}`}
+        >
+          <button
+            type="button"
+            id={`campaign-open-${group.id}`}
+            className="campaign-open"
+            onClick={() => onOpen(group.id)}
+            aria-label={t('inspect_campaign', { campaign: group.name })}
+            title={t('campaign_details')}
+            aria-current={selected === group.id ? 'true' : undefined}
+            aria-controls={selected === group.id ? 'campaign-details' : undefined}
+          >
             <Art url={group.metadata?.game_box_art_url || group.entries[0]?.image_url} />
-            <div className="min-w-0 flex-1">
-              <p className="font-medium">{group.name}</p>
-              <p className="muted">{group.game}</p>
-            </div>
-            <p className="muted">{t('recorded_claims', { count: group.entries.length })}</p>
-            <Icon
-              path={mdiChevronDown}
-              className="mdi-icon text-muted transition-transform group-open:rotate-180"
-            />
-          </summary>
-          <div className="divide-y divide-divider border-t border-divider bg-canvas/40 px-4 md:px-6">
-            {group.entries.map((entry) => (
-              <div key={entry.id} className="flex items-start gap-3 py-4">
-                <Art
-                  url={
-                    entry.image_url ||
-                    group.metadata?.drops.find((drop) => drop.id === entry.id)?.benefits[0]
-                      ?.image_url
-                  }
-                />
-                <div className="min-w-0 flex-1">
-                  <div className="flex flex-wrap justify-between gap-x-3 gap-y-1">
-                    <p className="font-medium">{entry.drop_name}</p>
-                    <p className="muted">
-                      {t(entry.claimed_at_is_observed ? 'first_observed' : 'claimed_at', {
-                        time: dateTime(entry.claimed_at),
-                      })}
-                    </p>
-                  </div>
-                  <p className="muted mt-1">{entry.benefits.join(', ')}</p>
-                  <p className="muted mt-1">
-                    {t('watch_minutes', { count: entry.required_minutes })}
-                  </p>
-                </div>
-              </div>
-            ))}
-          </div>
-        </details>
+            <span className="min-w-0 flex-1 text-start">
+              <span className="campaign-title block font-medium">{group.name}</span>
+              <span className="muted block">{group.game}</span>
+              <span className="muted block text-xs mt-1">
+                {dateTime(group.entries[0]?.claimed_at ?? '')}
+              </span>
+            </span>
+            <span className="muted">{t('recorded_claims', { count: group.entries.length })}</span>
+            <span className="campaign-detail-icon" aria-hidden="true">
+              <Icon path={mdiDockRight} className="mdi-icon" />
+            </span>
+          </button>
+        </article>
       ))}
     </div>
   );

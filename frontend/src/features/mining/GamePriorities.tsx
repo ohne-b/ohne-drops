@@ -1,18 +1,20 @@
-import { useEffect, useRef, useState, type PointerEvent } from 'react';
+import { useEffect, useRef, useState, type PointerEvent, type RefObject } from 'react';
 import { mdiClose } from '@mdi/js';
-import { moveGame } from '../lib/api';
-import { useT } from '../lib/i18n';
-import type { Campaign } from '../lib/types';
-import { Art, IconButton, Empty } from './ui';
+import { moveGame } from '../../shared/lib/api';
+import { useT } from '../../shared/lib/i18n';
+import type { Campaign } from '../../shared/lib/types';
+import { Art, IconButton, Empty } from '../../shared/ui/index';
 
 export function GamePriorities({
   games,
   campaigns,
   onChange,
+  scrollContainer,
 }: {
   games: string[];
   campaigns: Campaign[];
   onChange: (games: string[]) => void;
+  scrollContainer: RefObject<HTMLElement | null>;
 }) {
   const t = useT();
   const list = useRef<HTMLDivElement>(null);
@@ -38,6 +40,7 @@ export function GamePriorities({
   };
   useEffect(() => {
     if (drag.current && drag.current.original !== signature) cancel();
+    list.current?.querySelector<HTMLElement>(':focus')?.scrollIntoView({ block: 'nearest' });
   }, [signature]);
   function move(event: PointerEvent<HTMLDivElement>) {
     const current = drag.current;
@@ -53,8 +56,17 @@ export function GamePriorities({
       const to = current.games.indexOf(target.dataset.game ?? '');
       if (to !== -1 && to !== from) current.games = moveGame(current.games, from, to);
     }
-    if (event.clientY < 70) window.scrollBy(0, -12);
-    else if (event.clientY > window.innerHeight - 70) window.scrollBy(0, 12);
+    const container = scrollContainer.current;
+    const scrolling = container && container.scrollHeight > container.clientHeight;
+    const bounds = scrolling ? container.getBoundingClientRect() : null;
+    const edge = Math.min(70, (bounds?.height ?? window.innerHeight) / 3);
+    const scrollBy =
+      event.clientY < (bounds?.top ?? 0) + edge
+        ? -12
+        : event.clientY > (bounds?.bottom ?? window.innerHeight) - edge
+          ? 12
+          : 0;
+    if (scrollBy) (scrolling ? container : window).scrollBy(0, scrollBy);
     setPreview({ game: current.game, games: current.games, x: event.clientX, y: event.clientY });
   }
   return (

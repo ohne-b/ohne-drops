@@ -1,9 +1,9 @@
 import { useEffect, useState } from 'react';
 import { mdiRefresh, mdiCheck, mdiAlertCircleOutline } from '@mdi/js';
-import { useMiner } from '../lib/state';
+import { useMiner } from '../../app/MinerProvider';
 import { useT } from '../lib/i18n';
 import { request } from '../lib/api';
-import { IconButton, dateTime, useAction } from './ui';
+import { IconButton, dateTime, useAction } from './index';
 
 export function InventoryRefreshButton() {
   const { data, connected } = useMiner();

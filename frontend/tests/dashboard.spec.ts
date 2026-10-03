@@ -10,9 +10,9 @@ import {
   mdiUpdate,
 } from '@mdi/js';
 import fixture from './fixture.json' with { type: 'json' };
-import type { Snapshot } from '../src/lib/types';
+import type { Snapshot } from '../src/shared/lib/types';
 const snapshot: Snapshot = {
-  ...fixture,
+  ...(fixture as Snapshot),
   settings: { ...fixture.settings, mining_priority_mode: 'manual' },
 };
 const headers = { 'X-TDM-Request': '1' };
@@ -89,7 +89,9 @@ for (const width of [1280, 320]) {
     expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(
       width,
     );
-    await page.locator('#mining').screenshot({ path: `../artifacts/mining-priority-${width}.png` });
+    await page
+      .locator('#priorities')
+      .screenshot({ path: `../artifacts/mining-priority-${width}.png` });
     expect((await new AxeBuilder({ page }).analyze()).violations).toEqual([]);
   });
 }
@@ -139,7 +141,7 @@ test('mining priority retains rapid edits through conflicts, retry and reconnect
   ]);
   await priority.selectOption('short_events');
   await request.post('/__test/reconnect', { headers, data: {} });
-  await page.getByRole('link', { name: 'Overview', exact: true }).click();
+  await page.getByRole('link', { name: 'Mining', exact: true }).click();
   await expect
     .poll(async () => (await (await request.get('/api/settings')).json()).mining_priority_mode)
     .toBe('short_events');
@@ -236,7 +238,7 @@ for (const width of [1280, 320]) {
     expect(await iconCenter()).toBeCloseTo(idleIconCenter, 1);
     await page.reload();
     await expect(page.getByRole('button', { name: 'Refreshing...', exact: true })).toBeDisabled();
-    await page.goto('/settings#maintenance');
+    await page.goto('/campaigns');
     await expect(page.getByRole('button', { name: 'Refreshing...', exact: true })).toBeDisabled();
     expect(await size()).toEqual(expectedSize);
     await page.goto('/');
@@ -408,13 +410,10 @@ for (const width of [1280, 320]) {
     });
     await page.goto('/settings');
     const account = page.locator('#account');
-    const heading = account.getByRole('heading', {
-      name: 'Twitch account: Logged in',
-      exact: true,
-    });
+    const status = account.getByText('Logged in', { exact: true });
     const logout = account.getByRole('button', { name: 'Log out of Twitch', exact: true });
     await expect(logout).toBeEnabled();
-    const h = (await heading.boundingBox())!;
+    const h = (await status.boundingBox())!;
     const l = (await logout.boundingBox())!;
     expect(l.x).toBeGreaterThanOrEqual(h.x + h.width);
     expect(l.x - (h.x + h.width)).toBeLessThanOrEqual(12);
@@ -424,6 +423,7 @@ for (const width of [1280, 320]) {
     ).toBeGreaterThan(l.y + l.height);
     await account.screenshot({ path: `../artifacts/account-controls-${width}.png` });
 
+    await page.getByRole('link', { name: 'Maintenance', exact: true }).click();
     const update = page.getByRole('button', { name: 'Check for updates', exact: true });
     await expect(update).toBeEnabled();
     await expect(update).toHaveText('');
@@ -477,7 +477,7 @@ test.beforeEach(async ({ request, page }) => {
   expect(reset.ok()).toBe(true);
   expect(await reset.json()).toEqual({ ok: true });
   await page.goto('/');
-  await expect(page.getByRole('heading', { name: 'Overview', exact: true })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Mining', exact: true })).toBeVisible();
 });
 test('shared logo loads in the dashboard, login and favicon at responsive sizes', async ({
   page,
@@ -489,7 +489,7 @@ test('shared logo loads in the dashboard, login and favicon at responsive sizes'
     'https://github.com/ohne-b/twitch-drops-miner',
   );
   const logo = brand.locator('img');
-  expect(await brand.evaluate((element) => getComputedStyle(element).fontSize)).toBe('20px');
+  expect(await brand.evaluate((element) => getComputedStyle(element).fontSize)).toBe('16px');
   const source = await logo.getAttribute('src');
   expect(source).toMatch(/^\/assets\/twitch-drops-miner-logo-[\w-]+\.svg$/);
   await expect(page.locator('link[rel="icon"]')).toHaveAttribute('href', source!);
@@ -505,7 +505,7 @@ test('shared logo loads in the dashboard, login and favicon at responsive sizes'
     await brand.scrollIntoViewIfNeeded();
     const header = (await brand.locator('..').boundingBox())!;
     const mark = (await logo.boundingBox())!;
-    expect(header.height).toBe(64);
+    expect(header.height).toBe(viewport.width < 1024 ? 60 : 80);
     expect(mark.y).toBeGreaterThanOrEqual(header.y);
     expect(mark.y + mark.height).toBeLessThanOrEqual(header.y + header.height);
     const title = (await brand.boundingBox())!;
@@ -704,14 +704,12 @@ test('Overview fits the desktop viewport and only scrolls the page when space is
   await expect(page.getByRole('button', { name: 'Watch harbor', exact: true })).toBeVisible();
   await page.evaluate(() => window.scrollTo(0, document.documentElement.scrollHeight));
   expect((await page.locator('aside').boundingBox())!.y).toBeCloseTo(0, 0);
-  await expect(
-    page.getByRole('navigation').getByRole('link', { name: 'Overview' }),
-  ).toBeInViewport();
+  await expect(page.getByRole('navigation').getByRole('link', { name: 'Mining' })).toBeInViewport();
   await expect(page.getByText('Twitch: 123456', { exact: true })).toBeInViewport();
   await page.screenshot({ path: '../artifacts/overview-short-window.png', fullPage: true });
 });
 test('every route loads directly and stays usable on a phone', async ({ page }) => {
-  await page.goto('/settings');
+  await page.goto('/settings#connection');
   const proxy = await page.getByLabel('Proxy URL', { exact: true }).boundingBox();
   const quality = await page.getByLabel('Connection Quality:', { exact: true }).boundingBox();
   expect(proxy!.y).toBeCloseTo(quality!.y, 0);
@@ -733,7 +731,7 @@ test('every route loads directly and stays usable on a phone', async ({ page }) 
 });
 
 test('keyboard focus remains visible without outlines across controls', async ({ page }) => {
-  await page.goto('/settings');
+  await page.goto('/settings#connection');
   await page.keyboard.press('Tab');
   const field = page.getByLabel('Proxy URL', { exact: true });
   const before = await field.evaluate((element) => getComputedStyle(element).borderColor);
@@ -741,12 +739,20 @@ test('keyboard focus remains visible without outlines across controls', async ({
   expect(await field.evaluate((element) => getComputedStyle(element).borderColor)).not.toBe(before);
   expect(await field.evaluate((element) => getComputedStyle(element).outlineStyle)).toBe('none');
   for (const name of ['Log out of Twitch', 'Enable password protection']) {
+    await page
+      .getByRole('link', {
+        name: name === 'Log out of Twitch' ? 'Twitch account' : 'Dashboard access',
+        exact: true,
+      })
+      .click();
+    await page.keyboard.press('Tab');
     const button = page.getByRole('button', { name, exact: true });
     await button.focus();
     await expect
       .poll(() => button.evaluate((element) => getComputedStyle(element).backgroundColor))
       .toBe('rgb(51, 51, 51)');
   }
+  await page.goto('/?edit=priorities');
   const checkbox = page.getByRole('checkbox', { name: 'Badge', exact: true });
   await checkbox.focus();
   expect(
@@ -780,7 +786,7 @@ test('channel search, clear, selection and automatic mode', async ({ page }) => 
 test('offline channels with unknown viewers do not crash Overview', async ({ page, request }) => {
   const errors: string[] = [];
   page.on('pageerror', (error) => errors.push(error.message));
-  await page.goto('/settings');
+  await page.goto('/?edit=priorities');
   await expect(page.getByRole('button', { name: 'Reorder Rust', exact: true })).toBeEnabled();
   const offline = {
     ...snapshot.channels[0]!,
@@ -794,7 +800,7 @@ test('offline channels with unknown viewers do not crash Overview', async ({ pag
     headers,
     data: { event: 'channel_update', data: offline },
   });
-  await page.getByRole('link', { name: 'Overview', exact: true }).click();
+  await page.getByRole('link', { name: 'Mining', exact: true }).click();
   const row = page
     .locator('.row')
     .filter({ has: page.getByRole('link', { name: 'offline-channel', exact: true }) });
@@ -804,14 +810,17 @@ test('offline channels with unknown viewers do not crash Overview', async ({ pag
     headers,
     data: { event: 'channels_batch_update', data: { channels: [offline] } },
   });
-  await expect(page.locator('.row')).toHaveCount(1);
-  await expect(page.getByRole('heading', { name: 'Overview', exact: true })).toBeVisible();
+  await expect(
+    page.getByRole('region', { name: 'Channels', exact: true }).locator('.row'),
+  ).toHaveCount(1);
+  await expect(page.getByRole('heading', { name: 'Mining', exact: true })).toBeVisible();
   expect(errors).toEqual([]);
 });
 test('campaign filtering and truthful expanded progress', async ({ page }) => {
   await page.goto('/campaigns');
   await page.getByText('Autumn expedition', { exact: true }).click();
   await expect(page.getByText('42 / 60 min')).toBeVisible();
+  await page.getByRole('button', { name: 'Close details' }).click();
   await page.getByRole('button', { name: 'Filters', exact: true }).click();
   await page.getByLabel('Not Linked', { exact: true }).check();
   await expect(page.getByText('No matching results')).toBeVisible();
@@ -860,7 +869,7 @@ test('campaign sort controls preserve filters and keep counts and resets in comp
     });
   };
   await publishCampaigns();
-  const titles = page.locator('main summary > div > p.font-medium');
+  const titles = page.locator('main .campaign-open > span > span.font-medium');
   const writes: string[] = [];
   page.on('request', (request) => {
     if (request.url().endsWith('/api/settings') && request.method() !== 'GET')
@@ -899,14 +908,12 @@ test('campaign sort controls preserve filters and keep counts and resets in comp
     '',
   );
   const count = page.getByText('3 of 3 campaigns', { exact: true });
-  const heading = (await page
-    .getByRole('heading', { name: 'Campaigns', exact: true })
+  const tabs = (await page
+    .getByRole('navigation', { name: 'Campaign views', exact: true })
     .boundingBox())!;
   const countBox = (await count.boundingBox())!;
-  expect(Math.abs(countBox.y + countBox.height / 2 - heading.y - heading.height / 2)).toBeLessThan(
-    2,
-  );
-  expect(countBox.x).toBeGreaterThan(heading.x + heading.width);
+  expect(Math.abs(countBox.y + countBox.height / 2 - tabs.y - tabs.height / 2)).toBeLessThan(2);
+  expect(countBox.x).toBeGreaterThan(tabs.x + tabs.width);
   await page.setViewportSize({ width: 1440, height: 900 });
   await page.screenshot({ path: '../artifacts/campaign-sort-desktop.png', fullPage: true });
   await page.getByRole('link', { name: 'History', exact: true }).click();
@@ -979,9 +986,10 @@ test('History contains recorded claims independently of campaign completion and 
   await page.getByRole('button', { name: 'Filters', exact: true }).click();
   await page.getByRole('button', { name: 'Clear filters', exact: true }).click();
   await expect(page.getByText('Expired campaign', { exact: true })).toBeVisible();
-  await page.route('**/api/history', (route) =>
+  await page.route('**/api/history', async (route) =>
     route.fulfill({
       json: {
+        ...(await (await route.fetch()).json()),
         entries: [
           {
             id: 'legacy',
@@ -1020,14 +1028,33 @@ test('History contains recorded claims independently of campaign completion and 
 });
 
 test('History claims honor game filters and retry failed loading', async ({ page }) => {
-  await page.route('**/api/history', (route) => route.fulfill({ status: 500, json: {} }), {
-    times: 1,
+  let finishLoad!: () => void;
+  const loading = new Promise<void>((resolve) => {
+    finishLoad = resolve;
   });
+  await page.route(
+    '**/api/history',
+    async (route) => {
+      await loading;
+      await route.fulfill({ status: 500, json: {} });
+    },
+    {
+      times: 1,
+    },
+  );
+  const started = page.waitForRequest((request) => request.url().endsWith('/api/history'));
   await page.goto('/campaigns?tab=finished');
+  await started;
+  try {
+    await expect(page.getByText(/^Loading history/)).toHaveCount(0);
+  } finally {
+    finishLoad();
+  }
   await expect(page.getByRole('alert')).toContainText('Could not load history. Try again.');
-  await page.route('**/api/history', (route) =>
+  await page.route('**/api/history', async (route) =>
     route.fulfill({
       json: {
+        ...(await (await route.fetch()).json()),
         entries: [
           {
             id: 'legacy',
@@ -1068,8 +1095,8 @@ test('discovery stays visible without mining until Mine is explicitly selected',
     .toEqual(['Rust']);
   await page.reload();
   await expect(page.getByRole('button', { name: 'Stop mining Rust', exact: true })).toBeVisible();
-  await page.goto('/settings');
-  await expect(page.locator('#mining [data-game]')).toHaveCount(1);
+  await page.goto('/?edit=priorities');
+  await expect(page.locator('#priorities [data-game]')).toHaveCount(1);
   await page.getByRole('button', { name: /Remove Rust/ }).click();
   await expect
     .poll(async () => (await (await request.get('/api/settings')).json()).games_to_watch)
@@ -1078,7 +1105,7 @@ test('discovery stays visible without mining until Mine is explicitly selected',
   await expect(page.getByRole('button', { name: 'Mine Rust', exact: true })).toBeVisible();
 });
 test('game priorities show icons instead of editable numbers', async ({ page, request }) => {
-  await page.goto('/settings');
+  await page.goto('/?edit=priorities');
   await page.getByRole('searchbox', { name: 'Search games...' }).fill('The Elder Scrolls Online');
   await page.getByRole('button', { name: 'Add Game', exact: true }).click();
   await expect
@@ -1092,7 +1119,7 @@ test('game priorities show icons instead of editable numbers', async ({ page, re
     .poll(async () => (await (await request.get('/api/settings')).json()).games_to_watch)
     .toEqual(['Rust', 'The Elder Scrolls Online', 'Sea of Thieves']);
   await page.reload();
-  await expect(page.locator('#mining [data-game]').nth(1)).toHaveAttribute(
+  await expect(page.locator('#priorities [data-game]').nth(1)).toHaveAttribute(
     'data-game',
     'The Elder Scrolls Online',
   );
@@ -1100,10 +1127,14 @@ test('game priorities show icons instead of editable numbers', async ({ page, re
 
 test('Twitch logout leaves the dashboard available and shows the next login', async ({ page }) => {
   await page.goto('/settings');
+  await page.getByRole('link', { name: 'Connection', exact: true }).click();
   await expect(page.getByText('Dashboard connected', { exact: true })).toBeVisible();
+  await page.getByRole('link', { name: 'Twitch account', exact: true }).click();
   await page.getByRole('button', { name: 'Log out of Twitch', exact: true }).click();
   await expect(page.getByText('NEWCODE', { exact: true })).toBeVisible();
+  await page.getByRole('link', { name: 'Connection', exact: true }).click();
   await expect(page.getByText('Dashboard connected', { exact: true })).toBeVisible();
+  await page.getByRole('link', { name: 'Twitch account', exact: true }).click();
   await expect(page.getByText('Connected', { exact: true })).toHaveCount(0);
   await expect(page.getByRole('button', { name: 'Log out of Twitch', exact: true })).toHaveCount(0);
   await expect(page.getByRole('heading', { name: 'Settings', exact: true })).toBeVisible();
@@ -1112,7 +1143,7 @@ test('Twitch logout leaves the dashboard available and shows the next login', as
 });
 
 test('manual game confirmation supports Escape and safe literal names', async ({ page }) => {
-  await page.goto('/settings');
+  await page.goto('/?edit=priorities');
   await page.getByRole('searchbox', { name: 'Search games...' }).fill('<script>new game</script>');
   await page.getByRole('button', { name: 'Add Game', exact: true }).click();
   await expect(page.getByRole('dialog')).toBeVisible();
@@ -1126,7 +1157,7 @@ test('autosave retains conflicting edits and retries only edited fields', async 
   page,
   request,
 }) => {
-  await page.goto('/settings');
+  await page.goto('/settings#connection');
   let release!: () => void;
   const gate = new Promise<void>((resolve) => {
     release = resolve;
@@ -1179,9 +1210,10 @@ test('history displays saved artwork, old entries and clearly labels unknown cla
       body: '<svg xmlns="http://www.w3.org/2000/svg" width="40" height="40" />',
     }),
   );
-  await page.route('**/api/history', (route) =>
+  await page.route('**/api/history', async (route) =>
     route.fulfill({
       json: {
+        ...(await (await route.fetch()).json()),
         total: 3,
         entries: [
           { ...history.entries[0], image_url: 'https://static-cdn.jtvnw.net/reward.png' },
@@ -1257,7 +1289,7 @@ test('catalog restrictions and hostile strings remain explicit and inert', async
   expect(await page.locator('img[src="x"]').count()).toBe(0);
 });
 test('snapshot replaces stale entities and keeps settings draft', async ({ page, request }) => {
-  await page.goto('/settings');
+  await page.goto('/settings#connection');
   const interval = page.getByLabel('Minimum Refresh Interval (minutes):', { exact: true });
   await interval.fill('45');
   await request.post('/__test/event', {
@@ -1303,7 +1335,7 @@ test('public catalog campaigns are visible without mining and expose source fres
     .getByRole('link', { name: 'Campaigns', exact: true })
     .click();
   await expect(page.getByText('145 of 145 campaigns', { exact: true })).toBeVisible();
-  await expect(page.getByRole('button', { name: 'Mine Rust', exact: true })).toHaveCount(145);
+  await expect(page.getByRole('button', { name: 'Mine Rust', exact: true })).toHaveCount(25);
   await expect(page.getByRole('alert')).toHaveCount(0);
   await page
     .getByRole('searchbox', { name: 'Search campaigns and rewards' })
@@ -1332,11 +1364,11 @@ test('incomplete catalog preserves account data and unknown linkage without a di
   await page.getByRole('link', { name: 'Campaigns', exact: true }).click();
   await expect(page.getByText(/Found \d+ campaigns through live Twitch channels/)).toHaveCount(0);
   await expect(page.getByText('Account link unknown', { exact: true })).toHaveCount(0);
-  await page.locator('summary').first().click();
+  await page.locator('.campaign-open').first().click();
   await expect(page.getByRole('link', { name: 'Check account link' }).first()).toBeVisible();
 });
 test('dashboard password, login, logout and API guard', async ({ page, browser, request }) => {
-  await page.goto('/settings');
+  await page.goto('/settings#access');
   await page
     .getByLabel('New password (at least 8 characters)', { exact: true })
     .fill('example-test-password');
@@ -1353,7 +1385,7 @@ test('dashboard password, login, logout and API guard', async ({ page, browser, 
   await expect(other.getByRole('alert')).toContainText('Incorrect password');
   await other.getByLabel('Password', { exact: true }).fill('example-test-password');
   await other.getByRole('button', { name: 'Log in', exact: true }).click();
-  await expect(other.getByRole('heading', { name: 'Overview', exact: true })).toBeVisible();
+  await expect(other.getByRole('heading', { name: 'Mining', exact: true })).toBeVisible();
   await other.getByRole('button', { name: 'Log out', exact: true }).click();
   await expect(other.getByRole('heading', { name: 'Unlock dashboard' })).toBeVisible();
   await context.close();
@@ -1371,6 +1403,7 @@ test('pages and confirmation dialogs meet automated accessibility checks', async
       .analyze();
     expect(results.violations, `${route}: ${JSON.stringify(results.violations)}`).toEqual([]);
   }
+  await page.goto('/?edit=priorities');
   await page.getByRole('searchbox', { name: 'Search games...' }).fill('Custom game');
   await page.getByRole('button', { name: 'Add Game', exact: true }).click();
   await expect(page.getByRole('dialog')).toBeVisible();
@@ -1406,11 +1439,11 @@ test('a failed initial auth status remains recoverable without a page reload', a
   await expect(retry).toHaveText('');
   await expect(retry).toHaveAttribute('title', 'Try again');
   await retry.click();
-  await expect(page.getByRole('heading', { name: 'Overview', exact: true })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Mining', exact: true })).toBeVisible();
 });
 
 test('failed settings save retains input', async ({ page }) => {
-  await page.goto('/settings');
+  await page.goto('/settings#connection');
   await page.getByLabel('Proxy URL', { exact: true }).fill('http://127.0.0.1:9999');
   await page.route(
     '**/api/settings',
@@ -1423,7 +1456,7 @@ test('failed settings save retains input', async ({ page }) => {
 });
 
 test('autosave queues newer input while an older request is pending', async ({ page, request }) => {
-  await page.goto('/settings');
+  await page.goto('/settings#connection');
   let release!: () => void;
   const gate = new Promise<void>((resolve) => {
     release = resolve;
@@ -1456,7 +1489,7 @@ test('manual game confirmation appends to the latest settings from another devic
   page,
   request,
 }) => {
-  await page.goto('/settings');
+  await page.goto('/?edit=priorities');
   await page.getByRole('searchbox', { name: 'Search games...' }).fill('Manual name');
   await page.getByRole('button', { name: 'Add Game', exact: true }).click();
   const settings = await (await request.get('/api/settings')).json();
@@ -1476,17 +1509,17 @@ test('manual game confirmation appends to the latest settings from another devic
 });
 
 test('autosave survives reconnect and navigation', async ({ page, request }) => {
-  await page.goto('/settings');
+  await page.goto('/settings#connection');
   await page.getByLabel('Minimum Refresh Interval (minutes):', { exact: true }).fill('45');
   await request.post('/__test/reconnect', { headers, data: {} });
-  await page.getByRole('link', { name: 'Overview', exact: true }).click();
+  await page.getByRole('link', { name: 'Mining', exact: true }).click();
   await expect
     .poll(
       async () =>
         (await (await request.get('/api/settings')).json()).minimum_refresh_interval_minutes,
     )
     .toBe(45);
-  await page.goto('/settings');
+  await page.goto('/settings#connection');
   await expect(page.getByLabel('Minimum Refresh Interval (minutes):', { exact: true })).toHaveValue(
     '45',
   );
@@ -1498,7 +1531,7 @@ test('activity follows through bounded-buffer rollover and pauses for reading', 
   request,
 }) => {
   await page.goto('/activity');
-  await expect(page.getByLabel('Activity', { exact: true }).locator('p')).toHaveCount(3);
+  await expect(page.getByLabel('Activity', { exact: true }).locator('article')).toHaveCount(3);
   await request.post('/__test/event', {
     headers,
     data: {
@@ -1507,7 +1540,7 @@ test('activity follows through bounded-buffer rollover and pauses for reading', 
     },
   });
   const log = page.getByLabel('Activity', { exact: true });
-  await expect(log.locator('p')).toHaveCount(1000);
+  await expect(log.locator('article')).toHaveCount(1000);
   await request.post('/__test/event', {
     headers,
     data: { event: 'console_output', data: { message: 'Newest message' } },
@@ -1532,7 +1565,7 @@ test('activity follows through bounded-buffer rollover and pauses for reading', 
   await expect
     .poll(() => log.evaluate((el) => el.scrollHeight - el.scrollTop - el.clientHeight))
     .toBeLessThan(2);
-  await expect(follow).toHaveCount(0);
+  await expect(follow).toHaveAttribute('aria-pressed', 'true');
 });
 
 test('artwork expands Twitch dimensions before making a request', async ({ page, request }) => {
@@ -1577,7 +1610,7 @@ test('password errors stay in Settings and protection changes reach a second bro
   page,
   browser,
 }) => {
-  await page.goto('/settings');
+  await page.goto('/settings#access');
   await page
     .getByLabel('New password (at least 8 characters)', { exact: true })
     .fill('example-test-password');
@@ -1586,11 +1619,11 @@ test('password errors stay in Settings and protection changes reach a second bro
   await expect(page.getByText('Password protection is enabled.', { exact: true })).toBeVisible();
   const context = await browser.newContext();
   const other = await context.newPage();
-  await other.goto('http://127.0.0.1:8765/settings');
+  await other.goto('http://127.0.0.1:8765/settings#access');
   await other.getByLabel('Password', { exact: true }).fill('example-test-password');
   await other.getByRole('button', { name: 'Log in', exact: true }).click();
-  await expect(other.getByRole('heading', { name: 'Overview', exact: true })).toBeVisible();
-  await other.goto('http://127.0.0.1:8765/settings');
+  await expect(other.getByRole('heading', { name: 'Mining', exact: true })).toBeVisible();
+  await other.goto('http://127.0.0.1:8765/settings#access');
   await expect(other.getByText('Password protection is enabled.', { exact: true })).toBeVisible();
   await page.getByLabel('Current password', { exact: true }).fill('wrong-password');
   await page.getByRole('button', { name: 'Disable protection', exact: true }).click();
@@ -1622,8 +1655,8 @@ test('explicit game priorities preserve manual spelling and case-insensitive uni
     headers,
     data: { games_to_watch: ['Custom game', 'rust'] },
   });
-  await page.goto('/settings');
-  const rows = page.locator('#mining [data-game]');
+  await page.goto('/?edit=priorities');
+  const rows = page.locator('#priorities [data-game]');
   await expect(rows).toHaveCount(2);
   expect(
     await rows.evaluateAll((items) => items.map((item) => item.getAttribute('data-game'))),
@@ -1646,9 +1679,10 @@ test('history refreshes after claims and reports clear failure inside its dialog
   await page.getByText('Autumn expedition', { exact: true }).click();
   await expect(page.getByText('Canvas pack', { exact: true }).first()).toBeVisible();
   const history = await (await request.get('/api/history')).json();
-  await page.route('**/api/history', (route) =>
+  await page.route('**/api/history', async (route) =>
     route.fulfill({
       json: {
+        ...(await (await route.fetch()).json()),
         total: 2,
         entries: [
           ...history.entries,
@@ -1826,7 +1860,10 @@ test('empty selection asks for an explicit mining choice', async ({ page, reques
 test('phone campaign rows retain status and claimed counts', async ({ page }) => {
   await page.setViewportSize({ width: 360, height: 800 });
   await page.goto('/campaigns');
-  await expect(page.getByText('0 / 2 claimed · Active', { exact: true })).toBeVisible();
+  await expect(
+    page.getByRole('button', { name: 'Open Autumn expedition', exact: true }),
+  ).toContainText('0 / 2');
+  await expect(page.getByText('Active', { exact: true })).toBeVisible();
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
   await page.screenshot({ path: '../artifacts/campaigns-phone.png', fullPage: true });
 });
@@ -1856,13 +1893,18 @@ test('long international labels remain usable at phone, tablet and zoom-equivale
 });
 
 test('autosave keeps text editing stable and blocks invalid values', async ({ page, request }) => {
-  await page.goto('/settings');
+  await page.goto('/?edit=priorities');
   const ignored = page.getByLabel('Ignored Drop Keywords', { exact: true });
   await ignored.fill('Mask\n');
   await expect
     .poll(async () => (await (await request.get('/api/settings')).json()).drop_name_blacklist)
     .toEqual(['Mask']);
   await expect(ignored).toHaveValue('Mask\n');
+  await page
+    .getByRole('navigation', { name: 'Main navigation' })
+    .getByRole('link', { name: 'Settings', exact: true })
+    .click();
+  await page.getByRole('link', { name: 'Connection', exact: true }).click();
   const interval = page.getByLabel('Minimum Refresh Interval (minutes):', { exact: true });
   await interval.fill('');
   await expect(page.getByRole('alert')).toContainText('whole refresh interval');
@@ -1886,7 +1928,7 @@ test('pointer dragging saves on drop and Escape cancels a second drag', async ({
     headers,
     data: { games_to_watch: ['Rust', 'Sea of Thieves', 'The Elder Scrolls Online'] },
   });
-  await page.goto('/settings');
+  await page.goto('/?edit=priorities');
   const handle = page.getByRole('button', { name: 'Reorder Rust', exact: true });
   await handle.scrollIntoViewIfNeeded();
   const from = (await handle.boundingBox())!;
@@ -1910,7 +1952,7 @@ test('pointer dragging saves on drop and Escape cancels a second drag', async ({
   await page.mouse.move(first.x + 70, first.y + 10, { steps: 8 });
   await page.keyboard.press('Escape');
   await page.mouse.up();
-  await expect(page.locator('#mining [data-game]').last()).toHaveAttribute('data-game', 'Rust');
+  await expect(page.locator('#priorities [data-game]').last()).toHaveAttribute('data-game', 'Rust');
   expect((await (await request.get('/api/settings')).json()).games_to_watch).toEqual([
     'Sea of Thieves',
     'The Elder Scrolls Online',
@@ -1925,7 +1967,7 @@ test('touch dragging reorders game priorities', async ({ browser, request }) => 
     viewport: { width: 390, height: 844 },
   });
   const page = await context.newPage();
-  await page.goto('http://127.0.0.1:8765/settings');
+  await page.goto('http://127.0.0.1:8765/?edit=priorities');
   const handle = page.getByRole('button', { name: 'Reorder Sea of Thieves', exact: true });
   await handle.scrollIntoViewIfNeeded();
   const from = (await handle.boundingBox())!;
@@ -1947,7 +1989,7 @@ test('touch dragging reorders game priorities', async ({ browser, request }) => 
 });
 
 test('Settings saves silently and persists edits', async ({ page, request }) => {
-  await page.goto('/settings');
+  await page.goto('/settings#connection');
   let finishSave!: () => void;
   const saveGate = new Promise<void>((resolve) => {
     finishSave = resolve;
@@ -2062,7 +2104,7 @@ for (const width of [1280, 390, 320]) {
     const layout = () =>
       page.evaluate(() => ({
         accountHeight: document.querySelector('#account')!.getBoundingClientRect().height,
-        miningTop: document.querySelector('#mining')!.getBoundingClientRect().top + scrollY,
+        miningTop: document.querySelector('#account')!.getBoundingClientRect().top + scrollY,
       }));
     const before = await layout();
     await copy.click();
@@ -2116,7 +2158,7 @@ test('icon actions and authorization row use compact accessible controls', async
     .poll(() => filters.evaluate((node) => getComputedStyle(node).backgroundColor))
     .toBe('rgb(51, 51, 51)');
   await page.goto('/settings');
-  await expect(page.locator('#account')).toContainText('Twitch account: Logged in');
+  await expect(page.locator('#account')).toContainText('Logged in');
   await expect(page.locator('#account')).not.toContainText('Dashboard connected');
   await expect(page.locator('#connection')).toContainText('Dashboard connected');
   await page.getByRole('button', { name: 'Log out of Twitch', exact: true }).click();
@@ -2162,7 +2204,7 @@ test('native sort options stay legible with a light operating system theme', asy
   for (const [url, name] of [
     ['/campaigns', 'Sort campaigns'],
     ['/campaigns?tab=history', 'Sort history'],
-    ['/settings', 'Mining priority'],
+    ['/?edit=priorities', 'Mining priority'],
   ]) {
     await page.goto(url!);
     const sort = page.getByRole('combobox', { name: name! });
@@ -2196,9 +2238,17 @@ test('search clear circles stay inside every search field on desktop and phone',
 }) => {
   for (const width of [1440, 390]) {
     await page.setViewportSize({ width, height: 900 });
-    for (const url of ['/', '/settings', '/campaigns', '/campaigns?tab=history', '/activity']) {
+    for (const url of [
+      '/',
+      '/?edit=priorities',
+      '/campaigns',
+      '/campaigns?tab=history',
+      '/activity',
+    ]) {
       await page.goto(url);
-      const search = page.getByRole('searchbox');
+      const search = url.includes('edit=')
+        ? page.getByRole('searchbox', { name: 'Search games...' })
+        : page.getByRole('searchbox');
       await search.fill('example');
       const clear = page.getByRole('button', { name: 'Clear search', exact: true });
       await clear.hover();
@@ -2223,11 +2273,13 @@ test('search clear circles stay inside every search field on desktop and phone',
   }
 });
 
-test('drag grips remain plain while icon actions have circular hover backgrounds', async ({
+test('drag grips stay visible and plain while icon actions have circular hover backgrounds', async ({
   page,
 }) => {
-  await page.goto('/settings');
+  await page.goto('/?edit=priorities');
   const grip = page.getByRole('button', { name: 'Reorder Rust', exact: true });
+  await page.mouse.move(0, 0);
+  await expect(grip).toHaveCSS('opacity', '1');
   await grip.hover();
   await expect(grip).toHaveCSS('opacity', '1');
   expect(await grip.evaluate((node) => getComputedStyle(node).backgroundColor)).toBe(
@@ -2254,9 +2306,10 @@ test('History shares sort, search, game filters and layout while paging recorded
   request,
 }) => {
   const original = (await (await request.get('/api/history')).json()).entries[0];
-  await page.route('**/api/history', (route) =>
+  await page.route('**/api/history', async (route) =>
     route.fulfill({
       json: {
+        ...(await (await route.fetch()).json()),
         entries: Array.from({ length: 27 }, (_, index) => ({
           ...original,
           id: `reward-${index}`,
@@ -2271,7 +2324,7 @@ test('History shares sort, search, game filters and layout while paging recorded
   );
   await page.goto('/campaigns?tab=history');
   await expect(page.getByText('27 of 27 campaigns', { exact: true })).toBeVisible();
-  const titles = page.locator('main summary > div > p.font-medium');
+  const titles = page.locator('main .campaign-open > span > span.font-medium');
   await expect(titles).toHaveCount(25);
   await expect(titles.first()).toHaveText('Campaign 26');
   const previous = page.getByRole('button', { name: 'Previous page', exact: true });
@@ -2313,7 +2366,7 @@ test('History shares sort, search, game filters and layout while paging recorded
   await expect(titles).toHaveCount(25);
   await expect(sort).toHaveValue('name');
   await page.getByRole('button', { name: 'Change campaign layout', exact: true }).click();
-  await expect(page.locator('main details').first().locator('..')).toHaveClass(/grid/);
+  await expect(page.locator('main .campaign-summary').first().locator('..')).toHaveClass(/grid/);
   await page.setViewportSize({ width: 390, height: 844 });
   await page.getByRole('checkbox', { name: 'Old game', exact: true }).check();
   await expect(titles).toHaveText(['Campaign 26']);
@@ -2334,7 +2387,7 @@ test('an authoritative history clear removes cached claims even when reloading f
   expect((await request.post('/api/cache/clear', { headers, data: {} })).ok()).toBe(true);
   await expect(page.getByRole('alert')).toContainText('Could not load history');
   await expect(page.getByText('Autumn expedition', { exact: true })).toHaveCount(0);
-  await expect(page.locator('main details')).toHaveCount(0);
+  await expect(page.locator('main .campaign-summary')).toHaveCount(0);
   expect((await (await request.get('/api/history')).json()).entries).toEqual([]);
   await page.unroute('**/api/history');
   await page.getByRole('button', { name: 'Try again', exact: true }).click();

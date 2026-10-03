@@ -1,0 +1,832 @@
+import { test, expect } from '@playwright/test';
+import AxeBuilder from '@axe-core/playwright';
+import fixture from './fixture.json' with { type: 'json' };
+
+const headers = { 'X-TDM-Request': '1' };
+test.beforeEach(async ({ request }) => {
+  expect((await request.get('/__test/health')).ok()).toBeTruthy();
+  const reset = await request.post('/__test/reset', { headers, data: {} });
+  expect(await reset.json()).toEqual({ ok: true });
+});
+
+for (const width of [1440, 390, 320]) {
+  test(`workspace and details at ${width}px`, async ({ page }) => {
+    await page.setViewportSize({ width, height: 960 });
+    await page.goto('/');
+    await expect(page.getByRole('heading', { name: 'Mining', exact: true })).toBeVisible();
+    await expect(
+      page.getByRole('button', { name: 'Refresh inventory', exact: true }),
+    ).toBeEnabled();
+    if (width >= 1024)
+      await expect(page.getByRole('link', { name: 'GitHub repository' }).locator('..')).toHaveCSS(
+        'border-top-width',
+        '0px',
+      );
+    await page.screenshot({ path: `../artifacts/workspace-mining-${width}.png`, fullPage: true });
+    await page.getByRole('link', { name: 'Edit', exact: true }).click();
+    await expect(page.getByRole('heading', { name: 'Mining preferences' })).toBeVisible();
+    await expect(page.getByRole('combobox', { name: 'Mining priority' })).toBeEnabled();
+    await expect(page.getByRole('heading', { name: 'Now mining' })).toHaveCount(0);
+    const search = page.getByRole('searchbox', { name: 'Search games...' });
+    await search.fill('Elder');
+    const results = page.getByRole('region', { name: 'Search games...' });
+    await expect(results.getByRole('button', { name: 'The Elder Scrolls Online' })).toBeVisible();
+    const bounds = (await results.boundingBox())!;
+    expect(bounds.y + bounds.height).toBeLessThan(
+      (await page.locator('#mining-priority-help').boundingBox())!.y,
+    );
+    await search.fill('');
+    expect((await new AxeBuilder({ page }).analyze()).violations).toEqual([]);
+    await page.screenshot({
+      path: `../artifacts/workspace-preferences-${width}.png`,
+      fullPage: true,
+    });
+    await page.getByRole('link', { name: 'Back to Mining' }).click();
+    await expect(page.getByRole('heading', { name: 'Now mining' })).toBeVisible();
+    await expect(page.getByRole('link', { name: 'Edit', exact: true })).toBeFocused();
+    await page.goto('/campaigns?q=Autumn&view=list');
+    await page.getByRole('button', { name: 'Open Autumn expedition', exact: true }).click();
+    await expect(page.getByRole('complementary', { name: 'Campaign details' })).toBeVisible();
+    await expect(page.getByRole('heading', { name: 'Explorer jacket' })).toBeVisible();
+    await page.screenshot({ path: `../artifacts/workspace-details-${width}.png`, fullPage: true });
+    expect((await new AxeBuilder({ page }).analyze()).violations).toEqual([]);
+    await page.getByRole('button', { name: 'Close details' }).click();
+    await expect(page.getByRole('searchbox', { name: 'Search campaigns' })).toHaveValue('Autumn');
+    await expect(
+      page.getByRole('button', { name: 'Open Autumn expedition', exact: true }),
+    ).toBeFocused();
+    expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(
+      width,
+    );
+  });
+}
+
+test('only the game list scrolls while desktop preferences controls stay in place', async ({
+  page,
+  request,
+}) => {
+  const games = Array.from({ length: 30 }, (_, index) => `Game ${index + 1}`);
+  for (const viewport of [
+    { width: 1440, height: 900 },
+    { width: 1280, height: 480 },
+    { width: 1024, height: 360 },
+  ]) {
+    expect(
+      (
+        await request.post('/api/settings', {
+          headers,
+          data: { games_to_watch: games, mining_priority_mode: 'short_events' },
+        })
+      ).ok(),
+    ).toBeTruthy();
+    await page.setViewportSize(viewport);
+    await page.goto('/?edit=priorities');
+    const panel = page.getByRole('region', { name: 'Mining preferences', exact: true });
+    const list = page.getByRole('region', { name: 'Game priorities', exact: true });
+    const search = page.getByRole('searchbox', { name: 'Search games...' });
+    const rewards = page.getByRole('checkbox', { name: 'Badges from any game' });
+    const back = page.getByRole('link', { name: 'Back to Mining' });
+    await expect(back).toBeVisible();
+    await expect(page.getByRole('button', { name: 'Reorder Game 1', exact: true })).toBeEnabled();
+    expect(await page.evaluate(() => document.documentElement.scrollHeight)).toBeLessThanOrEqual(
+      viewport.height,
+    );
+    expect(await list.evaluate((element) => element.scrollHeight > element.clientHeight)).toBe(
+      true,
+    );
+    const searchTop = (await search.boundingBox())!.y;
+    const rewardsTop = (await rewards.boundingBox())!.y;
+    await list.focus();
+    await page.keyboard.press('PageDown');
+    await expect(list).toHaveCSS('background-color', 'rgb(36, 36, 36)');
+    await expect(list.getByRole('list', { name: 'Game priorities', exact: true })).toHaveCSS(
+      'background-color',
+      'rgb(36, 36, 36)',
+    );
+    await list.hover();
+    await page.mouse.wheel(0, 350);
+    await expect.poll(() => list.evaluate((element) => element.scrollTop)).toBeGreaterThan(0);
+    await list.evaluate((element) => {
+      element.scrollTop = 0;
+    });
+    const handle = await page
+      .getByRole('button', { name: 'Reorder Game 1', exact: true })
+      .boundingBox();
+    const bounds = (await list.boundingBox())!;
+    await page.mouse.move(handle!.x + 10, handle!.y + 10);
+    await page.mouse.down();
+    for (let step = 0; step < 10; step++) {
+      await page.mouse.move(handle!.x + 12 + step, bounds.y + bounds.height - 15);
+    }
+    await expect.poll(() => list.evaluate((element) => element.scrollTop)).toBeGreaterThan(0);
+    await page.keyboard.press('Escape');
+    await page.mouse.up();
+    await list.evaluate((element) => {
+      element.scrollTop = element.scrollHeight;
+    });
+    await expect(
+      page.getByRole('button', { name: 'Reorder Game 30', exact: true }),
+    ).toBeInViewport();
+    expect((await search.boundingBox())!.y).toBe(searchTop);
+    expect((await rewards.boundingBox())!.y).toBe(rewardsTop);
+    expect(await panel.evaluate((element) => element.scrollTop)).toBe(0);
+    await page.getByLabel('Ignored Drop Keywords', { exact: true }).scrollIntoViewIfNeeded();
+    await expect(page.getByLabel('Ignored Drop Keywords', { exact: true })).toBeInViewport();
+    expect((await search.boundingBox())!.y).toBe(searchTop);
+    await expect(back).toBeInViewport();
+    expect(await page.evaluate(() => window.scrollY)).toBe(0);
+    await list.evaluate((element) => {
+      element.scrollTop = 0;
+    });
+    const first = page.getByRole('button', { name: 'Reorder Game 1', exact: true });
+    await first.focus();
+    for (let step = 0; step < 15; step++) await first.press('ArrowDown');
+    await expect(first).toBeFocused();
+    await expect(first).toBeInViewport({ ratio: 0.99 });
+    expect((await search.boundingBox())!.y).toBe(searchTop);
+    expect(await panel.evaluate((element) => element.scrollTop)).toBe(0);
+    expect(await page.evaluate(() => window.scrollY)).toBe(0);
+    await page.screenshot({ path: `../artifacts/preferences-list-scroll-${viewport.width}.png` });
+    await search.fill('e');
+    const results = page.getByRole('region', { name: 'Search games...' });
+    const match = results.getByRole('button', { name: 'Sea of Thieves', exact: true });
+    await expect(match).toBeInViewport({ ratio: 0.99 });
+    const resultBounds = (await results.boundingBox())!;
+    expect(resultBounds.y).toBeGreaterThan(searchTop);
+    expect(resultBounds.y + resultBounds.height).toBeLessThan(
+      (await page.locator('#mining-priority-help').boundingBox())!.y,
+    );
+    const firstMatchHandle = list.getByRole('button', { name: /^Reorder/ }).first();
+    await firstMatchHandle.focus();
+    await expect(firstMatchHandle).toBeInViewport({ ratio: 0.99 });
+    await page.screenshot({ path: `../artifacts/preferences-search-${viewport.width}.png` });
+    await page.getByRole('button', { name: 'Add Game', exact: true }).click();
+    await expect(results.getByRole('alert')).toContainText('Multiple games found');
+    await match.scrollIntoViewIfNeeded();
+    await expect(match).toBeInViewport({ ratio: 0.99 });
+    await match.click();
+    await expect(search).toHaveValue('');
+    await expect
+      .poll(async () => (await (await request.get('/api/settings')).json()).games_to_watch)
+      .toContain('Sea of Thieves');
+    expect((await search.boundingBox())!.y).toBe(searchTop);
+    expect(await panel.evaluate((element) => element.scrollTop)).toBe(0);
+    expect(await page.evaluate(() => window.scrollY)).toBe(0);
+    await back.click();
+    await expect(page.getByRole('heading', { name: 'Mining', exact: true })).toBeVisible();
+  }
+});
+
+test('short preferences with save conflicts and reconnects keep controls reachable', async ({
+  page,
+  request,
+}) => {
+  await request.post('/api/settings', {
+    headers,
+    data: {
+      games_to_watch: Array.from({ length: 30 }, (_, index) => `Game ${index + 1}`),
+      mining_priority_mode: 'short_events',
+    },
+  });
+  await page.setViewportSize({ width: 1024, height: 360 });
+  await page.goto('/?edit=priorities');
+  await page.route('**/api/settings', async (route) => {
+    if (route.request().method() === 'POST')
+      await route.fulfill({ status: 409, json: { detail: 'settings_conflict' } });
+    else await route.continue();
+  });
+  await page.getByRole('checkbox', { name: 'Badges from any game' }).check();
+  await expect(page.getByRole('alert')).toBeVisible();
+  await page.getByRole('searchbox', { name: 'Search games...' }).fill('e');
+  const results = page.getByRole('region', { name: 'Search games...' });
+  const resultBounds = (await results.boundingBox())!;
+  expect(resultBounds.y + resultBounds.height).toBeLessThan(
+    (await page.locator('#mining-priority-help').boundingBox())!.y,
+  );
+  const match = results.getByRole('button', { name: 'Sea of Thieves', exact: true });
+  await match.focus();
+  await expect(match).toBeInViewport({ ratio: 0.99 });
+  const last = page.getByRole('button', { name: 'Reorder Game 30', exact: true });
+  await last.focus();
+  await expect(last).toBeInViewport({ ratio: 0.99 });
+  await expect(page.getByRole('link', { name: 'Back to Mining' })).toBeInViewport();
+  expect(await page.evaluate(() => window.scrollY)).toBe(0);
+  expect(await page.evaluate(() => document.documentElement.scrollHeight)).toBe(360);
+  await page.screenshot({ path: '../artifacts/preferences-conflict-short.png' });
+  await page.context().setOffline(true);
+  try {
+    await request.post('/__test/reconnect', { headers, data: {} });
+    await expect(page.getByRole('combobox', { name: 'Mining priority' })).toBeDisabled();
+    const column = page.getByRole('group', { name: 'Game priorities', exact: true });
+    await column.focus();
+    await column.press('End');
+    await expect.poll(() => column.evaluate((element) => element.scrollTop)).toBeGreaterThan(0);
+    expect(await page.evaluate(() => window.scrollY)).toBe(0);
+    expect(await page.evaluate(() => document.documentElement.scrollHeight)).toBe(360);
+    expect((await new AxeBuilder({ page }).analyze()).violations).toEqual([]);
+    await page.screenshot({ path: '../artifacts/preferences-disconnected-short.png' });
+  } finally {
+    await page.unroute('**/api/settings');
+    await page.context().setOffline(false);
+  }
+  await expect(page.getByRole('combobox', { name: 'Mining priority' })).toBeEnabled();
+  await expect
+    .poll(async () => (await (await request.get('/api/settings')).json()).auto_mine_badges)
+    .toBe(true);
+  await expect(page.getByRole('alert')).toHaveCount(0);
+});
+
+test('leaving preferences preserves a conflicting draft for retry', async ({ page }) => {
+  await page.goto('/?edit=priorities');
+  await page.route('**/api/settings', async (route) => {
+    if (route.request().method() === 'POST') {
+      await route.fulfill({ status: 409, json: { detail: 'settings_conflict' } });
+    } else await route.continue();
+  });
+  await page.getByRole('checkbox', { name: 'Badge', exact: true }).uncheck();
+  await expect(page.getByRole('alert')).toBeVisible();
+  await page.getByRole('link', { name: 'Back to Mining' }).click();
+  await expect(page.getByRole('button', { name: 'Try again', exact: true })).toBeEnabled();
+  await page.getByRole('link', { name: 'Edit', exact: true }).click();
+  await expect(page.getByRole('checkbox', { name: 'Badge', exact: true })).not.toBeChecked();
+  await page.unroute('**/api/settings');
+  await page.getByRole('button', { name: 'Try again', exact: true }).click();
+  await expect(page.getByRole('alert')).toHaveCount(0);
+});
+
+test('simplified captions and settings retain progress, recovery and refresh controls', async ({
+  page,
+  request,
+}) => {
+  const mining = {
+    state: 'watching',
+    channel_id: null,
+    campaign_id: 'campaign-1',
+    drop_id: 'reward-1',
+    priority: { reason: 'saved_order', deadline: null, target_ids: [] },
+  };
+  const activity = [
+    {
+      id: 1,
+      first_at: '2026-10-03T12:00:00Z',
+      last_at: '2026-10-03T12:00:10Z',
+      category: 'mining',
+      severity: 'warning',
+      code: 'watch_failed',
+      args: {},
+      message: 'Watch connection interrupted',
+      campaign_id: null,
+      drop_id: null,
+      channel_id: null,
+      count: 2,
+      recovered: true,
+    },
+  ];
+  activity.push({ ...activity[0]!, id: 2, message: 'Watching: Example channel', count: 1 });
+  await request.post('/__test/event', {
+    headers,
+    data: { event: 'initial_state', data: { ...fixture, mining, activity } },
+  });
+  await page.goto('/');
+  await expect(page.getByRole('progressbar', { name: 'Explorer jacket' })).toBeVisible();
+  await expect(page.getByText('Watching for this reward', { exact: true })).toHaveCount(0);
+  await request.post('/__test/event', {
+    headers,
+    data: {
+      event: 'initial_state',
+      data: { ...fixture, mining: { ...mining, state: 'awaiting_claim' }, activity },
+    },
+  });
+  await expect(
+    page.getByText('Watch time complete; waiting for claim confirmation', { exact: true }),
+  ).toBeVisible();
+  await page.goto('/campaigns?tab=history');
+  await expect(page.getByRole('button', { name: 'Refresh inventory', exact: true })).toBeEnabled();
+  await page.getByRole('button', { name: 'Refresh inventory', exact: true }).click();
+  await expect(page.getByRole('button', { name: 'Refreshing...', exact: true })).toBeDisabled();
+  await page.goto('/activity');
+  await expect(page.getByText('This session', { exact: true })).toHaveCount(0);
+  const event = page.getByRole('article').first();
+  await expect(event.getByText('Watch connection interrupted', { exact: true })).toBeVisible();
+  await expect(event.getByText('Mining', { exact: true })).toHaveCount(0);
+  await expect(event.getByRole('paragraph').filter({ hasText: /^Recovered$/ })).toBeVisible();
+  for (const width of [1440, 390]) {
+    await page.setViewportSize({ width, height: 900 });
+    const panel = (await page.locator('.activity-list').boundingBox())!;
+    const row = (await event.boundingBox())!;
+    const inset = width >= 1024 ? 16 : 12;
+    expect(row.x - panel.x).toBeCloseTo(inset + 1);
+    expect(panel.x + panel.width - row.x - row.width).toBeCloseTo(inset + 1);
+    await expect(event).toHaveCSS('border-bottom-width', '1px');
+    await expect(page.getByRole('article').last()).toHaveCSS('border-bottom-width', '0px');
+    await page.screenshot({ path: `../artifacts/activity-inset-${width}.png`, fullPage: true });
+  }
+  await page.getByRole('combobox', { name: 'Filter category' }).selectOption('claims');
+  await expect(page.getByRole('article')).toHaveCount(0);
+  await page.getByRole('combobox', { name: 'Filter category' }).selectOption('mining');
+  await expect(event).toBeVisible();
+  for (const width of [1440, 390]) {
+    await page.setViewportSize({ width, height: 900 });
+    let contentOffset: number | undefined;
+    for (const section of ['account', 'access', 'connection', 'maintenance']) {
+      await page.goto(`/settings#${section}`);
+      const content = page.locator(`#${section}`);
+      await expect(content).toBeVisible();
+      await expect(content).toHaveCSS('border-bottom-width', '0px');
+      await expect(
+        page.getByRole('button', { name: /^(Refresh inventory|Refreshing\.\.\.)$/ }),
+      ).toHaveCount(0);
+      const tabs = (await page
+        .getByRole('navigation', { name: 'Settings sections' })
+        .boundingBox())!;
+      await expect(content.getByRole('heading')).toHaveCount(0);
+      const first = (await content.locator(':scope > :first-child').boundingBox())!;
+      const offset = first.y - tabs.y - tabs.height;
+      contentOffset ??= offset;
+      expect(offset).toBeCloseTo(contentOffset, 0);
+      expect(first.x).toBeCloseTo(tabs.x, 0);
+      await page.screenshot({
+        path: `../artifacts/settings-${section}-${width}.png`,
+        fullPage: true,
+      });
+    }
+  }
+});
+
+test('campaign details show shared dates once and preserve distinct reward windows', async ({
+  page,
+  request,
+}) => {
+  const base = fixture.campaigns[0]!;
+  const reward = base.drops[0]!;
+  const drops = [
+    { ...reward, id: 'shared-raw' },
+    {
+      ...reward,
+      id: 'shared-effective',
+      starts_at: '2026-09-01T00:00:00Z',
+      ends_at: '2026-11-01T00:00:00Z',
+      effective_starts_at: '2026-09-20T02:00:00+02:00',
+      effective_ends_at: '2026-10-02T02:00:00+02:00',
+    },
+    { ...reward, id: 'later-start', effective_starts_at: '2026-09-21T00:00:00Z' },
+    { ...reward, id: 'earlier-end', effective_ends_at: '2026-10-01T00:00:00Z' },
+    { ...reward, id: 'distinct-raw', starts_at: '2026-09-22T00:00:00Z' },
+  ];
+  await request.post('/__test/event', {
+    headers,
+    data: {
+      event: 'inventory_batch_update',
+      data: { campaigns: [{ ...base, total_drops: drops.length, drops }] },
+    },
+  });
+  await page.goto('/campaigns?campaign=campaign-1');
+  const detail = page.getByRole('complementary', { name: 'Campaign details' });
+  const windows = await page.evaluate(
+    (ranges) =>
+      ranges.map((range) =>
+        range
+          .map((date) =>
+            new Date(date).toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' }),
+          )
+          .join(' — '),
+      ),
+    [
+      [base.starts_at, base.ends_at],
+      ['2026-09-21T00:00:00Z', base.ends_at],
+      [base.starts_at, '2026-10-01T00:00:00Z'],
+      ['2026-09-22T00:00:00Z', base.ends_at],
+    ],
+  );
+  await expect(detail.getByText(windows[0]!, { exact: true })).toHaveCount(1);
+  for (const id of ['shared-raw', 'shared-effective'])
+    await expect(page.locator(`#drop-${id}`).getByText(/ — /)).toHaveCount(0);
+  for (const [index, id] of ['later-start', 'earlier-end', 'distinct-raw'].entries())
+    await expect(
+      page.locator(`#drop-${id}`).getByText(windows[index + 1]!, { exact: true }),
+    ).toBeVisible();
+  await expect(detail.getByText(/^Claimed /)).toBeVisible();
+});
+
+test('History details contain only recorded claims even with live campaign metadata', async ({
+  page,
+  request,
+}) => {
+  const saved = await (await request.get('/api/history')).json();
+  const artwork = 'https://static-cdn.jtvnw.net/claimed-reward.png';
+  await page.route(artwork, (route) =>
+    route.fulfill({
+      contentType: 'image/svg+xml',
+      body: '<svg xmlns="http://www.w3.org/2000/svg" width="40" height="40" />',
+    }),
+  );
+  const base = fixture.campaigns[0]!;
+  const campaign = {
+    ...base,
+    name: 'Live campaign renamed',
+    linked: null,
+    allowed_channels: [{ login: 'northwind', name: 'northwind' }],
+    priority: { reason: 'saved_order', deadline: null, target_ids: [] },
+    drops: base.drops.map((drop) => ({
+      ...drop,
+      benefits: drop.benefits.map((benefit) => ({ ...benefit, image_url: artwork })),
+    })),
+  };
+  await request.post('/__test/event', {
+    headers,
+    data: {
+      event: 'inventory_batch_update',
+      data: { campaigns: [campaign, { ...campaign, id: 'no-claims' }] },
+    },
+  });
+  await page.route('**/api/history', async (route) =>
+    route.fulfill({
+      json: {
+        ...(await (await route.fetch()).json()),
+        entries: [
+          ...saved.entries,
+          {
+            ...saved.entries[0],
+            id: 'reward-1',
+            drop_name: 'Recorded jacket',
+            benefits: ['Recorded jacket', 'Recorded bonus'],
+            claimed_at_is_observed: true,
+          },
+        ],
+      },
+    }),
+  );
+  const detail = page.getByRole('complementary', { name: 'Campaign details' });
+  for (const width of [1440, 390]) {
+    await page.setViewportSize({ width, height: 900 });
+    await page.goto('/campaigns?tab=history');
+    const open = page.getByRole('button', { name: 'Open Autumn expedition', exact: true });
+    await open.click();
+    await expect(detail.getByRole('heading', { name: '2 claimed' })).toBeVisible();
+    await expect(detail.getByRole('heading', { name: 'Autumn expedition' })).toBeVisible();
+    await expect(detail.locator('.reward-detail')).toHaveCount(2);
+    await expect(detail.getByText('Canvas pack', { exact: true })).toHaveCount(1);
+    await expect(detail.getByText('Recorded jacket', { exact: true })).toHaveCount(1);
+    await expect(detail.getByText('Recorded bonus', { exact: true })).toBeVisible();
+    await expect(detail.getByText(/^Claimed /)).toBeVisible();
+    await expect(detail.getByText(/^First observed /)).toBeVisible();
+    await expect(detail.locator(`img[src="${artwork}"]`)).toBeVisible();
+    await expect(detail.getByRole('link')).toHaveCount(0);
+    await expect(detail.getByRole('progressbar')).toHaveCount(0);
+    await expect(detail).not.toContainText('Account linking');
+    await expect(detail).not.toContainText('Eligible channels');
+    await expect(detail).not.toContainText('Saved game order');
+    await expect(detail).not.toContainText('Trail companion');
+    await expect(detail).not.toContainText('Explorer jacket');
+    await expect(detail).not.toContainText('Requires these claims');
+    expect((await new AxeBuilder({ page }).analyze()).violations).toEqual([]);
+    await page.screenshot({ path: `../artifacts/history-detail-${width}.png`, fullPage: true });
+    await page.getByRole('button', { name: 'Close details' }).click();
+    await expect(open).toBeFocused();
+  }
+  await page.goto('/campaigns?tab=history&campaign=campaign-1&drop=reward-1');
+  await expect(page.locator('#history-drop-reward-1')).toHaveClass(/selected/);
+  await expect(page.locator('#drop-reward-1')).toHaveCount(0);
+  await page.goto('/campaigns?tab=history&campaign=campaign-1&drop=reward-2');
+  await expect(detail.getByRole('status')).toHaveText('No recorded claim for this reward.');
+  await expect(detail).not.toContainText('Trail companion');
+  await page.goto('/campaigns?tab=history&campaign=no-claims');
+  await expect(detail.getByText('No recorded claims for this campaign.')).toBeVisible();
+  await expect(detail.locator('.reward-detail')).toHaveCount(0);
+  await page.goto('/campaigns?campaign=campaign-1');
+  await expect(detail.getByRole('heading', { name: 'Live campaign renamed' })).toBeVisible();
+  await expect(detail.getByText('Account linking has not been confirmed.')).toBeVisible();
+  await expect(detail.getByRole('heading', { name: 'Trail companion' })).toBeVisible();
+  for (const drop of ['missing', 'reward-2']) {
+    await page.route('**/api/history', (route) => route.fulfill({ status: 500, json: {} }), {
+      times: 1,
+    });
+    const failed = page.waitForResponse('**/api/history');
+    await page.goto(`/campaigns?campaign=campaign-1&drop=${drop}`);
+    expect((await failed).status()).toBe(500);
+    if (drop === 'missing') {
+      await expect(detail.getByRole('alert')).toContainText('Could not load history. Try again.');
+      await expect(detail.getByRole('status')).toHaveCount(0);
+      await detail.getByRole('button', { name: 'Try again', exact: true }).click();
+      await expect(detail.getByRole('status')).toHaveText(
+        'This reward is no longer in the campaign.',
+      );
+    } else {
+      await expect(page.locator('#drop-reward-2')).toHaveClass(/selected/);
+      await expect(detail.getByRole('alert')).toHaveCount(0);
+    }
+  }
+});
+
+test('History details stay claims-only while loading, retry errors and clear recorded claims', async ({
+  page,
+  request,
+}) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  let finishLoad!: () => void;
+  const loading = new Promise<void>((resolve) => {
+    finishLoad = resolve;
+  });
+  await page.route(
+    '**/api/history',
+    async (route) => {
+      await loading;
+      await route.fulfill({ status: 500, json: {} });
+    },
+    { times: 1 },
+  );
+  const started = page.waitForRequest('**/api/history');
+  await page.goto('/campaigns?tab=history&campaign=campaign-1&drop=reward-1');
+  await started;
+  const detail = page.getByRole('complementary', { name: 'Campaign details' });
+  try {
+    await expect(detail).toBeVisible();
+    await expect(detail.locator('.reward-detail')).toHaveCount(0);
+    await expect(detail).not.toContainText('Game account linked');
+  } finally {
+    finishLoad();
+  }
+  await expect(detail.getByRole('alert')).toContainText('Could not load history. Try again.');
+  await expect(detail.getByText('No recorded claims for this campaign.')).toHaveCount(0);
+  expect((await new AxeBuilder({ page }).analyze()).violations).toEqual([]);
+  await page.screenshot({ path: '../artifacts/history-detail-error-phone.png', fullPage: true });
+  await detail.getByRole('button', { name: 'Try again', exact: true }).click();
+  await expect(detail.getByText('Canvas pack', { exact: true })).toBeVisible();
+  await expect(detail.getByRole('status')).toHaveText('No recorded claim for this reward.');
+  await page.route('**/api/history', (route) => route.fulfill({ status: 500, json: {} }), {
+    times: 1,
+  });
+  await request.post('/__test/event', {
+    headers,
+    data: {
+      event: 'inventory_batch_update',
+      data: { campaigns: [{ ...fixture.campaigns[0], claimed_drops: 1 }] },
+    },
+  });
+  await expect(detail.getByRole('alert')).toContainText('Could not load history. Try again.');
+  await expect(detail.getByText('Canvas pack', { exact: true })).toBeVisible();
+  await expect(detail.getByRole('status')).toHaveCount(0);
+  await detail.getByRole('button', { name: 'Try again', exact: true }).click();
+  await expect(detail.getByRole('status')).toHaveText('No recorded claim for this reward.');
+  expect((await request.post('/api/cache/clear', { headers, data: {} })).ok()).toBeTruthy();
+  await expect(detail.getByText('No recorded claims for this campaign.')).toBeVisible();
+  await expect(detail.locator('.reward-detail')).toHaveCount(0);
+});
+
+test('campaign panes fill desktop height and keep row hovers compact', async ({
+  page,
+  request,
+}) => {
+  const base = fixture.campaigns[0]!;
+  const campaigns = Array.from({ length: 30 }, (_, index) => ({
+    ...base,
+    id: `campaign-${index}`,
+    name: `Campaign ${String(index + 1).padStart(2, '0')}`,
+    game_name: `Game ${index + 1}`,
+    total_drops: index === 0 ? 1 : 12,
+    drops: Array.from({ length: index === 0 ? 1 : 12 }, (_, reward) => ({
+      ...base.drops[0]!,
+      id: `reward-${index}-${reward}`,
+      name: `Reward ${reward + 1}`,
+    })),
+  }));
+  await request.post('/__test/event', {
+    headers,
+    data: { event: 'inventory_batch_update', data: { campaigns } },
+  });
+  for (const viewport of [
+    { width: 1440, height: 900 },
+    { width: 1280, height: 480 },
+    { width: 1280, height: 360 },
+  ]) {
+    await page.setViewportSize(viewport);
+    await page.goto('/campaigns?view=list&sort=name');
+    const list = page.getByRole('region', { name: 'Campaigns', exact: true });
+    const first = page.getByRole('button', { name: 'Open Campaign 01', exact: true });
+    const search = page.getByRole('searchbox', { name: 'Search campaigns and rewards' });
+    await expect(first).toBeVisible();
+    await first.hover();
+    await expect(first).toHaveCSS('background-color', 'rgba(0, 0, 0, 0)');
+    await expect(first.locator('.campaign-detail-icon')).toHaveCSS('width', '28px');
+    await expect(first.locator('.campaign-detail-icon')).toHaveCSS(
+      'background-color',
+      'rgb(51, 51, 51)',
+    );
+    await first.focus();
+    await expect(first.locator('.campaign-title')).toHaveCSS('text-decoration-line', 'underline');
+    await first.click();
+    const detail = page.getByRole('complementary', { name: 'Campaign details' });
+    await expect(detail).toBeVisible();
+    const bounds = (await detail.boundingBox())!;
+    expect(bounds.y).toBe(28);
+    expect(bounds.height).toBe(viewport.height - 40);
+    const footer = (await page.getByRole('navigation', { name: 'Campaign pages' }).boundingBox())!;
+    expect(viewport.height - footer.y - footer.height).toBe(12);
+    await expect(first.locator('..')).toHaveCSS('background-color', 'rgba(0, 0, 0, 0)');
+    const mine = page.getByRole('button', { name: 'Mine Game 1', exact: true });
+    await mine.hover();
+    await expect(mine).toHaveCSS('background-color', 'rgb(51, 51, 51)');
+    await expect(mine.locator('..')).toHaveCSS('background-color', 'rgba(0, 0, 0, 0)');
+    await page.screenshot({
+      path: `../artifacts/campaign-pane-${viewport.width}-${viewport.height}.png`,
+    });
+    const searchTop = (await search.boundingBox())!.y;
+    const later = page.getByRole('button', { name: 'Open Campaign 20', exact: true });
+    await later.click();
+    const listTop = await list.evaluate((element) => element.scrollTop);
+    expect(listTop).toBeGreaterThan(0);
+    expect((await search.boundingBox())!.y).toBe(searchTop);
+    expect((await detail.boundingBox())!.height).toBe(bounds.height);
+    const body = detail.getByRole('region', { name: 'Campaign 20', exact: true });
+    await body.focus();
+    await body.press('End');
+    await expect.poll(() => body.evaluate((element) => element.scrollTop)).toBeGreaterThan(0);
+    await expect(
+      detail.getByRole('heading', { name: 'Campaign 20', exact: true }),
+    ).toBeInViewport();
+    expect(await list.evaluate((element) => element.scrollTop)).toBe(listTop);
+    expect(await page.evaluate(() => window.scrollY)).toBe(0);
+    expect(await page.evaluate(() => document.documentElement.scrollHeight)).toBe(viewport.height);
+    expect((await new AxeBuilder({ page }).analyze()).violations).toEqual([]);
+    await page.getByRole('button', { name: 'Close details' }).click();
+    await expect(later).toBeFocused();
+    expect(await list.evaluate((element) => element.scrollTop)).toBe(listTop);
+    await page.getByRole('button', { name: 'Filters', exact: true }).click();
+    await expect(page.getByRole('button', { name: 'Clear filters', exact: true })).toBeVisible();
+    await page.getByRole('button', { name: 'Next page', exact: true }).click();
+    await expect(page.getByRole('button', { name: 'Open Campaign 30', exact: true })).toBeVisible();
+    expect(await page.evaluate(() => window.scrollY)).toBe(0);
+    expect(await page.evaluate(() => document.documentElement.scrollHeight)).toBe(viewport.height);
+  }
+  await page.goto('/campaigns?tab=history&view=list');
+  const history = page.getByRole('button', { name: 'Open Autumn expedition', exact: true });
+  await history.hover();
+  await expect(history).toHaveCSS('background-color', 'rgba(0, 0, 0, 0)');
+  await expect(history.locator('.campaign-detail-icon')).toHaveCSS('width', '28px');
+  await history.click();
+  await expect(page.getByRole('complementary', { name: 'Campaign details' })).toHaveCSS(
+    'height',
+    '320px',
+  );
+});
+
+for (const view of ['grid', 'list']) {
+  test(`campaign ${view} restores its position after details and offline filters remain accessible`, async ({
+    page,
+    request,
+  }) => {
+    const campaigns = Array.from({ length: 30 }, (_, index) => ({
+      ...fixture.campaigns[0]!,
+      id: `long-${index}`,
+      name: `Campaign ${String(index + 1).padStart(2, '0')} with a long title that wraps across several lines when viewing the campaign details`,
+      game_name: `Game ${index + 1}`,
+    }));
+    await request.post('/__test/event', {
+      headers,
+      data: { event: 'inventory_batch_update', data: { campaigns } },
+    });
+    await page.setViewportSize({ width: 1440, height: 900 });
+    await page.goto(`/campaigns?view=${view}&sort=name`);
+    // Selection and return position must not depend on native scroll anchoring.
+    await page.addStyleTag({ content: '.campaign-results { overflow-anchor: none; }' });
+    const list = page.getByRole('region', { name: 'Campaigns', exact: true });
+    const target = page.getByRole('button', { name: `Open ${campaigns[14]!.name}`, exact: true });
+    await target.scrollIntoViewIfNeeded();
+    const before = await list.evaluate((element) => element.scrollTop);
+    await target.click();
+    await expect(target).toBeInViewport({ ratio: 0.99 });
+    await page.getByRole('button', { name: 'Close details' }).click();
+    await expect(target).toBeFocused();
+    expect(await list.evaluate((element) => element.scrollTop)).toBeCloseTo(before, 0);
+    await target.click();
+    const next = page.getByRole('button', { name: `Open ${campaigns[11]!.name}`, exact: true });
+    await next.evaluate((element) => element.scrollIntoView({ block: 'start' }));
+    await next.click();
+    await page.getByRole('button', { name: 'Close details' }).click();
+    await expect(next).toBeFocused();
+    await expect(next).toBeInViewport({ ratio: 0.99 });
+    await next.click();
+    await page.getByRole('button', { name: 'Change campaign layout', exact: true }).click();
+    await expect(next).toBeInViewport({ ratio: 0.99 });
+    await page.getByRole('button', { name: 'Close details' }).click();
+    await expect(next).toBeFocused();
+    await expect(next).toBeInViewport({ ratio: 0.99 });
+    await page.setViewportSize({ width: 1280, height: 360 });
+    await page.getByRole('button', { name: 'Filters', exact: true }).click();
+    await page.context().setOffline(true);
+    try {
+      await request.post('/__test/reconnect', { headers, data: {} });
+      await expect(page.getByRole('checkbox').first()).toBeDisabled();
+      const games = page.getByRole('group', { name: 'Game', exact: true });
+      await games.focus();
+      await games.press('End');
+      await expect.poll(() => games.evaluate((element) => element.scrollTop)).toBeGreaterThan(0);
+      expect((await new AxeBuilder({ page }).analyze()).violations).toEqual([]);
+      expect(await page.evaluate(() => document.documentElement.scrollHeight)).toBe(360);
+    } finally {
+      await page.context().setOffline(false);
+    }
+  });
+}
+
+test('switching details closes back to the list and live updates preserve reward scroll', async ({
+  page,
+  request,
+}) => {
+  await page.setViewportSize({ width: 1440, height: 800 });
+  const first = fixture.campaigns[0]!;
+  const second = {
+    ...first,
+    id: 'second',
+    name: 'Second campaign',
+    priority: { reason: 'ending_soonest', deadline: first.ends_at, target_ids: ['second-10'] },
+    drops: Array.from({ length: 12 }, (_, index) => ({
+      ...first.drops[0]!,
+      id: `second-${index}`,
+      name: `Reward ${index}`,
+    })),
+  };
+  await request.post('/__test/event', {
+    headers,
+    data: { event: 'inventory_batch_update', data: { campaigns: [first, second] } },
+  });
+  await page.goto('/campaigns?view=list');
+  await page.getByRole('button', { name: 'Open Autumn expedition', exact: true }).click();
+  await page.getByRole('button', { name: 'Open Second campaign', exact: true }).click();
+  await expect(page.getByText('Prioritizing', { exact: true })).toBeVisible();
+  await page.getByRole('button', { name: 'Reward 10', exact: true }).click();
+  await expect(page).toHaveURL(/drop=second-10/);
+  await page.getByRole('button', { name: 'Close details' }).click();
+  await expect(page.getByRole('complementary', { name: 'Campaign details' })).toHaveCount(0);
+  await expect(
+    page.getByRole('button', { name: 'Open Second campaign', exact: true }),
+  ).toBeFocused();
+  await page.goto('/campaigns?campaign=second&drop=second-10');
+  const body = page.locator('.detail-body');
+  await expect(page.locator('#drop-second-10')).toHaveClass(/selected/);
+  await expect.poll(() => body.evaluate((element) => element.scrollTop)).toBeGreaterThan(0);
+  await body.evaluate((element) => {
+    element.scrollTop = 0;
+  });
+  await request.post('/__test/event', {
+    headers,
+    data: { event: 'channel_update', data: { ...fixture.channels[0], viewers: 999 } },
+  });
+  await expect.poll(() => body.evaluate((element) => element.scrollTop)).toBe(0);
+});
+
+test('history-only reward links resolve and stale responses cannot restore a cleared claim', async ({
+  page,
+  request,
+}) => {
+  const saved = await (await request.get('/api/history')).json();
+  await request.post('/__test/event', {
+    headers,
+    data: { event: 'inventory_batch_update', data: { campaigns: [] } },
+  });
+  await page.goto('/campaigns?tab=history&campaign=campaign-1&drop=past-drop');
+  await expect(page.locator('#history-drop-past-drop')).toHaveClass(/selected/);
+  await page.goto('/campaigns?tab=history&campaign=campaign-1&drop=missing');
+  await expect(page.getByRole('status')).toContainText('No recorded claim for this reward.');
+  await page.getByRole('button', { name: 'Close details' }).click();
+  await expect(
+    page.getByRole('button', { name: 'Open Autumn expedition', exact: true }),
+  ).toBeVisible();
+  await page.route('**/api/history', (route) => route.fulfill({ json: saved }));
+  expect((await request.post('/api/cache/clear', { headers, data: {} })).ok()).toBeTruthy();
+  await expect(
+    page.getByRole('button', { name: 'Open Autumn expedition', exact: true }),
+  ).toHaveCount(0);
+});
+
+test('reload restores a nested draft for review without overwriting unrelated settings', async ({
+  page,
+  request,
+}) => {
+  await page.goto('/?edit=priorities');
+  const before = await (await request.get('/api/settings')).json();
+  await page.evaluate(
+    (revision) =>
+      sessionStorage.setItem(
+        'tdm.settings-draft',
+        JSON.stringify({
+          revision,
+          expires: Date.now() + 600000,
+          changes: { mining_benefits: { BADGE: false }, inventory_filters: { show_active: false } },
+        }),
+      ),
+    before.revision,
+  );
+  await page.reload();
+  await expect(page.getByRole('alert')).toContainText('Your unsaved edits were restored');
+  await expect(page.getByRole('checkbox', { name: 'Badge', exact: true })).not.toBeChecked();
+  await page.getByRole('button', { name: 'Try again', exact: true }).click();
+  await expect
+    .poll(async () => (await (await request.get('/api/settings')).json()).mining_benefits.BADGE)
+    .toBe(false);
+  const saved = await (await request.get('/api/settings')).json();
+  expect(saved.inventory_filters.show_active).toBe(false);
+  expect(saved.inventory_filters.show_upcoming).toBe(before.inventory_filters.show_upcoming);
+  expect(saved.mining_benefits.EMOTE).toBe(before.mining_benefits.EMOTE);
+  expect(await page.evaluate(() => sessionStorage.getItem('tdm.settings-draft'))).toBeNull();
+});

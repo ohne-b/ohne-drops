@@ -5,6 +5,7 @@ use std::{
 
 use serde::Serialize;
 use socketioxide::{SocketIo, extract::SocketRef};
+use tokio::sync::Notify;
 use tokio_util::{sync::CancellationToken, task::TaskTracker};
 
 use crate::auth::{SESSION_SECONDS, WebAuth, token_from_headers, unix_now};
@@ -15,6 +16,8 @@ use super::{App, Command};
 struct SocketSession {
     token: String,
     cancelled: CancellationToken,
+    resync: Arc<Notify>,
+    versioned: bool,
 }
 
 pub struct SocketHub {
@@ -48,6 +51,24 @@ impl SocketHub {
     }
 
     async fn connected(&self, socket: SocketRef, app: &Arc<App>) {
+        let protocol = url::form_urlencoded::parse(
+            socket
+                .req_parts()
+                .uri
+                .query()
+                .unwrap_or_default()
+                .as_bytes(),
+        )
+        .find_map(|(key, value)| (key == "protocol").then(|| value.into_owned()));
+        if protocol.as_deref().is_some_and(|value| value != "2") {
+            let _ = socket.emit("protocol_mismatch", &serde_json::json!({"protocol":2}));
+            let _ = socket.disconnect();
+            return;
+        }
+        let versioned = protocol.is_some();
+        let mut changes = app.snapshot.subscribe();
+        let mut notifications = app.notifications.subscribe();
+        let initial = app.snapshot.read().await.clone();
         let token = token_from_headers(&socket.req_parts().headers);
         let state = self.auth.state.lock().await;
         let now = unix_now();
@@ -56,9 +77,12 @@ impl SocketHub {
             return;
         }
         let cancelled = app.shutdown.child_token();
+        let resync = Arc::new(Notify::new());
         socket.extensions.insert(SocketSession {
             token: token.clone(),
             cancelled: cancelled.clone(),
+            resync: resync.clone(),
+            versioned,
         });
         socket.on_disconnect(async |socket: SocketRef| {
             if let Some(session) = socket.extensions.remove::<SocketSession>() {
@@ -69,18 +93,70 @@ impl SocketHub {
             let remaining = expiry_delay(state.expires_at(&token).unwrap_or(now), now);
             let expiring = socket.clone();
             self.tasks
-                .spawn(expire_after(remaining, cancelled, move || {
+                .spawn(expire_after(remaining, cancelled.clone(), move || {
                     let _ = expiring.disconnect();
                 }));
         }
         // Hold the auth policy through emission so enabling protection cannot race
         // an anonymous initial snapshot. No state writer holds a lock while emitting.
-        let snapshot = app.snapshot.read().await;
-        if socket.emit("initial_state", &*snapshot).is_err() {
+        if socket
+            .emit(
+                if versioned {
+                    "state_snapshot"
+                } else {
+                    "initial_state"
+                },
+                &initial,
+            )
+            .is_err()
+        {
             let _ = socket.clone().disconnect();
         }
-        drop(snapshot);
         drop(state);
+        socket.on("state_resync", async |socket: SocketRef| {
+            if let Some(session) = socket.extensions.get::<SocketSession>() {
+                session.resync.notify_one();
+            }
+        });
+        let weak = Arc::downgrade(app);
+        let outgoing = socket.clone();
+        self.tasks.spawn(async move {
+            let mut previous = initial;
+            loop {
+                let force = tokio::select! {
+                    biased;
+                    _ = cancelled.cancelled() => break,
+                    _ = resync.notified() => true,
+                    result = changes.changed() => { if result.is_err() { break; } false },
+                    result = notifications.recv() => {
+                        if matches!(result, Err(tokio::sync::broadcast::error::RecvError::Closed)) { break; }
+                        if let Ok(value) = result {
+                            let Some(app) = weak.upgrade() else { break };
+                            let auth = app.auth.state.lock().await;
+                            if !Self::allowed(&outgoing, &auth) || outgoing.emit("notification", &value).is_err() {
+                                let _ = outgoing.clone().disconnect(); break;
+                            }
+                        }
+                        continue;
+                    }
+                };
+                let Some(app) = weak.upgrade() else { break };
+                let next = app.snapshot.read().await.clone();
+                if !force && next.revision <= previous.revision { continue; }
+                let patch = crate::app::projection::StatePatch::between(&previous, &next);
+                let auth = app.auth.state.lock().await;
+                if !Self::allowed(&outgoing, &auth) { let _ = outgoing.clone().disconnect(); break; }
+                let sent = if force {
+                    outgoing.emit(if versioned { "state_snapshot" } else { "initial_state" }, &next).is_ok()
+                } else if versioned {
+                    outgoing.emit("state_patch", &patch).is_ok()
+                } else {
+                    legacy_patch(&outgoing, &previous, &next)
+                };
+                if !sent { let _ = outgoing.clone().disconnect(); break; }
+                previous = next;
+            }
+        });
         for (event, command) in [
             ("request_reload", Command::Refresh { clear_cache: false }),
             ("request_login", Command::ConfirmOAuth),
@@ -101,10 +177,10 @@ impl SocketHub {
         let weak = Arc::downgrade(app);
         socket.on("get_wanted_items", async move |socket: SocketRef| {
             if let Some(app) = weak.upgrade() {
+                let wanted_items = app.snapshot.read().await.wanted_items.clone();
                 let auth = app.auth.state.lock().await;
                 if Self::allowed(&socket, &auth) {
-                    let snapshot = app.snapshot.read().await;
-                    let _ = socket.emit("wanted_items_update", &snapshot.wanted_items);
+                    let _ = socket.emit("wanted_items_update", &wanted_items);
                 } else {
                     let _ = socket.disconnect();
                 }
@@ -134,7 +210,12 @@ impl SocketHub {
         if let Some(io) = self.io.get() {
             for socket in io.sockets() {
                 if Self::allowed(&socket, &state) {
-                    if socket.emit(event, data).is_err() {
+                    if socket
+                        .extensions
+                        .get::<SocketSession>()
+                        .is_some_and(|session| !session.versioned)
+                        && socket.emit(event, data).is_err()
+                    {
                         let _ = socket.disconnect();
                     }
                 } else {
@@ -163,6 +244,71 @@ impl SocketHub {
             io.close().await;
         }
     }
+}
+
+fn legacy_patch(
+    socket: &SocketRef,
+    previous: &crate::dto::Snapshot,
+    next: &crate::dto::Snapshot,
+) -> bool {
+    use serde_json::json;
+    macro_rules! emit {
+        ($event:expr, $value:expr) => {
+            if socket.emit($event, &$value).is_err() {
+                return false;
+            }
+        };
+    }
+    if previous.channels != next.channels {
+        emit!("channels_batch_update", json!({"channels": next.channels}));
+    }
+    if previous.campaigns != next.campaigns {
+        emit!(
+            "inventory_batch_update",
+            json!({"campaigns": next.campaigns})
+        );
+    }
+    if previous.settings != next.settings {
+        emit!("settings_updated", next.settings);
+    }
+    if previous.login != next.login {
+        emit!("login_status", next.login);
+    }
+    if previous.status != next.status {
+        emit!("status_update", json!({"status":next.status}));
+    }
+    if previous.manual_mode != next.manual_mode {
+        emit!("manual_mode_update", next.manual_mode);
+    }
+    if previous.wanted_items != next.wanted_items {
+        emit!("wanted_items_update", next.wanted_items);
+    }
+    if previous.inventory_status != next.inventory_status {
+        emit!("inventory_status", next.inventory_status);
+    }
+    if previous.inventory_refresh != next.inventory_refresh {
+        emit!("inventory_refresh", next.inventory_refresh);
+    }
+    if previous.history_clear_revision != next.history_clear_revision {
+        emit!("history_cleared", json!({}));
+    }
+    if previous.current_drop != next.current_drop {
+        if let Some(progress) = &next.current_drop {
+            emit!("drop_progress", progress);
+        } else {
+            emit!("drop_progress_stop", json!({}));
+        }
+    }
+    if previous.console != next.console {
+        for line in next
+            .console
+            .iter()
+            .filter(|line| !previous.console.contains(line))
+        {
+            emit!("console_output", json!({"message":line}));
+        }
+    }
+    true
 }
 
 fn expiry_delay(expires_at: f64, now: f64) -> Duration {

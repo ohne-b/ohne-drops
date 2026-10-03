@@ -4,6 +4,12 @@ export interface Benefit {
   image_url: string;
 }
 export interface Drop {
+  eligibility?: Eligibility;
+  prerequisites?: string[];
+  effective_starts_at?: string | null;
+  effective_ends_at?: string | null;
+  priority_deadline?: string | null;
+  confirmed_at?: string | null;
   id: string;
   name: string;
   current_minutes: number;
@@ -23,6 +29,11 @@ export interface Drop {
   ends_at: string;
 }
 export interface Campaign {
+  game_key?: string;
+  selected?: boolean;
+  saved_rank?: number | null;
+  priority?: PriorityContext;
+  allowed_channels?: { login: string; name: string }[];
   id: string;
   name: string;
   game_name: string;
@@ -75,6 +86,7 @@ export interface Settings {
   auto_mine_badges: boolean;
   auto_mine_emotes: boolean;
   games_available: string[];
+  game_keys?: Record<string, string>;
   drop_name_blacklist: string[];
   proxy: string;
   connection_quality: number;
@@ -106,14 +118,27 @@ export interface Progress {
   remaining_seconds: number;
 }
 export interface WantedGame {
+  game_key?: string;
+  saved_rank?: number | null;
   game_name: string;
   game_icon?: string;
   game_id?: number;
   campaigns: {
+    priority?: PriorityContext;
     id: string;
     name: string;
     url: string;
-    drops: { name: string; benefits: string[]; image_url?: string }[];
+    drops: {
+      id?: string;
+      name: string;
+      benefits: string[];
+      image_url?: string;
+      eligibility?: Eligibility;
+      starts_at?: string;
+      ends_at?: string;
+      prerequisites?: string[];
+      priority_deadline?: string | null;
+    }[];
   }[];
 }
 export interface ManualMode {
@@ -135,6 +160,30 @@ export interface InventoryRefresh {
   error: string | null;
 }
 export interface Snapshot {
+  mining?: {
+    state:
+      | 'unknown'
+      | 'account_required'
+      | 'no_selection'
+      | 'discovering'
+      | 'watching'
+      | 'awaiting_claim'
+      | 'awaiting_progress'
+      | 'waiting_channel'
+      | 'no_rewards'
+      | 'manual_offline'
+      | 'manual_watching';
+    channel_id: number | null;
+    campaign_id: string | null;
+    drop_id: string | null;
+    priority: PriorityContext;
+  };
+  protocol: number;
+  instance: string;
+  revision: number;
+  history_revision: number;
+  history_clear_revision: number;
+  activity: ActivityEvent[];
   status: string;
   channels: Channel[];
   campaigns: Campaign[];
@@ -169,6 +218,9 @@ export interface Result {
   message?: string;
 }
 export interface ServerEvents {
+  state_snapshot: (data: Snapshot) => void;
+  state_patch: (data: StatePatch) => void;
+  protocol_mismatch: (data: { protocol: number }) => void;
   initial_state: (data: Snapshot) => void;
   status_update: (data: { status: string }) => void;
   console_output: (data: { message: string }) => void;
@@ -210,4 +262,43 @@ export interface ReleaseInfo {
   update_available: boolean;
   check_succeeded: boolean;
   download_url: string;
+}
+export type Eligibility =
+  | 'unknown'
+  | 'ready'
+  | 'claimed'
+  | 'awaiting_claim'
+  | 'upcoming'
+  | 'expired'
+  | 'ignored'
+  | 'prerequisite'
+  | 'filtered'
+  | 'unselected'
+  | 'awaiting_confirmation';
+export interface PriorityContext {
+  reason: 'saved_order' | 'short_event' | 'ending_soonest' | 'automatic_reward' | 'not_selected';
+  deadline: string | null;
+  target_ids: string[];
+}
+export interface ActivityEvent {
+  id: number;
+  first_at: string;
+  last_at: string;
+  category: 'account' | 'mining' | 'inventory' | 'claims' | 'connection';
+  severity: 'info' | 'warning' | 'error';
+  code: string;
+  args: Record<string, string>;
+  message: string;
+  campaign_id: string | null;
+  drop_id: string | null;
+  channel_id: number | null;
+  count: number;
+  recovered: boolean;
+}
+export interface StatePatch {
+  protocol: number;
+  instance: string;
+  base_revision: number;
+  revision: number;
+  changes: Partial<Omit<Snapshot, 'protocol' | 'instance' | 'revision'>>;
 }

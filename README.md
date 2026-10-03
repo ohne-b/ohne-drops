@@ -14,7 +14,7 @@ Twitch Drops Miner runs on your own hardware and manages one Twitch account thro
 web dashboard. It discovers campaigns, watches eligible live channels through Twitch
 watch events, and claims earned rewards. The Rust executable includes the React dashboard.
 
-![Drops Miner dashboard showing mining progress, live channels and upcoming rewards](.github/assets/dashboard-overview.webp)
+![Drops Miner workspace with confirmed progress, live channels and the reward queue](.github/assets/dashboard-mining.png)
 
 > [!NOTE]
 > This is a hobby project for personal use on your own hardware and home network.
@@ -147,11 +147,11 @@ Use `--help` for host, port, data directory, and log directory options.
    [Twitch Drops campaigns](https://www.twitch.tv/drops/campaigns).
 3. In **Campaigns**, select **Mine** on a campaign. This selects its game across all
    eligible campaigns. Add more games the same way.
-4. Reorder **Settings > Game priorities** and leave the miner running. It selects an
+4. Reorder **Mining > Edit > Game priorities** and leave the miner running. It selects an
    eligible live channel and claims rewards when Twitch makes them available.
 
 > [!IMPORTANT]
-> Automatic mining watches selected games first. In **Settings > Mining**, opt into
+> Automatic mining watches selected games first. In **Mining > Edit**, opt into
 > **Automatically mine reward types** to also mine badges or emotes from other games.
 > Both options default off. With an empty game list and both options off, automatic
 > watching pauses. Discovery never changes your game list. An explicit **Mine channel** request
@@ -200,7 +200,7 @@ Notification dismissal failures appear in Activity without postponing watch sche
 
 ## Using the dashboard
 
-**Overview > Channels** shows live streams currently eligible for your selected games and
+**Mining > Channels** shows live streams currently eligible for your selected games and
 rewards, plus your manually selected channel. Special-event campaigns can include other
 categories when their actual channel restriction allows it. Channel changes pause watching
 until fresh stream information is available.
@@ -218,7 +218,7 @@ blank to watch until **Return to Auto Mode**. If the channel goes offline, manua
 waits for it to return; the timer continues. Logout, cache clearing or a process restart
 also ends manual mode. Automatic selection resumes using your saved games and filters.
 
-**Refresh inventory** in Overview and Maintenance is an icon-only button. Its refresh icon
+**Refresh inventory** in Mining and Campaigns is an icon-only button. Its refresh icon
 spins until the refreshed data is published, then briefly becomes a tick. An error icon
 offers retry after failure. The tooltip and accessible name describe the current state;
 error details or the public catalog update time are available in the tooltip and accessible
@@ -226,23 +226,65 @@ description. Screen readers also receive status changes. Repeated requests share
 refresh; reconnecting the dashboard keeps its current status. The button stays the same size
 throughout, and reduced-motion preferences disable spinning.
 
-| Page                     | What it shows                                                                             |
-| ------------------------ | ----------------------------------------------------------------------------------------- |
-| **Overview**             | Mining progress, live channels, and the **Up next** reward queue.                         |
-| **Campaigns**            | Available campaigns, eligibility, filters, and **Mine / Stop mining** controls.           |
-| **Campaigns > History** | Recorded claims grouped by campaign, including older rewards no longer in the catalog. |
-| **Activity**             | Mining messages and errors.                                                               |
-| **Settings**             | Twitch login, game priorities, mining preferences, connection, password, and maintenance. |
+| Page | What it shows |
+| --- | --- |
+| **Mining** | Confirmed progress, live channels, Up next, and a separate **Edit** view for mining preferences. |
+| **Campaigns** | Searchable campaign summaries, eligibility, detailed rewards and game-wide Mine controls. |
+| **Campaigns > History** | Recorded claims grouped by campaign, including rewards no longer in the catalog. |
+| **Activity** | Searchable session events, categories, warnings, repeated failures and recovery. |
+| **Settings** | Twitch account, dashboard access, connection and maintenance. |
+
+**Up next > Edit** opens Mining preferences in place of the overview. The back arrow returns
+to Mining; edits continue to autosave. On desktop, the game list scrolls independently while
+search, priority controls and the settings beside it stay in place. Short windows give the
+settings column its own scrolling when needed; if an error or reconnect notice leaves too
+little space, the games column can scroll too, keeping its controls reachable and the page fixed.
+Game search results appear directly below the search field, above the priority explanation.
+Settings tabs share the same content starting position, without repeated section headings
+or trailing separator lines. The Twitch account tab keeps its status and logout control;
+the sidebar footer has no divider above GitHub.
+
+Open a campaign or reward to inspect its dates, prerequisites, account linkage and confirmed
+progress. On wide screens, details fill the available height beside the list, even for a
+single reward. The campaign list has a small gap before its scrollbar. The list and detail body
+scroll independently, with the detail heading always visible. In short windows, the left column
+can also scroll to keep filters reachable. Opening desktop details keeps the selected campaign
+in view as the list narrows, including after changing between grid and list layouts.
+Details fill the page on smaller screens. Campaign dates appear once above the rewards;
+individual rewards show dates only when their effective window differs from the campaign.
+Campaign rows use a small side-panel icon hover without a selection stripe;
+the Mine icon keeps its own circular hover.
+Close or press Escape to return to the same list position and filters. Campaign and drop links
+can be bookmarked; old or unavailable IDs show an explicit missing-record state.
+
+Search, filters, sorting, layout and pagination stay in the Campaigns URL. Opening a shared
+link does not change saved preferences. Available and History each show 25 campaign groups
+per page. Unknown progress remains unknown until Twitch supplies evidence.
+History loads without a loading caption; request errors still offer Retry.
+
+Activity keeps the latest 1,000 events for the current process. Filter by category or severity,
+search messages, or use the down arrow to follow new events. Repeated adjacent failures share
+one row with a count; category labels stay in the filter rather than beneath each event.
+Row separators are inset from the edges of the Activity panel. Adjacent repeated events also
+avoid duplicate lines in the server log.
+Recovery requires a matching successful operation. Campaign-related
+events link to their reward details. Server diagnostics remain in the log files.
+
+The dashboard disables commands while reconnecting and resumes them after receiving a
+complete snapshot. Unsaved edits remain separate from live updates. If a dashboard update
+requires reload, the reload button keeps a temporary draft in this browser tab for up to ten
+minutes; review restored edits and use Retry to save them.
 
 ### Games, filters, and ignored rewards
 
-Campaigns shows its filtered count beside the page title. Open **Filters** for
+Campaigns opens with **Available** and **History** icon tabs styled like Settings,
+with the filtered count and refresh control in the same header. Open **Filters** for
 **All games** and **Clear filters**. The sort control offers **Default** (active campaigns
 with confirmed progress first), **Newest** (latest campaign start), **Ending Soonest**,
 **Most Drops** (total drops), and **A-Z** (campaign name). Sorting stays in the page URL
 through searches, tab changes and reloads; it does not change mining priorities.
 Icon-only actions have circular hover backgrounds. Search-clear actions stay inset
-inside the field, and game-priority drag grips remain plain six-dot handles.
+inside the field, and game-priority drag grips remain visible as plain six-dot handles.
 
 In **Game priorities**, drag games into order or focus a drag handle and use the arrow
 keys. The Priority High icon beside **Add Game** opens **Mining priority**:
@@ -275,7 +317,7 @@ existing progress appear first. Completed campaigns leave Available only when al
 are claimed; expiry alone does not count as completion. History lists recorded claims even
 when their campaigns still have unclaimed rewards.
 
-The **Mining** card prefers current Twitch-reported reward progress. Confirmed watch
+The **Now mining** card prefers current Twitch-reported reward progress. Confirmed watch
 completion releases automatic watching of that reward and prompts inventory reconciliation.
 Automatic checks for missing claim evidence are coalesced to at most once per minute,
 without pausing watch events. Estimates never prove a claim. Twitch must confirm it before
@@ -321,13 +363,17 @@ matching campaign/drop metadata; rewards no longer available from either invento
 the catalog cannot be reconstructed. Public catalog entries alone never prove a claim.
 Twitch award times are used when available; otherwise **First observed** labels the time
 when the miner first recorded the confirmed claim, in your browser's timezone.
+History details show the recorded rewards, benefits, artwork and claim or first-observed
+timestamps. Live account linking, mining eligibility and unfinished rewards stay in Available.
+If a historical link has no matching claim, the panel says so; failed history requests offer Retry.
 
 Open **Campaigns > History** to search campaign, game, reward or benefit names, filter by game,
 and switch between list and grid layouts. The shared icon-only sort menu offers the same
 choices as Available. History defaults to the most recently recorded claim, **Most Drops**
 counts recorded claims, and date sorts use campaign dates when available (older entries
 without dates come last). Claims are grouped by campaign, with 25 campaigns per page.
-Use the left/right chevrons beside the page count to navigate; unavailable directions are disabled.
+Use the left/right chevrons beside the page count just below the results to navigate;
+unavailable directions are disabled. The desktop workspace leaves a compact margin below them.
 The former `/history` link redirects here. History has no export or separate clear action.
 
 Docker stores application data in `/app/data` and logs in `/app/logs`, mounted to the
@@ -342,7 +388,7 @@ inventory imports and interrupted claims cannot restore deleted history. This ca
 
 ## Dashboard password and remote access
 
-Password protection is off by default. In **Settings > Dashboard password**, enter and
+Password protection is off by default. In **Settings > Dashboard access**, enter and
 confirm a password, then enable protection. It protects the dashboard, application API,
 and live connections. Mining continues while the dashboard is locked.
 

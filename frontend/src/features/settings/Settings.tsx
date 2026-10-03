@@ -1,59 +1,64 @@
 import { Icon } from '@mdi/react';
+import { useLocation } from 'react-router';
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 import {
-  mdiPlus,
   mdiOpenInNew,
   mdiLogout,
   mdiContentCopy,
   mdiCheck,
-  mdiReload,
   mdiUpdate,
-  mdiPriorityHigh,
+  mdiAccountOutline,
+  mdiShieldLockOutline,
+  mdiLanConnect,
+  mdiWrenchOutline,
 } from '@mdi/js';
-import type { AuthStatus, ReleaseInfo, Result, Settings as SettingsData } from '../lib/types';
-import { request, safeUrl } from '../lib/api';
-import { useMiner } from '../lib/state';
-import { GamePriorities } from '../components/GamePriorities';
-import { InventoryRefreshButton } from '../components/InventoryRefreshButton';
-import { plainText, useT } from '../lib/i18n';
+import type {
+  AuthStatus,
+  ReleaseInfo,
+  Result,
+  Settings as SettingsData,
+} from '../../shared/lib/types';
+import { request, safeUrl } from '../../shared/lib/api';
+import { useMiner } from '../../app/MinerProvider';
+import { plainText, useT } from '../../shared/lib/i18n';
 import {
   ActionResult,
   Button,
-  Check,
   Dialog,
   Empty,
   Field,
   IconButton,
   Input,
   Notice,
-  Search,
   useAction,
-} from '../components/ui';
+} from '../../shared/ui/index';
 function Section({
   id,
-  title,
-  action,
   help,
   children,
+  hidden = false,
 }: {
   id: string;
-  title: ReactNode;
-  action?: ReactNode;
   help?: string;
   children: ReactNode;
+  hidden?: boolean;
 }) {
   return (
-    <section id={id} className="scroll-mt-6 border-b border-divider pb-8 last:border-0">
-      <div className="mb-1 flex items-center gap-2">
-        <h2 className="min-w-0 text-base font-semibold">{title}</h2>
-        {action}
-      </div>
-      {help && <p className="mb-5 max-w-2xl text-[13px] leading-relaxed text-muted">{help}</p>}
-      <div className="mt-5 space-y-4">{children}</div>
+    <section id={id} hidden={hidden} className="scroll-mt-6 space-y-5 pb-8">
+      {help && <p className="max-w-2xl text-[13px] leading-relaxed text-muted">{help}</p>}
+      <div className="space-y-4">{children}</div>
     </section>
   );
 }
-function Access({ initial, disabled }: { initial: AuthStatus; disabled: boolean }) {
+function Access({
+  initial,
+  disabled,
+  hidden,
+}: {
+  initial: AuthStatus;
+  disabled: boolean;
+  hidden: boolean;
+}) {
   const t = useT();
   const [auth, setAuth] = useState(initial);
   useEffect(() => setAuth(initial), [initial]);
@@ -79,7 +84,7 @@ function Access({ initial, disabled }: { initial: AuthStatus; disabled: boolean 
     });
   }
   return (
-    <Section id="access" title={t('gui.auth.title')} help={t('gui.auth.help')}>
+    <Section hidden={hidden} id="access" help={t('gui.auth.help')}>
       <p className="muted">{t(auth.enabled ? 'gui.auth.enabled' : 'gui.auth.disabled')}</p>
       {disabled && <Notice>{t('save_first')}</Notice>}
       <form
@@ -233,13 +238,10 @@ function SettingsContent({ settings, auth }: { settings: SettingsData; auth: Aut
   const { data, connected, autosave } = useMiner();
   const t = useT();
   const draft = autosave.draft ?? settings;
-  const [ignoredText, setIgnoredText] = useState(draft.drop_name_blacklist.join('\n'));
-  const [editingIgnored, setEditingIgnored] = useState(false);
-  useEffect(() => {
-    if (!editingIgnored) setIgnoredText(draft.drop_name_blacklist.join('\n'));
-  }, [draft.drop_name_blacklist, editingIgnored]);
-  const [search, setSearch] = useState('');
-  const [gameError, setGameError] = useState('');
+  const location = useLocation();
+  const section =
+    ['account', 'access', 'connection', 'maintenance'].find((id) => `#${id}` === location.hash) ??
+    'account';
   const [confirmation, setConfirmation] = useState<{
     title: string;
     text: string;
@@ -276,50 +278,13 @@ function SettingsContent({ settings, auth }: { settings: SettingsData; auth: Aut
   }
   const dirty = autosave.pending || autosave.busy;
   const change = autosave.change;
-  function addGame(name: string) {
-    change('games_to_watch', (games) =>
-      games.some((game) => game.toLowerCase() === name.toLowerCase()) ? games : [...games, name],
-    );
-    setSearch('');
-    setGameError('');
-  }
-  function resolveGame() {
-    const name = search.trim();
-    if (!name) return;
-    const games = settings.games_available ?? [];
-    const exact = games.find((item) => item.toLocaleLowerCase() === name.toLocaleLowerCase());
-    const matches = games.filter((item) =>
-      item.toLocaleLowerCase().includes(name.toLocaleLowerCase()),
-    );
-    const selected = exact ?? (matches.length === 1 ? matches[0] : undefined);
-    if (selected) {
-      if (!draft.games_to_watch.includes(selected)) addGame(selected);
-      return;
-    }
-    if (matches.length > 1) {
-      setGameError(t('gui.settings.multiple_games_found'));
-      return;
-    }
-    setConfirmation({
-      title: t('gui.settings.add_game'),
-      text: t('gui.settings.manual_game_warning', { game: name }),
-      action: async () => {
-        addGame(name);
-      },
-    });
-  }
-  const available = (settings.games_available ?? []).filter(
-    (game) =>
-      !draft.games_to_watch.includes(game) &&
-      game.toLocaleLowerCase().includes(search.toLocaleLowerCase()),
-  );
   const oauth = data?.login.oauth_pending;
   async function test(path: string, payload: unknown) {
     const result = await request<Result>(path, payload);
     if (!result.success) throw new Error(result.message);
   }
   return (
-    <div className="max-w-4xl space-y-8">
+    <div className="flex max-w-4xl flex-col gap-8">
       <div>
         <h1 className="text-[22px] font-semibold">{t('gui.tabs.settings')}</h1>
       </div>
@@ -327,31 +292,37 @@ function SettingsContent({ settings, auth }: { settings: SettingsData; auth: Aut
         aria-label={t('settings_sections')}
         className="flex flex-wrap gap-x-5 gap-y-2 text-[13px] text-muted"
       >
-        {['account', 'mining', 'connection', 'access', 'maintenance'].map((id) => (
-          <a className="hover:text-text" key={id} href={`#${id}`}>
+        {(
+          [
+            ['account', mdiAccountOutline],
+            ['access', mdiShieldLockOutline],
+            ['connection', mdiLanConnect],
+            ['maintenance', mdiWrenchOutline],
+          ] as const
+        ).map(([id, icon]) => (
+          <a
+            className={`settings-tab ${section === id ? 'active' : ''}`}
+            aria-current={section === id ? 'page' : undefined}
+            key={id}
+            href={`#${id}`}
+          >
+            <Icon path={icon} className="mdi-icon" />
             {t(id)}
           </a>
         ))}
       </nav>
-      <Section
-        id="account"
-        title={
-          <>
-            {t('account')}:{' '}
-            <span className="font-normal text-soft">{plainText(data?.login.status ?? '')}</span>
-          </>
-        }
-        action={
-          data?.login.user_id && (
+      <Section hidden={section !== 'account'} id="account">
+        <div className="flex min-h-9 items-center gap-2 max-md:min-h-11">
+          <p className="text-soft">{plainText(data?.login.status ?? '')}</p>
+          {data?.login.user_id && (
             <IconButton
               path={mdiLogout}
               label={t('twitch_logout')}
               disabled={!connected || logoutAction.busy}
               onClick={() => void logoutAction.run(() => request('/api/twitch/logout', {}))}
             />
-          )
-        }
-      >
+          )}
+        </div>
         {data?.login.user_id && <p className="muted">Twitch ID: {data.login.user_id}</p>}
         <ActionResult action={logoutAction} />
         {oauth ? (
@@ -396,143 +367,13 @@ function SettingsContent({ settings, auth }: { settings: SettingsData; auth: Aut
         )}
       </Section>
       <form
+        hidden={section !== 'connection'}
         onSubmit={(event) => {
           event.preventDefault();
         }}
       >
         <fieldset disabled={!connected} className="min-w-0 space-y-8">
-          <Section id="mining" title={t('mining')}>
-            <div className="flex gap-2">
-              <div
-                className="flex-1"
-                onKeyDown={(event) => {
-                  if (event.key === 'Enter') {
-                    event.preventDefault();
-                    resolveGame();
-                  }
-                }}
-              >
-                <Search
-                  value={search}
-                  onChange={(value) => {
-                    setSearch(value);
-                    setGameError('');
-                  }}
-                  label={t('gui.settings.search_games')}
-                />
-              </div>
-              <IconButton
-                path={mdiPlus}
-                label={t('gui.settings.add_game')}
-                onClick={resolveGame}
-                disabled={!search.trim()}
-              />
-              <div
-                className="icon-button has-[:disabled]:opacity-50"
-                title={`${t('mining_priority')}: ${t(`priority_${draft.mining_priority_mode}`)}`}
-              >
-                <Icon className="mdi-icon pointer-events-none" path={mdiPriorityHigh} />
-                <select
-                  className="icon-select absolute inset-0 size-full cursor-pointer opacity-0 disabled:cursor-default"
-                  aria-label={t('mining_priority')}
-                  aria-describedby="mining-priority-help"
-                  value={draft.mining_priority_mode}
-                  onChange={(event) =>
-                    change(
-                      'mining_priority_mode',
-                      event.target.value as SettingsData['mining_priority_mode'],
-                    )
-                  }
-                >
-                  {(['manual', 'short_events', 'ending_soonest'] as const).map((mode) => (
-                    <option key={mode} value={mode}>
-                      {t(`priority_${mode}`)}
-                    </option>
-                  ))}
-                </select>
-              </div>
-            </div>
-            {gameError && <Notice error>{gameError}</Notice>}
-            {search && available.length > 0 && (
-              <div className="max-h-40 overflow-y-auto rounded border border-divider">
-                {available.map((game) => (
-                  <button
-                    type="button"
-                    key={game}
-                    className="block w-full px-3 py-2 text-start text-[13px] hover:bg-hover"
-                    onClick={() => addGame(game)}
-                  >
-                    {game}
-                  </button>
-                ))}
-              </div>
-            )}
-            <p id="mining-priority-help" className="muted">
-              {t(
-                draft.mining_priority_mode === 'manual'
-                  ? 'selected_games_help'
-                  : `priority_${draft.mining_priority_mode}_help`,
-              )}
-            </p>
-            <GamePriorities
-              games={draft.games_to_watch}
-              campaigns={data?.campaigns ?? []}
-              onChange={(games) => change('games_to_watch', games)}
-            />
-            <fieldset className="space-y-2">
-              <legend className="text-[13px] font-medium">{t('auto_mine_types')}</legend>
-              <p className="muted">{t('auto_mine_types_help')}</p>
-              <div className="flex flex-wrap gap-x-6">
-                <Check
-                  label={t('auto_mine_badges')}
-                  checked={draft.auto_mine_badges}
-                  onChange={(value) => change('auto_mine_badges', value)}
-                />
-                <Check
-                  label={t('auto_mine_emotes')}
-                  checked={draft.auto_mine_emotes}
-                  onChange={(value) => change('auto_mine_emotes', value)}
-                />
-              </div>
-            </fieldset>
-            <div>
-              <p className="mb-2 text-[13px] font-medium">{t('gui.settings.mining_benefits')}</p>
-              <div className="flex flex-wrap gap-x-6">
-                {[
-                  ['BADGE', 'badge'],
-                  ['EMOTE', 'emote'],
-                  ['DIRECT_ENTITLEMENT', 'item'],
-                  ['UNKNOWN', 'other'],
-                ].map(
-                  ([key, label]) =>
-                    key && (
-                      <Check
-                        key={key}
-                        label={t(`gui.inventory.filters.${label}`)}
-                        checked={draft.mining_benefits[key] ?? true}
-                        onChange={(value) =>
-                          change('mining_benefits', { ...draft.mining_benefits, [key]: value })
-                        }
-                      />
-                    ),
-                )}
-              </div>
-            </div>
-            <Field
-              label={t('gui.settings.drop_name_blacklist')}
-              help={t('gui.settings.drop_name_blacklist_help')}
-            >
-              <textarea
-                className="field"
-                value={ignoredText}
-                onFocus={() => setEditingIgnored(true)}
-                onBlur={() => setEditingIgnored(false)}
-                onChange={(event) => {
-                  setIgnoredText(event.target.value);
-                  change('drop_name_blacklist', event.target.value.split('\n'));
-                }}
-              />
-            </Field>
+          <Section id="connection">
             <Field label={t('gui.settings.minimum_refresh')}>
               <Input
                 type="number"
@@ -550,8 +391,7 @@ function SettingsContent({ settings, auth }: { settings: SettingsData; auth: Aut
                 }
               />
             </Field>
-          </Section>
-          <Section id="connection" title={t('connection')}>
+
             <p className="muted">{t(connected ? 'connected' : 'connecting')}</p>
             <div className="grid gap-4 sm:grid-cols-2">
               <Field label={t('proxy')} help={t('proxy_help')}>
@@ -590,26 +430,12 @@ function SettingsContent({ settings, auth }: { settings: SettingsData; auth: Aut
             </Button>
             <ActionResult action={proxyAction} />
           </Section>
-          <div className="space-y-2" aria-live="polite">
-            {autosave.error && (
-              <Notice error>
-                {t(autosave.error)}{' '}
-                <IconButton
-                  path={mdiReload}
-                  label={t('retry')}
-                  disabled={!connected || autosave.busy}
-                  onClick={() => void autosave.retry()}
-                />
-              </Notice>
-            )}
-          </div>
         </fieldset>
       </form>
-      <Access initial={auth} disabled={dirty || !connected} />
-      <Section id="maintenance" title={t('maintenance')}>
+      <Access hidden={section !== 'access'} initial={auth} disabled={dirty || !connected} />
+      <Section hidden={section !== 'maintenance'} id="maintenance">
         <ReleaseNotice disabled={!connected} />
         <div className="flex flex-wrap gap-2">
-          <InventoryRefreshButton />
           <Button
             disabled={!connected || command.busy}
             onClick={() =>

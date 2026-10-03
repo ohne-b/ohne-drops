@@ -3,12 +3,7 @@ pub mod socket;
 #[cfg(test)]
 mod tests;
 
-use std::{
-    net::SocketAddr,
-    path::PathBuf,
-    sync::{Arc, LazyLock},
-    time::Duration,
-};
+use std::{net::SocketAddr, path::PathBuf, sync::Arc, time::Duration};
 
 use anyhow::Result;
 use axum::{
@@ -20,270 +15,65 @@ use axum::{
     response::{IntoResponse, Redirect, Response},
     routing::{get, post},
 };
-use chrono::{NaiveDate, NaiveDateTime, Utc};
+use chrono::{NaiveDate, NaiveDateTime};
 use serde::Deserialize;
 use serde_json::{Value, json};
 use socketioxide::SocketIo;
-use tokio::sync::{Mutex, RwLock, Semaphore, mpsc, oneshot};
-use tokio_util::{sync::CancellationToken, task::TaskTracker};
+use tokio::sync::mpsc;
 
 use crate::{
     auth::{
-        AuthAction, AuthError, AuthSettingsRequest, LoginRequest, WebAuth, random_hex,
-        session_cookie, token_from_headers, unix_now,
+        AuthAction, AuthError, AuthSettingsRequest, LoginRequest, WebAuth, session_cookie,
+        token_from_headers, unix_now,
     },
-    dto::{RefreshState, SettingsView, Snapshot},
+    dto::SettingsView,
     origin::DashboardOrigin,
-    store::{CampaignArchive, DataDirectory, History, HistoryFilter},
+    store::HistoryFilter,
 };
 use socket::SocketHub;
 
-static ENGLISH: LazyLock<Value> = LazyLock::new(|| {
-    serde_json::from_str(include_str!("../../lang/English.json")).expect("valid English catalog")
-});
+use crate::app::{AppError, Application, ENGLISH};
+pub use crate::app::{Command, CommandRequest, message};
 
-pub fn message(path: &str, replacements: &[(&str, &str)]) -> String {
-    let mut value = &*ENGLISH;
-    for key in path.split('.') {
-        value = &value[key];
-    }
-    let mut result = value.as_str().unwrap_or(path).to_owned();
-    for (key, value) in replacements {
-        result = result.replace(&format!("{{{key}}}"), value);
-    }
-    result
-}
-
-#[derive(Clone, Debug)]
-pub enum Command {
-    Refresh { clear_cache: bool },
-    SettingsChanged,
-    SelectChannel(u64, Option<Duration>),
-    MineChannel(String, Option<Duration>),
-    ExitManual,
-    ConfirmOAuth,
-    Logout,
-    Shutdown,
-}
-
-pub struct CommandRequest {
-    pub command: Command,
-    pub complete: oneshot::Sender<Result<(), String>>,
-}
-
-pub struct App {
-    pub data: Arc<DataDirectory>,
-    pub snapshot: RwLock<Snapshot>,
-    pub history: Mutex<History>,
-    pub archive: Mutex<CampaignArchive>,
+pub struct WebState {
+    pub application: Arc<Application>,
     pub auth: Arc<WebAuth>,
     pub origin: DashboardOrigin,
     pub sockets: SocketHub,
-    pub shutdown: CancellationToken,
-    writes: TaskTracker,
-    pub(crate) settings_slot: Arc<Semaphore>,
     releases: releases::Releases,
-    commands: mpsc::Sender<CommandRequest>,
     #[cfg(feature = "dashboard-fixture")]
     pub fixture: bool,
 }
 
-impl App {
+// Routes compose the application with transport security; the miner owns no HTTP state.
+impl std::ops::Deref for WebState {
+    type Target = Arc<Application>;
+    fn deref(&self) -> &Self::Target {
+        &self.application
+    }
+}
+
+pub type App = WebState;
+
+impl WebState {
     pub fn open(
         directory: PathBuf,
         public_base_url: &str,
     ) -> Result<(Arc<Self>, mpsc::Receiver<CommandRequest>)> {
-        let data = Arc::new(DataDirectory::open(directory)?);
-        let settings = data.settings()?;
-        let auth = Arc::new(WebAuth::open(&data.path)?);
-        let origin = DashboardOrigin::new(public_base_url)?;
-        let (commands, receiver) = mpsc::channel(64);
-        let history = History::load(&data.path);
-        let archive = CampaignArchive::load(&data.path);
-        let snapshot = Snapshot {
-            settings: SettingsView {
-                values: settings,
-                revision: random_hex::<16>()?,
-                games_available: vec![],
-            },
-            campaigns: archive.merge(vec![], Utc::now()),
-            ..Snapshot::default()
-        };
+        let (application, receiver) = Application::open(directory)?;
+        let auth = Arc::new(WebAuth::open(&application.data.path)?);
         Ok((
             Arc::new(Self {
-                data,
-                snapshot: RwLock::new(snapshot),
-                history: Mutex::new(history),
-                archive: Mutex::new(archive),
+                application,
                 sockets: SocketHub::new(auth.clone()),
                 auth,
-                origin,
-                shutdown: CancellationToken::new(),
-                writes: TaskTracker::new(),
-                settings_slot: Arc::new(Semaphore::new(1)),
+                origin: DashboardOrigin::new(public_base_url)?,
                 releases: releases::Releases::new()?,
-                commands,
                 #[cfg(feature = "dashboard-fixture")]
                 fixture: false,
             }),
             receiver,
         ))
-    }
-
-    pub async fn command(&self, command: Command) -> Result<(), ApiError> {
-        if self.shutdown.is_cancelled() {
-            return Err(ApiError(StatusCode::CONFLICT, "shutting_down"));
-        }
-        let (complete, result) = oneshot::channel();
-        self.commands
-            .send(CommandRequest { command, complete })
-            .await
-            .map_err(|_| ApiError::unavailable())?;
-        result
-            .await
-            .map_err(|_| ApiError::unavailable())?
-            .map_err(|_| ApiError::unavailable())
-    }
-
-    // Repeated refresh requests join the current work, including work queued by the UI.
-    pub async fn begin_inventory_refresh(&self) -> (u64, bool) {
-        let refresh = {
-            let mut snapshot = self.snapshot.write().await;
-            let refresh = &mut snapshot.inventory_refresh;
-            if refresh.state == RefreshState::Refreshing {
-                return (refresh.sequence, false);
-            }
-            refresh.sequence += 1;
-            refresh.state = RefreshState::Refreshing;
-            refresh.error = None;
-            refresh.clone()
-        };
-        self.sockets.emit("inventory_refresh", &refresh).await;
-        (refresh.sequence, true)
-    }
-
-    pub async fn finish_inventory_refresh(&self, sequence: u64, error: Option<String>) {
-        let refresh = {
-            let mut snapshot = self.snapshot.write().await;
-            let refresh = &mut snapshot.inventory_refresh;
-            if refresh.sequence != sequence || refresh.state != RefreshState::Refreshing {
-                return;
-            }
-            refresh.sequence += 1;
-            refresh.state = if error.is_some() {
-                RefreshState::Failed
-            } else {
-                RefreshState::Refreshed
-            };
-            refresh.error = error;
-            refresh.clone()
-        };
-        self.sockets.emit("inventory_refresh", &refresh).await;
-    }
-
-    pub async fn refresh_inventory(self: &Arc<Self>) -> Result<(), ApiError> {
-        // Keep accepted work owned if the browser disconnects before the acknowledgement.
-        let owned = self.clone();
-        self.writes
-            .spawn(async move {
-                if owned.snapshot.read().await.login.user_id.is_none() {
-                    return Err(ApiError(StatusCode::CONFLICT, "twitch_login_required"));
-                }
-                let (sequence, started) = owned.begin_inventory_refresh().await;
-                if started {
-                    let result = owned.command(Command::Refresh { clear_cache: false }).await;
-                    if result.is_err() {
-                        owned
-                            .finish_inventory_refresh(
-                                sequence,
-                                Some(message("gui.auth.request_failed", &[])),
-                            )
-                            .await;
-                    }
-                    result?;
-                }
-                Ok(())
-            })
-            .await
-            .map_err(|_| ApiError::unavailable())?
-    }
-
-    async fn clear_cache(self: &Arc<Self>) -> Result<(), ApiError> {
-        let owned = self.clone();
-        self.writes
-            .spawn(async move {
-                if owned.shutdown.is_cancelled() {
-                    return Err(ApiError(StatusCode::CONFLICT, "shutting_down"));
-                }
-                // Persist cleared IDs before refreshing, so imports and late claim receipts
-                // cannot resurrect the removed history. Drain accepted work on disconnect.
-                owned
-                    .history
-                    .lock()
-                    .await
-                    .clear()
-                    .map_err(|_| ApiError::unavailable())?;
-                owned.sockets.emit("history_cleared", &json!({})).await;
-                owned.command(Command::Refresh { clear_cache: true }).await
-            })
-            .await
-            .map_err(|_| ApiError::unavailable())?
-    }
-
-    pub async fn console(&self, text: String) {
-        let line = format!("[{}] | {text}", Utc::now().format("%Y-%m-%d %H:%M:%S"));
-        {
-            let mut snapshot = self.snapshot.write().await;
-            if snapshot
-                .console
-                .last()
-                .is_some_and(|last| last.split_once(" | ").is_some_and(|(_, old)| old == text))
-            {
-                return;
-            }
-            snapshot.console.push(line.clone());
-            if snapshot.console.len() > 1000 {
-                snapshot.console.remove(0);
-            }
-        }
-        tracing::info!("{text}");
-        self.sockets
-            .emit("console_output", &json!({"message":line}))
-            .await;
-    }
-
-    pub async fn status(&self, text: String) {
-        self.snapshot.write().await.status = text.clone();
-        self.sockets
-            .emit("status_update", &json!({"status":text}))
-            .await;
-    }
-
-    pub async fn drain_writes(&self) {
-        self.writes.close();
-        self.writes.wait().await;
-    }
-
-    async fn change_settings(
-        &self,
-        update: impl FnOnce(&SettingsView) -> Result<crate::config::Settings, ApiError>,
-    ) -> Result<SettingsView, ApiError> {
-        let settings = {
-            let mut state = self.snapshot.write().await;
-            let next = update(&state.settings)?;
-            let data = self.data.clone();
-            let saved = next.clone();
-            let revision = random_hex::<16>().map_err(|_| ApiError::unavailable())?;
-            tokio::task::spawn_blocking(move || data.save_settings(&saved))
-                .await
-                .map_err(|_| ApiError::unavailable())?
-                .map_err(|_| ApiError::unavailable())?;
-            state.settings.values = next;
-            state.settings.revision = revision;
-            state.settings.clone()
-        };
-        self.sockets.emit("settings_updated", &settings).await;
-        Ok(settings)
     }
 }
 
@@ -295,6 +85,17 @@ impl ApiError {
     }
     fn unavailable() -> Self {
         Self(StatusCode::SERVICE_UNAVAILABLE, "request_failed")
+    }
+}
+impl From<AppError> for ApiError {
+    fn from(error: AppError) -> Self {
+        match error {
+            AppError::ShuttingDown => Self(StatusCode::CONFLICT, "shutting_down"),
+            AppError::LoginRequired => Self(StatusCode::CONFLICT, "twitch_login_required"),
+            AppError::SettingsConflict => Self(StatusCode::CONFLICT, "settings_conflict"),
+            AppError::InvalidSettings => Self(StatusCode::BAD_REQUEST, "invalid_settings"),
+            AppError::Unavailable => Self::unavailable(),
+        }
     }
 }
 impl IntoResponse for ApiError {
@@ -625,12 +426,12 @@ async fn save_settings(app: Arc<App>, patch: Value) -> Result<Json<Value>, ApiEr
                 .get("revision")
                 .is_some_and(|v| !v.is_null() && v.as_str() != Some(current.revision.as_str()))
             {
-                return Err(ApiError(StatusCode::CONFLICT, "settings_conflict"));
+                return Err(AppError::SettingsConflict);
             }
             current
                 .values
                 .patched(&patch)
-                .map_err(|_| ApiError(StatusCode::BAD_REQUEST, "invalid_settings"))
+                .map_err(|_| AppError::InvalidSettings)
         })
         .await?;
     Ok(Json(json!({"success":true,"settings":settings})))
@@ -719,7 +520,10 @@ impl HistoryQuery {
 }
 async fn history(State(app): State<Arc<App>>, Query(query): Query<HistoryQuery>) -> Json<Value> {
     let history = app.history.lock().await;
-    Json(json!({"total":history.total(),"entries":history.entries(&query.filter())}))
+    let state = app.snapshot.read().await;
+    Json(
+        json!({"total":history.total(),"entries":history.entries(&query.filter()),"instance":state.instance,"revision":state.history_revision,"clear_revision":state.history_clear_revision}),
+    )
 }
 async fn history_stats(State(app): State<Arc<App>>) -> Json<Value> {
     Json(app.history.lock().await.stats())

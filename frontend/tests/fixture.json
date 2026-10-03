@@ -1,5 +1,12 @@
 {
   "status": "Watching: northwind",
+  "mining": {
+    "state": "watching",
+    "channel_id": 1,
+    "campaign_id": "campaign-1",
+    "drop_id": "reward-1",
+    "priority": { "reason": "saved_order", "deadline": null, "target_ids": [] }
+  },
   "channels": [
     {
       "id": 1,
@@ -67,7 +74,9 @@
             }
           ],
           "starts_at": "2026-09-20T00:00:00Z",
-          "ends_at": "2026-10-02T00:00:00Z"
+          "ends_at": "2026-10-02T00:00:00Z",
+          "eligibility": "ready",
+          "prerequisites": []
         },
         {
           "id": "reward-2",
@@ -89,9 +98,13 @@
             }
           ],
           "starts_at": "2026-09-20T00:00:00Z",
-          "ends_at": "2026-10-02T00:00:00Z"
+          "ends_at": "2026-10-02T00:00:00Z",
+          "eligibility": "prerequisite",
+          "prerequisites": ["reward-1"]
         }
-      ]
+      ],
+      "game_key": "rust",
+      "selected": true
     }
   ],
   "console": [
@@ -162,19 +175,35 @@
           "drops": [
             {
               "name": "Explorer jacket",
-              "benefits": ["Explorer jacket"]
+              "benefits": ["Explorer jacket"],
+              "id": "reward-1",
+              "eligibility": "ready",
+              "starts_at": "2026-09-20T00:00:00Z",
+              "ends_at": "2026-10-02T00:00:00Z"
             },
             {
               "name": "Trail companion",
-              "benefits": ["Trail companion"]
+              "benefits": ["Trail companion"],
+              "id": "reward-2",
+              "eligibility": "prerequisite",
+              "starts_at": "2026-09-20T00:00:00Z",
+              "ends_at": "2026-10-02T00:00:00Z"
             }
           ]
         }
-      ]
+      ],
+      "saved_rank": 1,
+      "game_key": "rust"
     }
   ],
   "inventory_status": {
     "available": true,
     "checked_at": "2026-09-26T00:12:00Z"
-  }
+  },
+  "protocol": 2,
+  "instance": "fixture",
+  "revision": 1,
+  "history_revision": 0,
+  "history_clear_revision": 0,
+  "activity": []
 }
