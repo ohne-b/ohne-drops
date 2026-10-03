@@ -370,6 +370,13 @@ Never use live credentials, a live miner or real notifications for automated che
 
 CI requires Rust fmt/Clippy/tests, frontend format/type/build/unit/browser/axe, automation
 contracts, version/lock agreement, and amd64/arm64 production image builds plus isolated health.
+Use focused local checks and the final revision's CI baseline without repeating the whole
+suite locally. Image builds run alongside tests. Main retains the exact tested OCI archives
+for seven days; publishing downloads them from the latest successful exact-main validation,
+checks both platforms/version/revision before registry writes, and copies them by digest.
+Failed or pending newer validation cannot fall back to an older run. Missing/expired artifacts
+require rerunning validation; release and edge publishing never rebuild images. PR artifacts
+cannot be promoted. Ordinary merges only retain artifacts, never publish registry images.
 Keep the project's PolyForm Strict 1.0.0 license in `LICENSE.md` and the full upstream MIT
 license in `NOTICE.md`; third-party components retain their original licenses;
 include both with frontend asset notices in production images. Preserve 1000:1000 ownership,
@@ -384,7 +391,7 @@ Accept exact-commit push or manual validation.
 Publish only to GHCR at ghcr.io/ohne-b/twitch-drops-miner using the scoped workflow token.
 Advance latest only after the stable release and its manifest are public. Preserve
 published old-name images and document promotion recovery and first-package visibility.
-Keep Buildx/Build Push action pins identical between validation and release. README uses
+Keep Buildx action pins identical between validation and publishing. README uses
 a centered title/tagline/license opener and GitHub Flavored Markdown alerts. Keep upstream
 attribution in License and credits; do not add a contributor/PR table or automation that
 rewrites README after merges. No ordinary code merge may publish a release or bypass
