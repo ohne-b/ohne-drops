@@ -1,5 +1,16 @@
 # Changelog
 
+## [v1.4.1](https://github.com/ohne-b/twitch-drops-miner/releases/tag/v1.4.1) — 2026-10-04
+
+- align Available and History cards and list rows, with matching artwork, spacing, borders and inset dividers; keep phone text readable by placing counts and actions below the campaign identity ([#53](https://github.com/ohne-b/twitch-drops-miner/pull/53))
+- prevent background scrolling behind mobile campaign details and preserve the list position when closing details on phones and tablets ([#54](https://github.com/ohne-b/twitch-drops-miner/pull/54))
+- publish the production images already tested by validation, and speed up CI with Rust dependency caching and a shared fixture build for isolated browser jobs ([#51](https://github.com/ohne-b/twitch-drops-miner/pull/51), [#52](https://github.com/ohne-b/twitch-drops-miner/pull/52))
+
+Existing settings, credentials, history, service names and container mounts remain compatible.
+Mining selection, watch cadence and claim requirements are unchanged.
+
+[Compare v1.4.0...v1.4.1](https://github.com/ohne-b/twitch-drops-miner/compare/v1.4.0...v1.4.1)
+
 ## [v1.4.0](https://github.com/ohne-b/twitch-drops-miner/releases/tag/v1.4.0) — 2026-10-03
 
 - redesign the dashboard around Mining, Campaigns, Activity and Settings with compact icon actions and responsive layouts
