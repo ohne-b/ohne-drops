@@ -6,17 +6,17 @@ import { publishImages, validatedImage, validatedRun } from '../publish-images.m
 const sha = 'a'.repeat(40);
 const version = '1.4.0';
 const image = 'ghcr.io/ohne-b/twitch-drops-miner';
-const successful = { databaseId: 42, headSha: sha, headBranch: 'main', event: 'push', status: 'completed', conclusion: 'success' };
+const successful = { databaseId: 42, attempt: 1, headSha: sha, headBranch: 'main', event: 'push', status: 'completed', conclusion: 'success' };
 const metadata = arch => ({
   Os: 'linux', Architecture: arch, Digest: `sha256:${(arch === 'amd64' ? 'b' : 'c').repeat(64)}`,
   Labels: { 'org.opencontainers.image.version': version, 'org.opencontainers.image.revision': sha },
 });
 
 test('publication accepts only the latest trusted validation of this exact main revision', () => {
-  assert.equal(validatedRun([successful], sha), 42);
-  assert.equal(validatedRun([{ ...successful, event: 'workflow_dispatch' }], sha), 42);
+  assert.deepEqual(validatedRun([successful], sha), { id: 42, attempt: 1 });
+  assert.deepEqual(validatedRun([{ ...successful, event: 'workflow_dispatch' }], sha), { id: 42, attempt: 1 });
   for (const change of [{ event: 'pull_request' }, { headBranch: 'feature' }, { headSha: 'd'.repeat(40) },
-    { status: 'in_progress' }, { conclusion: 'failure' }, { conclusion: 'cancelled' }, { databaseId: '42;sh' }]) {
+    { status: 'in_progress' }, { conclusion: 'failure' }, { conclusion: 'cancelled' }, { databaseId: '42;sh' }, { attempt: 0 }]) {
     assert.throws(() => validatedRun([{ ...successful, ...change }], sha));
   }
   assert.throws(() => validatedRun([], sha));
@@ -45,10 +45,17 @@ function commands(t, failure) {
   t.mock.method(childProcess, 'execFileSync', (command, args, options) => {
     calls.push({ command, args, options });
     if (command === 'git') {
-      const moved = failure === 'main moved' && calls.filter(call => call.command === 'git').length > 1;
+      const checks = calls.filter(call => call.command === 'git').length;
+      const moved = (failure === 'main moved' && checks > 1) || (failure === 'main moved during copy' && checks > 2);
       return `${moved ? 'd'.repeat(40) : sha}\trefs/heads/main\n`;
     }
-    if (command === 'gh' && args[1] === 'list') return JSON.stringify([successful]);
+    if (command === 'gh' && args[1] === 'list') {
+      const checks = calls.filter(call => call.command === 'gh' && call.args[1] === 'list').length;
+      if (checks > 1 && failure === 'new pending validation') return JSON.stringify([{ ...successful, databaseId: 43, status: 'in_progress' }, successful]);
+      if (checks > 1 && failure === 'new failed validation') return JSON.stringify([{ ...successful, databaseId: 43, conclusion: 'failure' }, successful]);
+      if (checks > 2 && failure === 'validation retried during copy') return JSON.stringify([{ ...successful, attempt: 2 }]);
+      return JSON.stringify([successful]);
+    }
     if (command === 'gh' && args[1] === 'download' && failure === 'missing artifacts') throw new Error('expired');
     if (command === 'skopeo' && args.includes('inspect')) {
       const info = metadata(args[1]);
@@ -77,11 +84,20 @@ test('release and edge promote both verified digests without compiling or introd
   assert.ok(download.args.includes('42') && download.args.includes('image-amd64') && download.args.includes('image-arm64'));
 });
 
-for (const failure of ['missing artifacts', 'wrong second image', 'main moved']) {
+for (const failure of ['missing artifacts', 'wrong second image', 'main moved', 'new pending validation', 'new failed validation']) {
   test(`${failure} fails before any registry login, push or tag change`, t => {
     const calls = commands(t, failure);
     assert.throws(() => publishImages(version, `${image}:${version}`));
     assert.ok(calls.every(call => call.command !== 'docker' && !call.args.includes('copy')));
+  });
+}
+
+for (const failure of ['main moved during copy', 'validation retried during copy']) {
+  test(`${failure} cannot change a public tag`, t => {
+    const calls = commands(t, failure);
+    assert.throws(() => publishImages(version, `${image}:${version}`));
+    assert.ok(calls.some(call => call.command === 'skopeo' && call.args[0] === 'copy'));
+    assert.ok(calls.every(call => !call.args.includes('create')));
   });
 }
 

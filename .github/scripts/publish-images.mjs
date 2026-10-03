@@ -13,10 +13,11 @@ export function validatedRun(runs, sha) {
   const run = runs.find(run => run.headSha === sha && run.headBranch === 'main' &&
     ['push', 'workflow_dispatch'].includes(run.event));
   if (!run || run.status !== 'completed' || run.conclusion !== 'success' ||
-      !Number.isSafeInteger(run.databaseId) || run.databaseId <= 0) {
+      !Number.isSafeInteger(run.databaseId) || run.databaseId <= 0 ||
+      !Number.isSafeInteger(run.attempt) || run.attempt <= 0) {
     throw new Error('Complete validation on the exact current main commit before publishing.');
   }
-  return run.databaseId;
+  return { id: run.databaseId, attempt: run.attempt };
 }
 
 export function validatedImage(info, arch, version, sha) {
@@ -48,9 +49,17 @@ export function publishImages(version, target) {
     }
   };
   checkMain();
-  const id = validatedRun(JSON.parse(run('gh', ['run', 'list', '--repo', repository,
+  const currentValidation = () => validatedRun(JSON.parse(run('gh', ['run', 'list', '--repo', repository,
     '--workflow', 'validation.yml', '--branch', 'main', '--commit', sha, '--limit', '20',
-    '--json', 'databaseId,headSha,headBranch,event,status,conclusion'])), sha);
+    '--json', 'databaseId,attempt,headSha,headBranch,event,status,conclusion'])), sha);
+  const { id, attempt } = currentValidation();
+  const checkCurrent = () => {
+    checkMain();
+    const current = currentValidation();
+    if (current.id !== id || current.attempt !== attempt) {
+      throw new Error('Validation changed during publication. Restart with its tested artifacts.');
+    }
+  };
   const directory = mkdtempSync(join(tmpdir(), 'tdm-images-'));
   try {
     run('gh', ['run', 'download', String(id), '--repo', repository, '--dir', directory,
@@ -64,13 +73,14 @@ export function publishImages(version, target) {
     const info = JSON.parse(run('skopeo', ['--override-arch', arch, 'inspect', source]));
     return { source, destination: validatedImage(info, arch, version, sha) };
   });
-  checkMain();
+  checkCurrent();
   run('docker', ['login', 'ghcr.io', '-u', process.env.GITHUB_ACTOR, '--password-stdin'], {
     input: process.env.GH_TOKEN, stdio: ['pipe', 'inherit', 'inherit'],
   });
   for (const { source, destination } of images) {
     run('skopeo', ['copy', '--preserve-digests', '--retry-times', '3', source, `docker://${destination}`], { stdio: 'inherit' });
   }
+  checkCurrent();
   run('docker', ['buildx', 'imagetools', 'create', '--tag', target,
     ...images.map(({ destination }) => destination)], { stdio: 'inherit' });
   console.log(`Published ${target} from validation run ${id} (${sha}).`);
