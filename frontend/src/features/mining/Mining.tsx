@@ -1,11 +1,12 @@
+import MiningPreferences from './MiningPreferences';
 import { Icon } from '@mdi/react';
-import { useState } from 'react';
-import { Link } from 'react-router';
+import { useEffect, useRef, useState } from 'react';
+import { Link, useSearchParams } from 'react-router';
 import { mdiPencil, mdiRefreshAuto, mdiPlayCircleOutline, mdiPlus } from '@mdi/js';
 import { InventoryRefreshButton } from '../../shared/ui/InventoryRefreshButton';
 import { useMiner } from '../../app/MinerProvider';
 import { useT } from '../../shared/lib/i18n';
-import { request, safeUrl } from '../../shared/lib/api';
+import { request } from '../../shared/lib/api';
 import {
   Art,
   IconButton,
@@ -18,15 +19,24 @@ import {
   dateTime,
   Input,
 } from '../../shared/ui/index';
-export default function Overview() {
+export default function Mining() {
   const { data, connected } = useMiner();
   const t = useT();
+  const [params] = useSearchParams();
+  const edit = params.get('edit') === 'priorities';
+  const editLink = useRef<HTMLAnchorElement>(null);
+  const previousEdit = useRef(edit);
+  useEffect(() => {
+    if (previousEdit.current && !edit) editLink.current?.focus({ preventScroll: true });
+    previousEdit.current = edit;
+  }, [edit]);
   const [search, setSearch] = useState('');
   const [channelInput, setChannelInput] = useState('');
   const [manualMinutes, setManualMinutes] = useState('');
   const [enterChannel, setEnterChannel] = useState(false);
   const action = useAction();
   if (!data) return <Empty title={t('loading')} />;
+  if (edit) return <MiningPreferences />;
   const progress = data.current_drop;
   const campaign = data.campaigns.find((item) => item.id === progress?.campaign_id);
   const watching = data.channels.find((channel) => channel.watching);
@@ -40,16 +50,16 @@ export default function Overview() {
       (a, b) => Number(b.watching) - Number(a.watching) || (b.viewers ?? -1) - (a.viewers ?? -1),
     );
   return (
-    <div className="flex flex-col gap-6 xl:flex-1">
+    <div className="mining-workspace flex flex-col gap-5 xl:min-h-0 xl:flex-1">
       <div className="flex shrink-0 flex-wrap items-start justify-between gap-3">
-        <h1 className="text-[22px] font-semibold">{t('overview')}</h1>
+        <h1 className="text-[22px] font-semibold">{t('mining')}</h1>
         <InventoryRefreshButton />
       </div>
       <ActionResult action={action} />
       <section className="panel shrink-0 p-5 md:p-6" aria-labelledby="mining-heading">
         <div className="mb-5 flex items-center justify-between gap-3">
           <h2 id="mining-heading" className="section-title">
-            {t('mining')}
+            {t('now_mining')}
           </h2>
           {data.manual_mode.active ? (
             <span className="muted">{t('manual')}</span>
@@ -75,7 +85,12 @@ export default function Overview() {
                 className="size-16"
               />
               <div className="min-w-0 flex-1">
-                <p className="text-lg font-semibold">{progress.drop_name}</p>
+                <Link
+                  className="text-lg font-semibold hover:underline"
+                  to={`/campaigns?campaign=${encodeURIComponent(progress.campaign_id)}&drop=${encodeURIComponent(progress.drop_id)}`}
+                >
+                  {progress.drop_name}
+                </Link>
                 <p className="muted mt-1">
                   {progress.game_name} / {progress.campaign_name}
                 </p>
@@ -84,18 +99,31 @@ export default function Overview() {
                 )}
               </div>
             </div>
-            <div className="mt-6">
-              <ProgressBar
-                current={progress.confirmed_minutes ?? 0}
-                total={progress.required_minutes}
-                label={progress.drop_name}
-              />
+            <div className="mt-5">
+              {data.mining?.state !== 'watching' && (
+                <p className="muted mb-3">
+                  {t(
+                    data.mining && data.mining.state !== 'unknown'
+                      ? `mining_state_${data.mining.state}`
+                      : `eligibility_${campaign?.drops.find((drop) => drop.id === progress.drop_id)?.eligibility ?? 'unknown'}`,
+                  )}
+                </p>
+              )}
+              {progress.confirmed_at && (
+                <ProgressBar
+                  current={progress.confirmed_minutes ?? 0}
+                  total={progress.required_minutes}
+                  label={progress.drop_name}
+                />
+              )}
               <div className="mt-2 flex flex-wrap justify-between gap-2 text-[13px]">
                 <span className="tabular-nums">
-                  {t('minutes_progress', {
-                    current: progress.confirmed_minutes ?? 0,
-                    total: progress.required_minutes,
-                  })}
+                  {progress.confirmed_at
+                    ? t('minutes_progress', {
+                        current: progress.confirmed_minutes ?? 0,
+                        total: progress.required_minutes,
+                      })
+                    : t('progress_unknown')}
                 </span>
               </div>
               {progress.confirmed_at && (
@@ -115,7 +143,13 @@ export default function Overview() {
           </p>
         ) : (
           <Empty
-            title={t('gui.progress.no_drop')}
+            title={t(
+              data.mining?.state === 'watching'
+                ? 'progress_unknown'
+                : data.mining && data.mining.state !== 'unknown'
+                  ? `mining_state_${data.mining.state}`
+                  : 'gui.progress.no_drop',
+            )}
             detail={t(
               !data.login.user_id
                 ? 'connect_help'
@@ -126,8 +160,11 @@ export default function Overview() {
                   : 'select_games_help',
             )}
           >
-            <Link className="button" to={data.login.user_id ? '/campaigns' : '/settings#account'}>
-              {data.login.user_id ? t('campaigns') : t('account')}
+            <Link
+              className="button"
+              to={data.login.user_id ? '/?edit=priorities' : '/settings#account'}
+            >
+              {data.login.user_id ? t('choose_games') : t('account')}
             </Link>
           </Empty>
         )}
@@ -147,7 +184,7 @@ export default function Overview() {
         )}
       </section>
       {/* Long lists must not contribute to the page's intrinsic minimum height. */}
-      <div className="grid gap-6 xl:min-h-[240px] xl:flex-1 xl:grid-cols-2 xl:[contain:size]">
+      <div className="grid gap-5 xl:min-h-[260px] xl:grid-cols-2 xl:flex-1 xl:[contain:size]">
         <section className="panel order-2 flex min-h-0 flex-col overflow-hidden xl:order-1">
           <div className="shrink-0 space-y-4 border-b border-divider p-4">
             <div className="flex items-center justify-between">
@@ -269,10 +306,11 @@ export default function Overview() {
               {t('up_next')}
             </h2>
             <Link
+              ref={editLink}
               className="icon-button"
               aria-label={t('edit')}
               title={t('edit')}
-              to="/settings#mining"
+              to="/?edit=priorities"
             >
               <Icon className="mdi-icon" path={mdiPencil} />
             </Link>
@@ -289,27 +327,59 @@ export default function Overview() {
                   <span className="w-4 text-[13px] tabular-nums text-muted">{index + 1}</span>
                   <Art url={game.game_icon} className="size-8" />
                   <p className="font-medium">{game.game_name}</p>
+                  <span className="muted ms-auto text-xs">
+                    {game.saved_rank
+                      ? t('saved_position', { count: game.saved_rank })
+                      : t('automatic')}
+                  </span>
                 </div>
                 {game.campaigns.map((item) => (
                   <div className="mt-3 ps-7 text-[13px]" key={item.id}>
-                    {safeUrl(item.url) ? (
-                      <a
-                        className="text-link"
-                        href={safeUrl(item.url)}
-                        target="_blank"
-                        rel="noreferrer"
-                      >
-                        {item.name}
-                      </a>
-                    ) : (
-                      <p className="text-soft">{item.name}</p>
+                    <Link
+                      className="text-link"
+                      to={`/campaigns?campaign=${encodeURIComponent(item.id)}`}
+                    >
+                      {item.name}
+                    </Link>
+                    {item.priority && item.priority.reason !== 'saved_order' && (
+                      <p className="muted mt-1">
+                        {t(`reason_${item.priority.reason}`)}
+                        {item.priority.deadline && ` · ${dateTime(item.priority.deadline)}`}
+                      </p>
                     )}
                     <ul className="mt-2 space-y-2 text-muted">
                       {item.drops.map((drop, position) => (
-                        <li className="flex items-start gap-3" key={`${drop.name}/${position}`}>
+                        <li
+                          className="flex items-start gap-3"
+                          key={drop.id || `${drop.name}/${position}`}
+                        >
                           <Art url={drop.image_url} className="size-9 [&_img]:object-contain" />
                           <div className="min-w-0 flex-1">
-                            <p>{drop.name}</p>
+                            <Link
+                              className="hover:underline text-soft"
+                              to={`/campaigns?campaign=${encodeURIComponent(item.id)}${drop.id ? `&drop=${encodeURIComponent(drop.id)}` : ''}`}
+                            >
+                              {drop.name}
+                            </Link>
+                            {drop.eligibility && drop.eligibility !== 'ready' && (
+                              <p className="text-xs mt-1">{t(`eligibility_${drop.eligibility}`)}</p>
+                            )}
+                            {(drop.eligibility === 'upcoming' ? drop.starts_at : drop.ends_at) && (
+                              <p className="text-xs mt-1">
+                                {t(
+                                  drop.eligibility === 'upcoming'
+                                    ? 'gui.inventory.starts'
+                                    : 'gui.inventory.ends',
+                                  {
+                                    time: dateTime(
+                                      (drop.eligibility === 'upcoming'
+                                        ? drop.starts_at
+                                        : drop.ends_at)!,
+                                    ),
+                                  },
+                                )}
+                              </p>
+                            )}
                             {drop.benefits.some((benefit) => benefit !== drop.name) && (
                               <p className="mt-0.5 text-xs">{drop.benefits.join(', ')}</p>
                             )}
