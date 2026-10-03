@@ -1,10 +1,10 @@
 import { Icon } from '@mdi/react';
 import { mdiChevronDown, mdiOpenInNew } from '@mdi/js';
 import type { ReactNode } from 'react';
-import type { Campaign as CampaignData } from '../lib/types';
-import { safeUrl } from '../lib/api';
-import { useT } from '../lib/i18n';
-import { Art, ProgressBar, dateTime } from './ui';
+import type { Campaign as CampaignData } from '../../shared/lib/types';
+import { safeUrl } from '../../shared/lib/api';
+import { useT } from '../../shared/lib/i18n';
+import { Art, ProgressBar, dateTime } from '../../shared/ui/index';
 export function Campaign({ campaign, action }: { campaign: CampaignData; action?: ReactNode }) {
   const t = useT();
   const status = campaign.finished

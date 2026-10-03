@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
-import { ApiError, request } from './api';
-import type { Settings } from './types';
+import { ApiError, request } from '../shared/lib/api';
+import type { Settings } from '../shared/lib/types';
 
 type Changes = Partial<Omit<Settings, 'revision' | 'games_available'>>;
 export function useAutosave(

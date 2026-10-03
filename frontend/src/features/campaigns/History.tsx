@@ -1,12 +1,12 @@
 import { useEffect, useState } from 'react';
 import { Icon } from '@mdi/react';
 import { mdiChevronDown } from '@mdi/js';
-import { useMiner } from '../lib/state';
-import { useT } from '../lib/i18n';
-import { request } from '../lib/api';
-import type { Campaign, HistoryEntry } from '../lib/types';
+import { useMiner } from '../../app/MinerProvider';
+import { useT } from '../../shared/lib/i18n';
+import { request } from '../../shared/lib/api';
+import type { Campaign, HistoryEntry } from '../../shared/lib/types';
 import type { CampaignSort } from './Campaigns';
-import { Art, dateTime } from '../components/ui';
+import { Art, dateTime } from '../../shared/ui/index';
 
 export function useHistory(active: boolean) {
   const { connected, data, historyRevision } = useMiner();

@@ -1,8 +1,8 @@
 import { useEffect, useRef, useState } from 'react';
 import { mdiArrowDown } from '@mdi/js';
-import { useMiner } from '../lib/state';
-import { plainText, useT } from '../lib/i18n';
-import { IconButton, Empty, Search } from '../components/ui';
+import { useMiner } from '../../app/MinerProvider';
+import { plainText, useT } from '../../shared/lib/i18n';
+import { IconButton, Empty, Search } from '../../shared/ui/index';
 export default function Activity() {
   const { data } = useMiner();
   const t = useT();

@@ -9,17 +9,17 @@ import {
   mdiLogout,
   mdiGithub,
 } from '@mdi/js';
-import type { AuthStatus } from './lib/types';
-import { request } from './lib/api';
-import { I18n, useT } from './lib/i18n';
-import { MinerProvider, useMiner } from './lib/state';
-import { Button, Empty, Notice } from './components/ui';
-import Overview from './pages/Overview';
-import Campaigns from './pages/Campaigns';
-import Activity from './pages/Activity';
-import Settings from './pages/Settings';
-import Login from './pages/Login';
-import logo from './assets/twitch-drops-miner-logo.svg?no-inline';
+import type { AuthStatus } from '../shared/lib/types';
+import { request } from '../shared/lib/api';
+import { I18n, useT } from '../shared/lib/i18n';
+import { MinerProvider, useMiner } from './MinerProvider';
+import { Button, Empty, Notice } from '../shared/ui/index';
+import Overview from '../features/mining/Mining';
+import Campaigns from '../features/campaigns/Campaigns';
+import Activity from '../features/activity/Activity';
+import Settings from '../features/settings/Settings';
+import Login from '../features/settings/Login';
+import logo from '../assets/twitch-drops-miner-logo.svg?no-inline';
 function Shell({ auth, onLogout }: { auth: AuthStatus; onLogout: () => Promise<void> }) {
   const { data, connected } = useMiner();
   const t = useT();

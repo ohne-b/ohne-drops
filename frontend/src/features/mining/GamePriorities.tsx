@@ -1,9 +1,9 @@
 import { useEffect, useRef, useState, type PointerEvent } from 'react';
 import { mdiClose } from '@mdi/js';
-import { moveGame } from '../lib/api';
-import { useT } from '../lib/i18n';
-import type { Campaign } from '../lib/types';
-import { Art, IconButton, Empty } from './ui';
+import { moveGame } from '../../shared/lib/api';
+import { useT } from '../../shared/lib/i18n';
+import type { Campaign } from '../../shared/lib/types';
+import { Art, IconButton, Empty } from '../../shared/ui/index';
 
 export function GamePriorities({
   games,

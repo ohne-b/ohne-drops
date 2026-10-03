@@ -1,8 +1,8 @@
 import { useState } from 'react';
 import { mdiReload } from '@mdi/js';
-import logo from '../assets/twitch-drops-miner-logo.svg?no-inline';
-import { useT } from '../lib/i18n';
-import { request } from '../lib/api';
+import logo from '../../assets/twitch-drops-miner-logo.svg?no-inline';
+import { useT } from '../../shared/lib/i18n';
+import { request } from '../../shared/lib/api';
 import {
   Button,
   IconButton,
@@ -12,7 +12,7 @@ import {
   Notice,
   useAction,
   ActionResult,
-} from '../components/ui';
+} from '../../shared/ui/index';
 export default function Login({
   onLogin,
   statusError = false,

@@ -1,5 +1,5 @@
 import { createContext, useContext, type ReactNode } from 'react';
-import english from '../../../lang/English.json';
+import english from '../../../../lang/English.json';
 type Dictionary = { [key: string]: string | string[] | Dictionary };
 type Translate = (key: string, parameters?: Record<string, string | number>) => string;
 function lookup(dictionary: Dictionary, key: string): string | undefined {

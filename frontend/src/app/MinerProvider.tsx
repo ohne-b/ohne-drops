@@ -1,9 +1,9 @@
 import { createContext, useContext, useEffect, useState, type ReactNode } from 'react';
 import { io, type Socket } from 'socket.io-client';
-import type { AuthStatus, Campaign, Channel, ServerEvents, Snapshot } from './types';
-import { request } from './api';
-import { I18n } from './i18n';
-import { useAutosave } from './autosave';
+import type { AuthStatus, Campaign, Channel, ServerEvents, Snapshot } from '../shared/lib/types';
+import { request } from '../shared/lib/api';
+import { I18n } from '../shared/lib/i18n';
+import { useAutosave } from './useAutosave';
 export function upsert<T extends { id: string | number }>(items: T[], item: T): T[] {
   return items.some((current) => current.id === item.id)
     ? items.map((current) => (current.id === item.id ? item : current))

@@ -1,11 +1,11 @@
 import { describe, expect, it } from 'vitest';
 import fixture from './fixture.json' with { type: 'json' };
-import { safeUrl, moveGame } from '../src/lib/api';
-import { matchesCampaign, campaignOrder } from '../src/pages/Campaigns';
-import { plainText, translator } from '../src/lib/i18n';
-import { upsert } from '../src/lib/state';
-import { groupHistory, matchesHistory, historyOrder } from '../src/pages/History';
-import type { HistoryEntry, Snapshot } from '../src/lib/types';
+import { safeUrl, moveGame } from '../src/shared/lib/api';
+import { matchesCampaign, campaignOrder } from '../src/features/campaigns/Campaigns';
+import { plainText, translator } from '../src/shared/lib/i18n';
+import { upsert } from '../src/app/MinerProvider';
+import { groupHistory, matchesHistory, historyOrder } from '../src/features/campaigns/History';
+import type { HistoryEntry, Snapshot } from '../src/shared/lib/types';
 const snapshot: Snapshot = {
   ...fixture,
   settings: { ...fixture.settings, mining_priority_mode: 'manual' },

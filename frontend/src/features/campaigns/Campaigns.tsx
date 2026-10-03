@@ -13,10 +13,10 @@ import {
   mdiChevronRight,
   mdiReload,
 } from '@mdi/js';
-import { useMiner } from '../lib/state';
-import { useT } from '../lib/i18n';
-import type { Campaign as CampaignData, Filters, Settings } from '../lib/types';
-import { request } from '../lib/api';
+import { useMiner } from '../../app/MinerProvider';
+import { useT } from '../../shared/lib/i18n';
+import type { Campaign as CampaignData, Filters, Settings } from '../../shared/lib/types';
+import { request } from '../../shared/lib/api';
 import {
   Button,
   IconButton,
@@ -26,8 +26,8 @@ import {
   useAction,
   ActionResult,
   Notice,
-} from '../components/ui';
-import { Campaign } from '../components/Campaign';
+} from '../../shared/ui/index';
+import { Campaign } from './Campaign';
 import History, { useHistory, groupHistory, matchesHistory, historyOrder } from './History';
 export function matchesCampaign(campaign: CampaignData, filters: Filters, search: string): boolean {
   if (campaign.finished) return false;

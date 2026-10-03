@@ -2,10 +2,10 @@ import { Icon } from '@mdi/react';
 import { useState } from 'react';
 import { Link } from 'react-router';
 import { mdiPencil, mdiRefreshAuto, mdiPlayCircleOutline, mdiPlus } from '@mdi/js';
-import { InventoryRefreshButton } from '../components/InventoryRefreshButton';
-import { useMiner } from '../lib/state';
-import { useT } from '../lib/i18n';
-import { request, safeUrl } from '../lib/api';
+import { InventoryRefreshButton } from '../../shared/ui/InventoryRefreshButton';
+import { useMiner } from '../../app/MinerProvider';
+import { useT } from '../../shared/lib/i18n';
+import { request, safeUrl } from '../../shared/lib/api';
 import {
   Art,
   IconButton,
@@ -17,7 +17,7 @@ import {
   ActionResult,
   dateTime,
   Input,
-} from '../components/ui';
+} from '../../shared/ui/index';
 export default function Overview() {
   const { data, connected } = useMiner();
   const t = useT();

@@ -10,12 +10,12 @@ import {
   mdiUpdate,
   mdiPriorityHigh,
 } from '@mdi/js';
-import type { AuthStatus, ReleaseInfo, Result, Settings as SettingsData } from '../lib/types';
-import { request, safeUrl } from '../lib/api';
-import { useMiner } from '../lib/state';
-import { GamePriorities } from '../components/GamePriorities';
-import { InventoryRefreshButton } from '../components/InventoryRefreshButton';
-import { plainText, useT } from '../lib/i18n';
+import type { AuthStatus, ReleaseInfo, Result, Settings as SettingsData } from '../../shared/lib/types';
+import { request, safeUrl } from '../../shared/lib/api';
+import { useMiner } from '../../app/MinerProvider';
+import { GamePriorities } from '../mining/GamePriorities';
+import { InventoryRefreshButton } from '../../shared/ui/InventoryRefreshButton';
+import { plainText, useT } from '../../shared/lib/i18n';
 import {
   ActionResult,
   Button,
@@ -28,7 +28,7 @@ import {
   Notice,
   Search,
   useAction,
-} from '../components/ui';
+} from '../../shared/ui/index';
 function Section({
   id,
   title,

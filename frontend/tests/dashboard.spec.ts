@@ -10,7 +10,7 @@ import {
   mdiUpdate,
 } from '@mdi/js';
 import fixture from './fixture.json' with { type: 'json' };
-import type { Snapshot } from '../src/lib/types';
+import type { Snapshot } from '../src/shared/lib/types';
 const snapshot: Snapshot = {
   ...fixture,
   settings: { ...fixture.settings, mining_priority_mode: 'manual' },
